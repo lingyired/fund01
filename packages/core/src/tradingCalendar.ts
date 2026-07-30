@@ -134,3 +134,18 @@ export function isAnyMarketActive(now = new Date()): boolean {
     shouldRefreshUSIndex(now)
   )
 }
+
+/**
+ * 确认会话：净值日的下一交易日尚未开盘（09:15 前）。
+ * 用于决定展示官方 dayGrowth 还是盘中估算 estimateGrowth。
+ */
+export function isConfirmedSessionActive(navDayRaw: any, now = new Date()): boolean {
+  const navDay = normalizeNetValueDate(navDayRaw, now)
+  if (!navDay) return false
+  const next = nextTradingDay(navDay)
+  const today = todayDateStr(now)
+  if (today > next) return false
+  if (today < next) return true
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  return minutes < 9 * 60 + 15
+}
