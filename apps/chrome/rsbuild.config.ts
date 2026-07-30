@@ -19,7 +19,8 @@ export default defineConfig({
     },
   },
   output: {
-    distPath: { root: 'dist' },
+    distPath: { root: 'dist', js: '', css: 'static/css' },
+    // MV3 Service Worker 不能被 chunk 分割，必须单文件
     filename: { js: '[name].js' },
   },
   resolve: {
