@@ -1,0 +1,153 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Syne', 'Noto Sans SC', sans-serif;
+  --font-sans: 'Noto Sans SC', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --color-ink: var(--app-ink);
+  --color-ink-soft: var(--app-ink-soft);
+  --color-paper: var(--app-paper);
+  --color-paper-deep: var(--app-paper-deep);
+  --color-line: var(--app-line);
+  --color-panel: var(--app-panel);
+  --color-rise: var(--app-rise);
+  --color-fall: var(--app-fall);
+  --color-accent: var(--app-accent);
+  --color-gold: var(--app-gold);
+  --color-muted: var(--app-muted);
+}
+
+:root,
+html[data-theme='light'] {
+  color-scheme: light;
+  --app-ink: #15202b;
+  --app-ink-soft: #3d4f5f;
+  --app-paper: #eef3f6;
+  --app-paper-deep: #e2eaf0;
+  --app-line: #c5d2dc;
+  --app-panel: #f7fafc;
+  --app-rise: #d7263d;
+  --app-fall: #0f8a5f;
+  --app-accent: #1f6f8b;
+  --app-gold: #b8860b;
+  --app-muted: #6b7c8a;
+  --app-panel-shadow: 0 10px 40px rgba(21, 32, 43, 0.04);
+  --app-body-bg:
+    radial-gradient(1200px 600px at 8% -10%, rgba(31, 111, 139, 0.12), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, rgba(184, 134, 11, 0.1), transparent 50%),
+    linear-gradient(180deg, #f4f8fa 0%, #eef3f6 40%, #e8eef3 100%);
+  --app-grid-line: rgba(197, 210, 220, 0.35);
+  --app-grid-opacity: 0;
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+  /* 借鉴原 hero：ink 底 + ticker 网格 */
+  --app-ink: #e8eef3;
+  --app-ink-soft: #b7c5d0;
+  --app-paper: #1a2733;
+  --app-paper-deep: #223342;
+  --app-line: #334556;
+  --app-panel: #1e2c38;
+  --app-rise: #ff6b7a;
+  --app-fall: #3ecf9a;
+  --app-accent: #3d9bbb;
+  --app-gold: #d4a017;
+  --app-muted: #8a9bab;
+  --app-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --app-body-bg:
+    radial-gradient(1000px 520px at 10% -8%, rgba(61, 155, 187, 0.14), transparent 55%),
+    radial-gradient(800px 420px at 100% 0%, rgba(212, 160, 23, 0.08), transparent 50%),
+    linear-gradient(180deg, #121c26 0%, #15202b 45%, #101820 100%);
+  --app-grid-line: rgba(197, 210, 220, 0.08);
+  --app-grid-opacity: 1;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  body {
+    margin: 0;
+    width: 100%;
+    max-width: 100vw;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: clip;
+    font-family: var(--font-sans);
+    color: var(--app-ink);
+    background: var(--app-body-bg);
+    background-attachment: fixed;
+    transition: background 0.25s ease, color 0.2s ease;
+  }
+
+  /* 暗色：铺一层原 hero 风格的 ticker 网格 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: var(--app-grid-opacity);
+    background-image:
+      linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--app-accent) 28%, transparent);
+  }
+
+  /* 覆盖 Radix Dialog 的 body scroll lock：允许指定 dialog 打开时 body 仍可滚动 */
+  body.allow-dialog-scroll {
+    overflow: auto !important;
+    margin-right: 0 !important;
+    padding-right: 0 !important;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .ticker-grid {
+    background-image:
+      linear-gradient(var(--app-grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .rise {
+    color: var(--app-rise);
+  }
+
+  .fall {
+    color: var(--app-fall);
+  }
+
+  .flat {
+    color: var(--app-muted);
+  }
+
+  .panel-shadow {
+    box-shadow: var(--app-panel-shadow);
+  }
+}
