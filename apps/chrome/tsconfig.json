@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["chrome", "node"],
+    "paths": {
+      "@fund01/core": ["../../packages/core/src"],
+      "@fund01/core/*": ["../../packages/core/src/*"],
+      "@fund01/services": ["../../packages/services/src"],
+      "@fund01/services/*": ["../../packages/services/src/*"],
+      "@fund01/ui": ["../../packages/ui/src"],
+      "@fund01/ui/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src", "scripts"]
+}

@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "wzk-fund 基金盯盘",
+  "version": "1.0.18",
+  "description": "基金实时估值、持仓收益、大盘指数一站式盯盘",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://www.fund123.cn/*",
+    "https://fundmobapi.eastmoney.com/*",
+    "https://push2delay.eastmoney.com/*",
+    "https://push2.eastmoney.com/*",
+    "https://82.push2.eastmoney.com/*",
+    "https://push2his.eastmoney.com/*",
+    "https://emdatah5.eastmoney.com/*",
+    "https://web.ifzq.gtimg.cn/*",
+    "https://hq.sinajs.cn/*",
+    "https://api.jijinhao.com/*",
+    "https://money.finance.sina.com.cn/*",
+    "https://stock.finance.sina.com.cn/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
