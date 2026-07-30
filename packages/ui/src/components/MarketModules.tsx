@@ -1,0 +1,143 @@
+import {useState} from 'react'
+import type {IndexItem, MarketOverview} from '@fund01/core'
+import {formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
+import {Panel, PanelHeader} from './ui/panel'
+import {IndexTrendDialog} from './IndexTrendDialog'
+
+export function IndicesModule({
+  list,
+  loading,
+}: {
+  list: IndexItem[]
+  loading?: boolean
+}) {
+  const [active, setActive] = useState<IndexItem | null>(null)
+  const [open, setOpen] = useState(false)
+
+  return (
+    <Panel className="w-full min-w-0">
+      <PanelHeader title="指数看板" desc="点击查看历史趋势" />
+      <div className="grid grid-cols-2 gap-2 px-3 py-3 sm:grid-cols-3 sm:px-4 sm:py-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-10">
+        {loading && !list.length
+          ? Array.from({length: 10}).map((_, i) => (
+            <div key={i} className="h-20 animate-pulse rounded-xl bg-paper-deep/80 sm:h-24" />
+          ))
+          : list.map((item) => (
+            <button
+              key={item.code}
+              type="button"
+              className="rounded-xl border border-line/70 bg-paper/50 px-3 py-2.5 text-left transition-transform duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+              onClick={() => {
+                setActive(item)
+                setOpen(true)
+              }}
+            >
+              <div className="truncate text-xs text-muted">{item.name}</div>
+              {/* 指数值单独一行（随涨跌着色） */}
+              <div
+                className={`mt-1.5 font-mono text-base font-semibold tabular-nums sm:text-lg ${pctClass(item.percent)}`}
+              >
+                {formatAmount(item.price)}
+              </div>
+              {/* 涨跌额 + 百分比 一行 */}
+              <div
+                className={`mt-0.5 flex items-baseline gap-1.5 font-mono text-xs tabular-nums sm:text-sm ${pctClass(item.percent)}`}
+              >
+                <span>{formatMoney(item.change)}</span>
+                <span>{formatPct(item.percent)}</span>
+              </div>
+            </button>
+          ))}
+      </div>
+
+      <IndexTrendDialog item={active} open={open} onOpenChange={setOpen} />
+    </Panel>
+  )
+}
+
+export function MarketModule({
+  data,
+  loading,
+}: {
+  data: MarketOverview | null
+  loading?: boolean
+}) {
+  const up = data?.upDown.up ?? 0
+  const down = data?.upDown.down ?? 0
+  const flat = data?.upDown.flat ?? 0
+  const total = Math.max(up + down + flat, 1)
+  const upPct = (up / total) * 100
+  const downPct = (down / total) * 100
+  const barPct = up + down > 0 ? (up / (up + down)) * 100 : 50
+
+  return (
+    <Panel className="h-full min-w-0">
+      <PanelHeader title="A股大盘" desc="涨跌家数占比 · 板块指数涨跌前十" />
+      <div className="space-y-3 px-3 py-3 sm:space-y-4 sm:px-5 sm:py-4">
+        <div className="rounded-xl border border-line/70 bg-paper/50 p-3 sm:p-4">
+          <div className="text-xs text-muted">今日涨跌家数</div>
+          <div className="mt-1 flex flex-wrap items-baseline gap-3 font-mono text-lg font-semibold sm:gap-4 sm:text-xl">
+            <span className="rise">
+              涨 {loading ? '...' : up}
+              <span className="ml-1 text-sm font-medium">
+                ({loading ? '--' : `${upPct.toFixed(1)}%`})
+              </span>
+            </span>
+            <span className="fall">
+              跌 {loading ? '...' : down}
+              <span className="ml-1 text-sm font-medium">
+                ({loading ? '--' : `${downPct.toFixed(1)}%`})
+              </span>
+            </span>
+          </div>
+          <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-fall/20">
+            <div className="bg-rise transition-all duration-700" style={{width: `${barPct}%`}} />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <SectorList title="涨幅前十板块" items={data?.topGainers || []} tone="rise" />
+          <SectorList title="跌幅前十板块" items={data?.topLosers || []} tone="fall" />
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+function SectorList({
+  title,
+  items,
+  tone,
+}: {
+  title: string
+  items: {code: string; name: string; percent: number | null}[]
+  tone: 'rise' | 'fall'
+}) {
+  return (
+    <div className="rounded-xl border border-line/70 bg-panel p-3">
+      <div className={`mb-2 text-sm font-medium ${tone === 'rise' ? 'rise' : 'fall'}`}>
+        {title}
+      </div>
+      <div className="space-y-1">
+        {items.length === 0 ? (
+          <div className="py-6 text-center text-xs text-muted">暂无数据</div>
+        ) : (
+          items.map((item, idx) => (
+            <div
+              key={item.code}
+              className="flex items-center justify-between gap-2 rounded-lg px-2 py-1 hover:bg-paper/70"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="w-5 font-mono text-xs text-muted">{idx + 1}</span>
+                <span className="truncate text-sm">{item.name}</span>
+              </div>
+              <span className={`shrink-0 font-mono text-sm tabular-nums ${pctClass(item.percent)}`}>
+                {formatPct(item.percent)}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}

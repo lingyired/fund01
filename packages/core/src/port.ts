@@ -1,6 +1,7 @@
 import type {
   AppConfig,
   FundHistoryPayload,
+  FundHistoryRange,
   FundIntradayPayload,
   GoldPayload,
   HoldingsPayload,
@@ -23,7 +24,7 @@ export interface DataPort {
   fetchIndices(): Promise<IndexItem[]>
   fetchMarketOverview(): Promise<MarketOverview | null>
   fetchGold(): Promise<GoldPayload | null>
-  fetchFundHistory(code: string, count?: number): Promise<FundHistoryPayload>
+  fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
   resolveFund(code: string): Promise<ResolveFundPayload>
