@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@fund01/core": ["../core/src"],
+      "@fund01/core/*": ["../core/src/*"]
+    }
+  },
+  "include": ["src"]
+}
