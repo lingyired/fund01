@@ -231,3 +231,4 @@ declare module '*.css';
 - **GBK 解码**：仅新浪黄金接口需要，用 `TextDecoder('gbk')` 原生解码，不引入 iconv-lite
 - **chrome.alarms 最小间隔**：浏览器强制最小 0.5 分钟（30 秒），低于此值会被截断。`scheduleNextAlarm` 中 `Math.max(0.5, delaySec / 60)` 已处理
 - **Popup 关闭即销毁**：Popup 关闭后 DOM 和 JS 全部销毁，不能依赖 popup 做后台轮询。所有定时逻辑必须在 Service Worker + chrome.alarms 中
+- **popup 模式 vs dashboard 标签页**：原 wzk-fund 是 dashboard 标签页（全屏浏览器窗口），CSS 用 min-height: 100vh 是为标签页设计。重构为 popup 模式后，100vh = popup 视口高度但视口本身未定义 → 内容为 0 高度。修复：popup/index.html 内联 <style> 用 !important 强制固定尺寸（666x600）。详见 ARCHITECTURE.md §9.7

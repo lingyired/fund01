@@ -280,3 +280,32 @@ tsconfig 的 `paths` 字段只对 TypeScript 类型检查生效，rsbuild 打包
 ### 9.6 市场时段过滤
 
 SW 的 `refreshAll` 不是每次都拉所有数据源，而是根据 `shouldRefreshFund` / `shouldRefreshAShareMarket` / `shouldRefreshGold` 跳过非交易时段的数据源（保留旧缓存）。仅当至少刷新了一个数据源时才写 `cache-time`，避免 UI 无谓重载。
+
+### 9.7 Chrome popup 模式 vs dashboard 标签页模式（关键差异 + 待解决问题）
+
+本项目从 wzk-fund/chrome 迁移而来，原架构是 dashboard **标签页**模式（`chrome.action.onClicked` → `chrome.tabs.create({url: 'dashboard.html'})`），重构为 popup 模式（`manifest.json` 的 `action.default_popup`）。
+
+**已解决：CSS 尺寸问题**
+- 原 `packages/ui/src/index.css` 用 `min-height: 100vh` 是为 dashboard 标签页（全屏浏览器窗口）设计的
+- popup 模式下 Chrome popup 默认无固定尺寸，`100vh` = popup 视口高度但视口本身未定义 → 内容为 0 高度 → popup 看起来"没显示"
+- 修复：`apps/chrome/src/popup/index.html` 内联 `<style>` 强制设置 `width: 666px !important; min-height: 600px !important` 覆盖 index.css
+
+**待解决：左键点击图标 popup 不弹出**
+- 现象：左键点击工具栏图标无反应，右键→"检查" 才能弹出 popup
+- 可能原因（待排查）：
+  1. `manifest.json` 的 `action` 配置问题
+  2. 图标文件问题导致 action 未正确注册
+  3. Service Worker 注册失败导致 action 未激活
+  4. Chrome 扩展加载缓存问题（需完全卸载后重新加载）
+- 建议排查步骤：
+  1. `chrome://extensions` 检查 SW 是否报错
+  2. 完全移除扩展后重新加载 `dist/`
+  3. 检查 `chrome.action` API 在 SW 中是否正确调用
+  4. 尝试移除 `background.type: "module"` 测试
+
+**架构启示**
+- `packages/ui/src/index.css` 的 `100vh` 设计同时服务 popup 和未来 Tauri menubar，但两者的视口尺寸语义不同：
+  - Chrome popup：视口 = popup 窗口尺寸（需显式设定）
+  - Tauri menubar：视口 = WebviewWindow 尺寸（需在 Rust 端设定）
+  - Dashboard 标签页 / Tauri 主窗口：视口 = 浏览器窗口（100vh 自然有意义）
+- 未来 Tauri 实现时也需注意 menubar WebviewWindow 的尺寸设定
