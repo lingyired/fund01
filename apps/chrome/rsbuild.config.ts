@@ -35,6 +35,6 @@ export default defineConfig({
   },
   html: {
     template: './src/popup/index.html',
-    title: `wzk-fund · 基金盯盘 v${pkg.version}`,
+    title: `fund01 · 基金盯盘 v${pkg.version}`,
   },
 })

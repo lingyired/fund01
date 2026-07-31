@@ -34,6 +34,17 @@ pnpm typecheck        # 全仓库递归 TypeScript 类型检查
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
+## 版本号规则
+
+每次修改代码（功能、修复、重构）后，必须递增 Chrome 扩展版本号：
+
+- 版本号唯一来源：`apps/chrome/package.json` 的 `"version"` 字段
+- 构建脚本 `scripts/copy-manifest.mjs` 会读取 `package.json` 的 version 并覆盖到 `dist/manifest.json`，**不要只改 manifest.json**（会被覆盖）
+- 采用 `MAJOR.MINOR.PATCH` 三段语义化版本（如 `1.0.20`）
+- 每次改动 PATCH 段 +1（如 `1.0.19` → `1.0.20`）
+- 增量改动不改动 MINOR / MAJOR，除非有破坏性变更或重大功能
+- 构建后可在 `chrome://extensions` 看到新版本号，用于确认是否加载了最新构建
+
 ## 架构总览
 
 详见 `ARCHITECTURE.md`。要点：

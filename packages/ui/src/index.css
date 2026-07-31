@@ -1,5 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap');
 @import 'tailwindcss';
+/* Tailwind v4 自动内容检测以构建工具 CWD（apps/chrome/）为基准，
+   扫描不到 packages/ui/src/ 下的组件文件，导致 utility class 不生成。
+   显式声明 @source 让 Tailwind 扫描本目录（含 components/、lib/）。 */
+@source ".";
 
 @theme {
   --font-display: 'Syne', 'Noto Sans SC', sans-serif;

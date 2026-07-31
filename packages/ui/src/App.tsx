@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react'
-import {FolderSync, Moon, RefreshCw, Sun} from 'lucide-react'
+import {ExternalLink, FolderSync, Moon, RefreshCw, Sun} from 'lucide-react'
 import type {
   GoldPayload,
   HoldingsPayload,
@@ -16,7 +16,7 @@ import {IndicesModule, MarketModule} from './components/MarketModules'
 import {ConfigDialog} from './components/ConfigDialog'
 import './index.css'
 
-export function App({version}: {version?: string}) {
+export function App({version, openAsTab}: {version?: string; openAsTab?: () => void}) {
   const {config} = usePorts()
   const {holdings, watchlist, indices, market, gold, lastUpdate, loading, refresh} =
     useMarketData()
@@ -78,7 +78,7 @@ export function App({version}: {version?: string}) {
         <div className="flex w-full items-center justify-between gap-3 px-3 py-3 sm:px-5 lg:px-8">
           <div className="min-w-0">
             <div className="font-display text-xl font-extrabold tracking-tight text-ink sm:text-2xl lg:text-3xl">
-              WZK Fund
+              Fund01
               {version ? (
                 <span className="ml-2 align-middle font-mono text-xs font-normal text-muted">
                   v{version}
@@ -112,6 +112,17 @@ export function App({version}: {version?: string}) {
               {theme === 'light' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
               <span className="hidden sm:inline">{theme === 'light' ? '暗色' : '亮色'}</span>
             </Button>
+            {openAsTab ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openAsTab}
+                title="在新标签页中打开"
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span className="hidden sm:inline">新标签页</span>
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => setConfigOpen(true)}>
               <FolderSync className="h-4 w-4" />
               <span className="hidden sm:inline">配置</span>

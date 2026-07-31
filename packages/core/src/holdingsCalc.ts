@@ -62,16 +62,17 @@ export function resolveNavPair(quote: QuoteLike): {
     quote.prevNetValue != null && quote.prevNetValue > 0 ? quote.prevNetValue : null
   const estimateNav = latestEstimateNav(quote)
 
+  let result: {prevNav: number | null; currNav: number | null}
   if (quote.percentSource === 'confirmed' && confirmedNav != null && prev != null) {
-    return {prevNav: prev, currNav: confirmedNav}
+    result = {prevNav: prev, currNav: confirmedNav}
+  } else if (estimateNav != null) {
+    result = {prevNav: prev ?? confirmedNav, currNav: estimateNav}
+  } else if (confirmedNav != null && prev != null) {
+    result = {prevNav: prev, currNav: confirmedNav}
+  } else {
+    result = {prevNav: null, currNav: null}
   }
-  if (estimateNav != null) {
-    return {prevNav: prev ?? confirmedNav, currNav: estimateNav}
-  }
-  if (confirmedNav != null && prev != null) {
-    return {prevNav: prev, currNav: confirmedNav}
-  }
-  return {prevNav: null, currNav: null}
+  return result
 }
 
 export function calcHoldings(

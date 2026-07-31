@@ -217,7 +217,7 @@ export function BatchEditHoldingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] h-[1000px] max-w-3xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader className="shrink-0">
           <DialogTitle>批量编辑持仓</DialogTitle>
         </DialogHeader>

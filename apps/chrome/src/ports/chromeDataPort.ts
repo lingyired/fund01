@@ -100,7 +100,18 @@ export class ChromeDataPort implements DataPort {
     return data.points
   }
 
-  async resolveFund(code: string): Promise<ResolveFundPayload> {
-    return sendMessage({ type: 'RESOLVE_FUND', code })
+  async resolveFund(payload: {
+    code: string
+    type?: 'hold' | 'watch'
+    name?: string
+    sectors?: string[]
+  }): Promise<ResolveFundPayload> {
+    return sendMessage({
+      type: 'RESOLVE_FUND',
+      code: payload.code,
+      fundType: payload.type,
+      name: payload.name,
+      sectors: payload.sectors,
+    })
   }
 }

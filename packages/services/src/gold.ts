@@ -1,4 +1,5 @@
 import {httpGet} from './http'
+import {isTripped, recordSuccess, recordFailure} from './circuit'
 
 const PUSH_HOSTS = [
   'https://push2delay.eastmoney.com',
@@ -66,6 +67,7 @@ async function fetchSinaQuote() {
 
 async function fetchEastmoneyQuote() {
   let lastErr: any
+  const hostErrors: string[] = []
   for (const host of PUSH_HOSTS) {
     try {
       const data = await httpGet(`${host}/api/qt/stock/get`, {
@@ -108,7 +110,12 @@ async function fetchEastmoneyQuote() {
       }
     } catch (e) {
       lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      hostErrors.push(`${host}: ${msg}`)
     }
+  }
+  if (hostErrors.length) {
+    console.warn(`[fund01] fetchEastmoneyQuote ${hostErrors.length}/${PUSH_HOSTS.length} host 失败`, hostErrors)
   }
   throw lastErr || new Error('东财 AU9999 行情失败')
 }
@@ -121,7 +128,21 @@ async function fetchQuote() {
   }
 }
 
+// 黄金走势熔断器：所有走势源（东财 push2his + jijinhao）都失败时累计，
+// 连续失败 3 次后冷却 5 分钟，避免 push2his 持续宕机时每个刷新周期都刷屏。
+const TREND_CIRCUIT_KEY = 'gold-trend'
+const TREND_CIRCUIT_OPTS = {
+  maxFailures: 3,
+  cooldownMs: 5 * 60 * 1000,
+  label: 'gold-trend',
+}
+
 async function fetchTrend(prevCloseHint: number | null): Promise<any[]> {
+  // 熔断期内直接返回空，不发任何请求（避免刷屏 + 无谓请求）
+  if (isTripped(TREND_CIRCUIT_KEY)) return []
+
+  let points: any[] = []
+  const hostErrors: string[] = []
   for (const host of TREND_HOSTS) {
     try {
       const data = await httpGet(`${host}/api/qt/stock/trends2/get`, {
@@ -138,7 +159,7 @@ async function fetchTrend(prevCloseHint: number | null): Promise<any[]> {
       const trends = data?.data?.trends || []
       if (!trends.length) continue
       const preClose = parseFloat(data?.data?.preClosePrice) || prevCloseHint || 0
-      return trends.map((line: string) => {
+      points = trends.map((line: string) => {
         const [dt, , price] = line.split(',')
         const p = parseFloat(price)
         const time = (dt || '').split(' ')[1] || dt
@@ -152,45 +173,63 @@ async function fetchTrend(prevCloseHint: number | null): Promise<any[]> {
           percent: percent == null ? null : round4(percent),
         }
       })
-    } catch {
-      // try next
+      break
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      hostErrors.push(`${host}: ${msg}`)
     }
   }
+  // 汇总打印一次，避免每个 host 都刷屏（熔断后此分支不会执行）
+  if (hostErrors.length) {
+    console.warn(`[fund01] fetchTrend(eastmoney) ${hostErrors.length}/${TREND_HOSTS.length} host 失败`, hostErrors)
+  }
 
-  try {
-    const data = await httpGet('https://api.jijinhao.com/sQuoteCenter/todayMin.htm', {
-      params: {code: 'JO_71', isCalc: 'true'},
-      headers: {Referer: 'https://quote.cngold.org/'},
-      timeout: 10000,
-    })
-    const json = JSON.parse(String(data).replace('var hq_str_ml = ', ''))
-    const base = Number.isFinite(prevCloseHint as number) && (prevCloseHint as number) > 0 ? prevCloseHint : null
-    const points = (json.data || [])
-      .filter((x: any) => x.price != null && x.price !== -1)
-      .map((x: any) => {
-        const price = round2(x.price)
-        const ref = base ?? null
-        return {
-          time: x.time || new Date(x.date).toTimeString().slice(0, 5),
-          price,
-          percent: ref && price ? round4(((price - ref) / ref) * 100) : null,
-        }
+  // 东财所有 host 都失败，尝试 jijinhao 备用源
+  if (!points.length) {
+    try {
+      const data = await httpGet('https://api.jijinhao.com/sQuoteCenter/todayMin.htm', {
+        params: {code: 'JO_71', isCalc: 'true'},
+        headers: {Referer: 'https://quote.cngold.org/'},
+        timeout: 10000,
       })
-    if (points.length) {
-      if (points[0].percent == null) {
-        const first = points[0].price
-        return points.map((p: any) => ({
-          ...p,
-          percent: first ? round4(((p.price - first) / first) * 100) : null,
-        }))
+      const json = JSON.parse(String(data).replace('var hq_str_ml = ', ''))
+      const base = Number.isFinite(prevCloseHint as number) && (prevCloseHint as number) > 0 ? prevCloseHint : null
+      const jijinPoints = (json.data || [])
+        .filter((x: any) => x.price != null && x.price !== -1)
+        .map((x: any) => {
+          const price = round2(x.price)
+          const ref = base ?? null
+          return {
+            time: x.time || new Date(x.date).toTimeString().slice(0, 5),
+            price,
+            percent: ref && price ? round4(((price - ref) / ref) * 100) : null,
+          }
+        })
+      if (jijinPoints.length) {
+        if (jijinPoints[0].percent == null) {
+          const first = jijinPoints[0].price
+          points = jijinPoints.map((p: any) => ({
+            ...p,
+            percent: first ? round4(((p.price - first) / first) * 100) : null,
+          }))
+        } else {
+          points = jijinPoints
+        }
       }
-      return points
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn('[fund01] fetchTrend(jijinhao) 失败', msg)
     }
-  } catch {
-    // ignore
   }
 
-  return []
+  // 熔断器计数：拿到数据=成功（清零），全部失败=失败（累计/熔断）
+  if (points.length) {
+    recordSuccess(TREND_CIRCUIT_KEY)
+  } else {
+    recordFailure(TREND_CIRCUIT_KEY, TREND_CIRCUIT_OPTS)
+  }
+
+  return points
 }
 
 export async function getGoldRealtime({holding = 0, avgPrice = 0} = {}) {

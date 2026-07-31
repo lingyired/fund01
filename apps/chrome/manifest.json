@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "wzk-fund 基金盯盘",
-  "version": "1.0.18",
+  "name": "fund01 基金盯盘",
+  "version": "1.0.20",
   "description": "基金实时估值、持仓收益、大盘指数一站式盯盘",
   "permissions": ["storage", "alarms"],
   "host_permissions": [

@@ -78,7 +78,7 @@ export function ConfigDialog({
       const a = document.createElement('a')
       const stamp = new Date().toISOString().slice(0, 10)
       a.href = url
-      a.download = `wzk-fund-config-${stamp}.json`
+      a.download = `fund01-config-${stamp}.json`
       a.click()
       URL.revokeObjectURL(url)
       setMessage('配置已导出')

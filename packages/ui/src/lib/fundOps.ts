@@ -47,10 +47,10 @@ function deriveHoldShares(
 }
 
 /** 内部：upsert 一条基金记录（归一化后写回配置） */
-function upsertFund(
+async function upsertFund(
   ports: Ports,
   payload: Partial<FundRecord> & {code: string},
-): FundRecord {
+): Promise<FundRecord> {
   const config = ports.config.getConfig()
   const code = String(payload.code).padStart(6, '0')
   if (!/^\d{6}$/.test(code)) throw new Error('基金代码须为6位数字')
@@ -59,7 +59,8 @@ function upsertFund(
   const next = normalizeFund({...payload, code, type}, prev, type)
   if (type === 'hold') config.holdings[code] = next
   else config.watchlist[code] = next
-  ports.config.saveConfig(config)
+  // await 确保 chrome.storage.local.set 完成，避免 SW 读到旧 config
+  await ports.config.saveConfig(config)
   return next
 }
 
@@ -95,7 +96,12 @@ export async function createFund(
     holdProfit?: number
   },
 ): Promise<FundRecord> {
-  const meta = await ports.data.resolveFund(payload.code)
+  const meta = await ports.data.resolveFund({
+    code: payload.code,
+    type: payload.type || 'watch',
+    name: payload.name,
+    sectors: payload.sectors,
+  })
   const amount = payload.amount ?? 0
   const basis: AmountBasis = payload.amountBasis === 'today' ? 'today' : 'prev'
 
@@ -125,7 +131,7 @@ export async function createFund(
       const price = Math.round((totalCost / shares) * 1e6) / 1e6
       if (price > 0) costs = {...prevCosts, [group]: price}
     }
-    return upsertFund(ports, {
+    return await upsertFund(ports, {
       code: meta.code,
       name: payload.name || meta.name,
       fundKey: meta.fundKey,
@@ -137,7 +143,7 @@ export async function createFund(
   }
 
   // 自选：allocations 为空对象
-  return upsertFund(ports, {
+  return await upsertFund(ports, {
     code: meta.code,
     name: payload.name || meta.name,
     fundKey: meta.fundKey,
@@ -162,7 +168,7 @@ export async function updateFund(
   const patch: Partial<FundRecord> = {...rest, type}
 
   if (amount != null && type === 'hold') {
-    const meta = await ports.data.resolveFund(code)
+    const meta = await ports.data.resolveFund({code, type})
     const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
     const shares = deriveHoldShares(Number(amount) || 0, basis, meta)
     const group = payload.group ?? ''

@@ -1,4 +1,5 @@
 import {useEffect, useRef, useState} from 'react'
+import {ChevronDown, ChevronRight} from 'lucide-react'
 import {addHoldingGroup, createFund, listHoldingGroups} from '../lib/fundOps'
 import {usePorts} from '../context'
 import {Button} from './ui/button'
@@ -118,6 +119,8 @@ export function ImportHoldingsDialog({
   const [defaultGroup, setDefaultGroup] = useState('')
   // 当前所有分组（下拉用）
   const [groups, setGroups] = useState<string[]>([])
+  // 格式说明是否展开（默认折叠以节省空间）
+  const [showFormat, setShowFormat] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // 打开时重置状态 + 加载分组列表
@@ -129,6 +132,7 @@ export function ImportHoldingsDialog({
     setError('')
     setProgress({done: 0, total: 0, failed: []})
     setDefaultGroup('')
+    setShowFormat(false)
     setGroups(listHoldingGroups(ports))
   }, [open])
 
@@ -221,21 +225,37 @@ export function ImportHoldingsDialog({
           <DialogTitle>导入持仓</DialogTitle>
         </DialogHeader>
 
-        {/* 格式说明 */}
-        <div className="rounded-lg border border-line/70 bg-paper/40 px-3 py-2 text-xs text-muted">
-          <div className="font-medium text-ink-soft">JSON 格式（数组，每条 = 一个基金在某分组的份额）</div>
-          <pre className="mt-1 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
+        {/* 格式说明（可折叠） */}
+        <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
+          <button
+            type="button"
+            onClick={() => setShowFormat((v) => !v)}
+            className="flex w-full items-center gap-1 px-3 py-2 text-left font-medium text-ink-soft transition-colors hover:bg-paper/60"
+            aria-expanded={showFormat}
+          >
+            {showFormat ? (
+              <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+            )}
+            JSON 格式（数组，每条 = 一个基金在某分组的份额）
+          </button>
+          {showFormat ? (
+            <div className="px-3 pb-2">
+              <pre className="mt-1 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
 {SAMPLE}
-          </pre>
-          <ul className="mt-1.5 space-y-0.5">
-            <li><code className="font-mono">code</code> 必填，6 位基金代码</li>
-            <li><code className="font-mono">amount</code> 必填，持仓金额（元）</li>
-            <li><code className="font-mono">amountBasis</code> 可选，<code>prev</code>(昨结算，默认) / <code>today</code>(今结算)</li>
-            <li><code className="font-mono">group</code> 可选，分组名（未声明则用下方默认分组；同一基金写多条即可分布在多个分组）</li>
-            <li><code className="font-mono">cost</code> 可选，持仓成本单价（元/份，用于累计收益；不填则不统计）</li>
-            <li><code className="font-mono">holdProfit</code> 可选，累计收益（元，用于反推成本单价；与 cost 二选一，cost 优先）</li>
-            <li><code className="font-mono">name</code> 可选，留空会自动解析</li>
-          </ul>
+              </pre>
+              <ul className="mt-1.5 space-y-0.5">
+                <li><code className="font-mono">code</code> 必填，6 位基金代码</li>
+                <li><code className="font-mono">amount</code> 必填，持仓金额（元）</li>
+                <li><code className="font-mono">amountBasis</code> 可选，<code>prev</code>(昨结算，默认) / <code>today</code>(今结算)</li>
+                <li><code className="font-mono">group</code> 可选，分组名（未声明则用下方默认分组；同一基金写多条即可分布在多个分组）</li>
+                <li><code className="font-mono">cost</code> 可选，持仓成本单价（元/份，用于累计收益；不填则不统计）</li>
+                <li><code className="font-mono">holdProfit</code> 可选，累计收益（元，用于反推成本单价；与 cost 二选一，cost 优先）</li>
+                <li><code className="font-mono">name</code> 可选，留空会自动解析</li>
+              </ul>
+            </div>
+          ) : null}
         </div>
 
         {/* 默认分组选择（用于 JSON 中未指定 group 的条目） */}

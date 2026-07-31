@@ -45,9 +45,19 @@ async function fund123Post(path: string, body: any): Promise<any> {
   try {
     return await run(false)
   } catch (e: any) {
-    if (e.message?.includes('403') || e.message?.includes('401')) {
-      return run(true)
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('403') || msg.includes('401')) {
+      // CSRF 可能过期，强制刷新重试一次
+      console.warn(`[fund01] fund123Post ${path} 首次失败 (${msg})，刷新 CSRF 重试`)
+      try {
+        return await run(true)
+      } catch (e2: any) {
+        const msg2 = e2 instanceof Error ? e2.message : String(e2)
+        console.warn(`[fund01] fund123Post ${path} 重试仍失败`, msg2)
+        throw e2
+      }
     }
+    console.warn(`[fund01] fund123Post ${path} 失败`, msg)
     throw e
   }
 }
@@ -97,8 +107,14 @@ async function eastmoneyFundGet(path: string, params: Record<string, any> = {}) 
       })
       if (data?.Success) return data.Datas
       lastErr = new Error(data?.ErrMsg || `${path} 暂不可用`)
+      console.warn(`[fund01] fundmobapi ${path} attempt=${i + 1}/3 接口返回失败`, {
+        errMsg: data?.ErrMsg,
+        errorCode: data?.ErrorCode,
+      })
     } catch (e) {
       lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fundmobapi ${path} attempt=${i + 1}/3 网络异常`, msg)
     }
     await new Promise((r) => setTimeout(r, 400 * (i + 1)))
   }
@@ -609,6 +625,9 @@ export type FundQuote = {
   trend: {time: string; growth: number | null; netValue?: number | null}[]
   sectors: string[]
   error?: string
+  /** true 表示 estimateNetValue/estimateGrowth/percent 来自重仓股加权自算
+   *  （非 FundMNFInfo 直接返回）。空窗期（15:00-20:00 GSZ 缺失）时为 true。 */
+  useCalc?: boolean
 }
 
 export interface FundQuoteProvider {
@@ -693,10 +712,10 @@ async function fetchFundMNFInfo(codes: string[]): Promise<Map<string, any>> {
             deviceid: MNFINFO_DEVICEID,
             Fcodes: chunk.join(','),
           },
-          headers: {
-            'User-Agent': MOBILE_UA,
-            Referer: 'https://fund.eastmoney.com/',
-          },
+          // 关键：必须用桌面 UA。东方财富 FundMNFInfo 接口对移动 UA 不返回
+          // GSZ 估算值（盘中 + 15:00-20:00 空窗期均无），导致今日估算收益不显示。
+          // 参考项目（funds）用浏览器 axios 直发，默认桌面 UA，故能拿到 GSZ。
+          // httpGet 默认 UA 即桌面 Chrome UA，这里不覆盖。
           timeout: 12000,
         })
         break
@@ -714,14 +733,137 @@ async function fetchFundMNFInfo(codes: string[]): Promise<Map<string, any>> {
   return out
 }
 
+/* ----------------------------- 自算估值 (useCalc fallback) ----------------------------- */
+// 15:00 收盘后 ~ 20:00 官方净值披露前（空窗期），FundMNFInfo 停止返回 GSZ/GZTIME。
+// 参考线上版 getCalcGszzl / calcFundEstimateChange：用 FundMNInverstPosition 拿前十大
+// 重仓股（GPDM=股票代码、NEWTEXCH=市场、JZBL=持仓占比），再调
+// push2.eastmoney.com/api/qt/ulist.np/get 取每只股票当日涨跌幅（f3），按持仓占比加权
+// 得到基金整体估算涨跌幅。联接基金无直接持仓时取 ETFCODE 再查对应 ETF 的重仓股。
+// 精度取决于重仓股覆盖率（通常前十大占 50%~80%），结果为"比较准确"但不完全精确。
+
+const HOLDINGS_CACHE = new Map<string, {stocks: any[]; expiresAt: number}>()
+const HOLDINGS_TTL = 60 * 60 * 1000 // 持仓按季度更新，缓存 1 小时足够
+
+async function fetchFundTopHoldings(code: string): Promise<any[]> {
+  const cached = HOLDINGS_CACHE.get(code)
+  if (cached && Date.now() < cached.expiresAt) return cached.stocks
+  const data = await eastmoneyFundGet('FundMNInverstPosition', {
+    FCODE: String(code).padStart(6, '0'),
+  })
+  let stocks = Array.isArray(data?.fundStocks) ? data.fundStocks : []
+  // 联接基金无直接持仓：取 ETFCODE 再查对应 ETF 的重仓股
+  if (!stocks.length && data?.ETFCODE) {
+    const etfData = await eastmoneyFundGet('FundMNInverstPosition', {
+      FCODE: String(data.ETFCODE).padStart(6, '0'),
+    })
+    stocks = Array.isArray(etfData?.fundStocks) ? etfData.fundStocks : []
+  }
+  HOLDINGS_CACHE.set(code, {stocks, expiresAt: Date.now() + HOLDINGS_TTL})
+  return stocks
+}
+
+async function fetchStockPctChanges(secids: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  if (!secids.length) return out
+  const data = await httpGet('https://push2.eastmoney.com/api/qt/ulist.np/get', {
+    params: {
+      fields: 'f1,f2,f3,f4,f12,f13,f14,f292',
+      fltt: 2,
+      secids: secids.join(','),
+    },
+    headers: {Referer: 'https://quote.eastmoney.com/'},
+    timeout: 12000,
+  })
+  const diff = Array.isArray(data?.data?.diff) ? data.data.diff : []
+  for (const row of diff) {
+    const raw = row?.f3
+    const pct = typeof raw === 'number' ? raw : parseFloat(raw)
+    if (!Number.isFinite(pct)) continue
+    // 同时以 "market.code" 与 "code" 两种 key 存，便于按 NEWTEXCH.GPDM 反查
+    if (row?.f13 != null && row?.f12) out.set(`${row.f13}.${row.f12}`, pct)
+    if (row?.f12) out.set(String(row.f12), pct)
+  }
+  return out
+}
+
+/** 计算基金自算估算涨跌幅：Σ(股票涨跌幅 × 该股占比 / 总占比)。
+ *  与线上版 calcFundEstimateChange 一致。返回百分比数值（如 1.23）或 null。 */
+function calcFundEstimateChange(
+  stocks: any[],
+  quoteBySecid: Map<string, number>,
+): number | null {
+  let totalWeight = 0
+  for (const s of stocks) {
+    const w = parseFloat(s?.JZBL)
+    if (Number.isFinite(w) && w > 0) totalWeight += w
+  }
+  if (totalWeight <= 0) return null
+  let weighted = 0
+  let matched = 0
+  for (const s of stocks) {
+    const w = parseFloat(s?.JZBL)
+    if (!Number.isFinite(w) || w <= 0) continue
+    const secid = s?.NEWTEXCH && s?.GPDM ? `${s.NEWTEXCH}.${s.GPDM}` : ''
+    let pct: number | undefined
+    if (secid) pct = quoteBySecid.get(secid)
+    if (pct == null && s?.GPDM) pct = quoteBySecid.get(String(s.GPDM))
+    if (pct == null || !Number.isFinite(pct)) continue
+    weighted += (w / totalWeight) * pct
+    matched++
+  }
+  if (matched === 0) return null
+  return Number.isFinite(weighted) ? Math.round(weighted * 100) / 100 : null
+}
+
+/** 自算估值主入口（对应线上版 getCalcGszzl）。
+ *  返回 calcGszzl（百分比数值，如 1.23）或 null（失败/无持仓/无行情）。
+ *
+ *  结果缓存 5 分钟：A 股 15:00 收盘后股票价格不再变动，calcGszzl 在空窗期内稳定；
+ *  官方净值披露后由 FundMNFInfo 返回 hasReplace=true 触发，上层不再调用本函数，
+ *  因此缓存不会导致过期估值覆盖确认净值。
+ *  返回 null 时不缓存，便于下次重试。 */
+const CALC_GSZZL_CACHE = new Map<string, {value: number; expiresAt: number}>()
+const CALC_GSZZL_TTL = 5 * 60 * 1000
+
+export async function getCalcGszzl(code: string): Promise<number | null> {
+  const padded = String(code).padStart(6, '0')
+  const cached = CALC_GSZZL_CACHE.get(padded)
+  if (cached && Date.now() < cached.expiresAt) return cached.value
+  try {
+    const stocks = await fetchFundTopHoldings(padded)
+    if (!stocks.length) return null
+    const secids = stocks
+      .map((s) => (s?.NEWTEXCH && s?.GPDM ? `${s.NEWTEXCH}.${s.GPDM}` : null))
+      .filter((x): x is string => !!x)
+    if (!secids.length) return null
+    const quoteMap = await fetchStockPctChanges(secids)
+    const value = calcFundEstimateChange(stocks, quoteMap)
+    if (value != null) {
+      CALC_GSZZL_CACHE.set(padded, {value, expiresAt: Date.now() + CALC_GSZZL_TTL})
+    }
+    return value
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn(`[fund01] getCalcGszzl 失败 code=${padded}`, msg)
+    return null
+  }
+}
+
 /** 解析单条 FundMNFInfo item 为标准化的行情字段。
  *  当日收益公式（与参考实现一致）：(今日净值 − 昨日净值) × 份额
- *  - 有 GSZ（盘中估算）：今日=GSZ，昨日=NAV，涨幅=GSZZL
- *  - 无 GSZ 但有 NAVCHGRT（净值已确认 / 今日未公布）：今日=NAV，昨日=NAV/(1+NAVCHGRT%)，涨幅=NAVCHGRT
- *    收益对应日期 = PDATE（可能为昨日，由 UI 标注）
  *
- *  注意：API 文档的「PDATE == GZTIME 日期」判断在 GZTIME 为 null（非盘中）时失效。
- *  参考实现用「是否有 GSZ」区分：有估算用估算，无估算即按 NAV + NAVCHGRT 反推昨日净值。
+ *  三种口径（按优先级）：
+ *  1. hasReplace（PDATE == GZTIME 日期，即当日净值已披露）：今日=NAV，昨日=NAV/(1+NAVCHGRT%)，
+ *     涨幅=NAVCHGRT。此时 GSZ 即使存在也已是冗余/过期，必须用确认净值，否则
+ *     prevNetValue 会被设成今日 NAV，导致 pnl ≈ 0（盘中实时收益不显示）。
+ *  2. 有 GSZ 且未过期（盘中估算，当日净值未披露）：今日=GSZ，昨日=NAV，涨幅=GSZZL。
+ *  3. 空窗期/估值过期（hasReplace=false 且（GSZ 缺失 或 GZTIME 日 < PDATE 日））：
+ *     15:00 收盘后 ~ 20:00 官方净值披露前，API 返回 GSZ=null/GZTIME=null；
+ *     或 GSZ 存在但估值日期早于净值日期（过期）。此时仅记录 netValue（=昨日 NAV），
+ *     不设置 confirmed/percent/dayGrowth/estimate，避免把昨日 NAVCHGRT 冒充今日涨幅。
+ *     标记 useCalcNeeded=true，由上层 FundMNFInfoQuoteProvider 调 getCalcGszzl 用
+ *     重仓股 + 股票涨跌幅自算估算（参考线上版 getCalcGszzl / calcFundEstimateChange）。
+ *     自算失败时由 background 的 mergeStaleEstimate 从上次缓存恢复今日 15:00 最后估算。
  */
 function parseFundMNFInfoItem(item: any): {
   name: string
@@ -733,6 +875,8 @@ function parseFundMNFInfoItem(item: any): {
   prevNetValue: number | null
   netValueDate: string
   time: string | null
+  /** 空窗期/估值过期：需调 getCalcGszzl 自算估值 */
+  useCalcNeeded: boolean
 } {
   const nav = parseFloat(item?.NAV)
   const navChgRt = parseFloat(item?.NAVCHGRT)
@@ -746,35 +890,48 @@ function parseFundMNFInfoItem(item: any): {
   const gszValid = Number.isFinite(gsz) && gsz > 0
   const gszzlValid = Number.isFinite(gszzl)
 
-  // 有估算净值 → 估算期；无估算净值但有 NAVCHGRT → 确认期（按 NAV + 涨幅反推昨日净值）
-  const confirmed = !gszValid && navChgRtValid
+  // hasReplace：当日净值已披露（净值日期 == 估值日期）。
+  // 参考实现：if (val.PDATE != "--" && val.PDATE == val.GZTIME.substr(0, 10)) { hasReplace = true }
+  const gztimeDay = gztime.length >= 10 ? gztime.slice(0, 10) : ''
+  const hasReplace =
+    pdate !== '--' && pdate !== '' && gztimeDay !== '' && pdate === gztimeDay
+
+  // 估值过期：GZTIME 日期 < PDATE 日期（线上版 numDate(gztime) < numDate(jzrq)）
+  const estimateStale =
+    gztimeDay !== '' && pdate !== '' && pdate !== '--' && gztimeDay < pdate
 
   let netValue: number | null = null
   let prevNetValue: number | null = null
   let estimateNetValue: number | null = null
   let dayGrowth: number | null = null
   let estimateGrowth: number | null = null
+  let confirmed = false
+  let useCalcNeeded = false
 
-  if (gszValid) {
-    // 估算期：NAV = 昨日确认净值（基准），GSZ = 今日估算净值
-    netValue = navValid ? nav : null
-    prevNetValue = navValid ? nav : null
-    estimateNetValue = gszValid ? gsz : null
-    estimateGrowth = gszzlValid ? gszzl : null
-  } else if (confirmed) {
-    // 确认期：NAV = 最新确认净值，昨日净值 = NAV / (1 + NAVCHGRT%)
-    // 注：PDATE 可能是昨日（今日未公布，如 QDII），收益对应 PDATE 当日，由 UI 标注
+  if (hasReplace) {
+    // 当日净值已披露：今日 = NAV，昨日 = NAV / (1 + NAVCHGRT%)，涨幅 = NAVCHGRT。
+    // GSZ 即使存在也不再使用（确认净值比估算更准）。
+    confirmed = true
     netValue = navValid ? nav : null
     if (navValid && navChgRtValid) {
       prevNetValue = round4(nav / (1 + navChgRt / 100))
     }
     dayGrowth = navChgRtValid ? navChgRt : null
+  } else if (gszValid && !estimateStale) {
+    // 盘中估算期（估值未过期）：NAV = 昨日确认净值（基准），GSZ = 今日估算净值
+    netValue = navValid ? nav : null
+    prevNetValue = navValid ? nav : null
+    estimateNetValue = gszValid ? gsz : null
+    estimateGrowth = gszzlValid ? gszzl : null
   } else {
-    // 无 GSZ 也无 NAVCHGRT：仅记录净值
+    // 空窗期（GSZ 缺失）或估值过期（GZTIME < PDATE）：
+    // FundMNFInfo 不再提供有效盘中估算。标记 useCalcNeeded，由上层自算估值。
+    // 仅记录 netValue（供净值日期展示），其余留空。
+    useCalcNeeded = true
     netValue = navValid ? nav : null
   }
 
-  return {
+  const result = {
     name: String(item?.SHORTNAME || ''),
     confirmed,
     dayGrowth,
@@ -784,7 +941,9 @@ function parseFundMNFInfoItem(item: any): {
     prevNetValue,
     netValueDate: pdate && pdate !== '--' ? normalizeNetValueDate(pdate) : '',
     time: gztime && gztime.length >= 16 ? gztime.slice(11, 16) : null,
+    useCalcNeeded,
   }
+  return result
 }
 
 /**
@@ -826,6 +985,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     let prevNetValue: number | null = null
     let netValueDate = ''
     let mnfTime: string | null = null
+    let useCalcNeeded = false
 
     if (info) {
       const p = parseFundMNFInfoItem(info)
@@ -838,6 +998,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
       prevNetValue = p.prevNetValue
       netValueDate = p.netValueDate
       mnfTime = p.time
+      useCalcNeeded = p.useCalcNeeded
     }
 
     // FundMNFInfo 已批量提供估值/涨跌幅/净值，刷新时不调用 fund123。
@@ -862,6 +1023,25 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
       }
     }
 
+    // 自算估值 fallback（参考线上版 useCalc / getCalcGszzl）：
+    // 空窗期（15:00 后 ~ 20:00 前GSZ 缺失）或估值过期（GZTIME < PDATE）时，
+    // FundMNFInfo 不再返回有效盘中估算。此时用前十大重仓股的当日涨跌幅加权自算
+    // 估算涨跌幅，覆盖空的 estimate 字段；calcGsz = NAV × (1 + calcGszzl%)。
+    // 自算失败（无持仓/无行情/请求失败）时保持空，由 background 的
+    // mergeStaleEstimate 从上次缓存恢复今日 15:00 最后估算。
+    let useCalc = false
+    if (useCalcNeeded && estimateGrowth == null && netValue != null && netValue > 0) {
+      const calcGszzl = await getCalcGszzl(code)
+      if (calcGszzl != null && Number.isFinite(calcGszzl)) {
+        const calcGsz = Math.round(netValue * (1 + calcGszzl / 100) * 10000) / 10000
+        estimateGrowth = calcGszzl
+        estimateNetValue = calcGsz
+        percent = calcGszzl
+        percentSource = 'estimate'
+        useCalc = true
+      }
+    }
+
     // 板块推断（与 fund123 数据源一致，走东方财富持仓 + 基金信息）
     let sectors = Array.isArray(fund.sectors) ? [...fund.sectors] : []
     if (sectorsNeedRefresh(sectors.length ? sectors : null, name)) {
@@ -873,7 +1053,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
       }
     }
 
-    return {
+    const quote: FundQuote = {
       code,
       name: name || code,
       fundKey: '',
@@ -888,7 +1068,9 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
       time: mnfTime,
       trend,
       sectors,
+      useCalc,
     }
+    return quote
   }
 }
 
@@ -957,7 +1139,20 @@ export async function resolveFund(payload: {
   let meta: any = {}
   try {
     meta = await searchFund(code)
+    console.log('[fund01] resolveFund searchFund OK', {
+      code,
+      metaCode: meta.code,
+      metaName: meta.name,
+      metaFundKey: meta.fundKey,
+      metaNetValue: meta.netValue,
+    })
   } catch (e: any) {
+    console.warn('[fund01] resolveFund searchFund 失败', {
+      code,
+      errName: e?.name,
+      errMsg: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    })
     if (!payload.name) throw e
   }
 
@@ -965,7 +1160,12 @@ export async function resolveFund(payload: {
   if (!sectors?.length) {
     try {
       sectors = await fetchFundSectorsQueued(meta.code || code, payload.name || meta.name)
-    } catch {
+    } catch (e) {
+      console.warn('[fund01] resolveFund fetchFundSectorsQueued 失败', {
+        code,
+        errName: e instanceof Error ? e.name : String(e),
+        errMsg: e instanceof Error ? e.message : String(e),
+      })
       sectors = []
     }
   }
@@ -975,18 +1175,39 @@ export async function resolveFund(payload: {
   let prevNetValueDate = ''
   let netValueDate = ''
   if ((payload.type || 'watch') === 'hold') {
+    const histCode = meta.code || code
     try {
-      const hist = await fetchFundNavHistory(meta.code || code, 5)
+      const hist = await fetchFundNavHistory(histCode, 5)
+      console.log('[fund01] resolveFund fetchFundNavHistory OK', {
+        code: histCode,
+        histCount: hist?.length || 0,
+        hist0: hist?.[0],
+        hist1: hist?.[1],
+      })
       if (hist.length) {
         netValue = hist[0].netValue
         netValueDate = hist[0].date || ''
         if (hist[1]?.netValue != null) prevNetValue = hist[1].netValue
         if (hist[1]?.date) prevNetValueDate = hist[1].date
       }
-    } catch {
-      // ignore
+    } catch (e) {
+      // 关键：之前这里静默吞错导致「暂无确认净值」无法定位根因，现打开日志
+      console.warn('[fund01] resolveFund fetchFundNavHistory 失败', {
+        code: histCode,
+        errName: e instanceof Error ? e.name : String(e),
+        errMsg: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined,
+      })
     }
   }
+
+  console.log('[fund01] resolveFund 返回', {
+    code,
+    netValue,
+    prevNetValue,
+    netValueDate,
+    confirmedSession: isConfirmedSessionActive(netValueDate),
+  })
 
   return {
     code: meta.code || code,

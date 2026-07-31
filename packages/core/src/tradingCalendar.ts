@@ -85,14 +85,16 @@ export function isAShareTradingTime(now = new Date()): boolean {
 
 /**
  * 基金是否需要刷新：
- * - A 股交易日 09:15-15:30（盘中估值）
+ * - A 股交易日 09:15-15:30（盘中估值，FundMNFInfo 返回 GSZ）
+ * - A 股交易日 15:30-20:00（空窗期，FundMNFInfo 停止返回 GSZ；用重仓股自算估值
+ *   覆盖今日估算收益，并轮询检测官方净值披露）
  * - A 股交易日 20:00-23:00（晚间官方确认涨跌更新）
  */
 export function shouldRefreshFund(now = new Date()): boolean {
   const day = now.getDay()
   if (day === 0 || day === 6) return false
   const m = hmsToMinutes(now)
-  return (m >= 9 * 60 + 15 && m <= 15 * 60 + 30) || (m >= 20 * 60 && m <= 23 * 60)
+  return m >= 9 * 60 + 15 && m <= 23 * 60
 }
 
 /** A 股指数 / 大盘（涨跌家数、板块排行）：仅交易日 09:15-15:30 */

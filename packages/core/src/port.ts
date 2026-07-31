@@ -27,7 +27,12 @@ export interface DataPort {
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
-  resolveFund(code: string): Promise<ResolveFundPayload>
+  resolveFund(payload: {
+    code: string
+    type?: 'hold' | 'watch'
+    name?: string
+    sectors?: string[]
+  }): Promise<ResolveFundPayload>
 }
 
 /** UI 配置访问抽象（同步读避免闪烁 + 异步推后端） */

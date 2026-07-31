@@ -63,57 +63,153 @@ function getRefreshInterval(config: AppConfig | null) {
 }
 
 /**
- * 按各数据源的市场时段刷新；非交易时段的数据源跳过（保留旧缓存）。
- * 仅当至少刷新了一个数据源时才写 cache-time，避免 UI 无谓重载。
- * 后端权威：合并计算（calcHoldings/mergeWatchlist）在 SW 完成，UI 被动订阅。
+ * FundMNFInfo 在 15:00 收盘后会清空 GSZ/GZTIME（空窗期直到 ~20:00 官方净值披露）。
+ * 当新 quote 无盘中估算时，从上次缓存合并旧 estimate 字段，使空窗期 UI 仍能看到
+ * 15:00 最后估值。合并字段：estimateNetValue / estimateGrowth / percent / percentSource /
+ * time / prevNetValue。netValue / dayGrowth / netValueDate 仍用新数据（确认净值更准）。
+ *
+ * 注意：只在新 quote 确实无估算（estimateNetValue==null 且 estimateGrowth==null）时合并，
+ * 避免覆盖盘中实时估算或 20:00 后的官方确认数据。
  */
-async function refreshAll(): Promise<void> {
+function mergeStaleEstimate(
+  newQuotes: any[],
+  cachedList: any[] | null | undefined,
+): void {
+  if (!Array.isArray(cachedList) || !cachedList.length) return
+  const cacheMap = new Map<string, any>()
+  for (const row of cachedList) {
+    if (row?.code) cacheMap.set(String(row.code), row)
+  }
+  for (const q of newQuotes) {
+    const hasNewEstimate =
+      q?.estimateNetValue != null || q?.estimateGrowth != null
+    if (hasNewEstimate) continue
+    const old = cacheMap.get(String(q?.code))
+    if (!old) continue
+    // 只合并估算相关字段，不覆盖净值/涨幅（新数据更准）
+    if (q.estimateNetValue == null && old.estimateNetValue != null) {
+      q.estimateNetValue = old.estimateNetValue
+    }
+    if (q.estimateGrowth == null && old.estimateGrowth != null) {
+      q.estimateGrowth = old.estimateGrowth
+    }
+    // percent/percentSource/time：旧估算仍有效，保留展示
+    if (q.percent == null && old.percent != null) {
+      q.percent = old.percent
+      q.percentSource = old.percentSource ?? 'estimate'
+    }
+    if (q.time == null && old.time != null) {
+      q.time = old.time
+    }
+    // prevNetValue：新数据若无（QDII 等），用旧值避免 pnl 计算失效
+    if (q.prevNetValue == null && old.prevNetValue != null) {
+      q.prevNetValue = old.prevNetValue
+    }
+  }
+}
+
+/**
+ * 按各数据源的市场时段刷新；非交易时段的数据源跳过（保留旧缓存）。
+ *
+ * 调试期：所有 fallback / 重试 / 熔断全部禁用。每个任务失败即打印完整
+ * 错误信息（含 stack / url / status），调通后再恢复多源 fallback。
+ */
+async function refreshAll(force = false): Promise<void> {
   const config = await getSessionConfig()
-  if (!config) return
+  if (!config) {
+    console.warn('[fund01] refreshAll: session-config 为空，跳过')
+    return
+  }
   const now = new Date()
   const holdFunds = Object.values(config.holdings || {})
   const watchFunds = Object.values(config.watchlist || {})
 
-  const canRefreshFund = shouldRefreshFund(now)
-  const canRefreshAShare = shouldRefreshAShareMarket(now)
-  const canRefreshGold = shouldRefreshGold(now)
+  // force=true 时（用户主动 REFRESH / 导入后刷新）跳过交易时段过滤，
+  // 确保用户操作后立即拉取数据，不受时段限制
+  const canRefreshFund = force || shouldRefreshFund(now)
+  const canRefreshAShare = force || shouldRefreshAShareMarket(now)
+  const canRefreshGold = force || shouldRefreshGold(now)
 
   const quoteSource =
     config.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
 
+  type TaskKey = 'holdings' | 'watchlist' | 'indices' | 'market' | 'gold'
   const tasks: Promise<any>[] = []
+  const taskKeys: TaskKey[] = []
+
   // 基金：持仓 + 自选共享同一时段
-  if (canRefreshFund && holdFunds.length) tasks.push(getFundsQuotes(holdFunds, quoteSource).then((v) => ['holdings', v]))
-  if (canRefreshFund && watchFunds.length) tasks.push(getFundsQuotes(watchFunds, quoteSource).then((v) => ['watchlist', v]))
+  if (canRefreshFund && holdFunds.length) {
+    taskKeys.push('holdings')
+    tasks.push(getFundsQuotes(holdFunds, quoteSource))
+  }
+  if (canRefreshFund && watchFunds.length) {
+    taskKeys.push('watchlist')
+    tasks.push(getFundsQuotes(watchFunds, quoteSource))
+  }
   // A 股指数 + 大盘
   if (canRefreshAShare) {
-    tasks.push(getIndices().then((v) => ['indices', v]))
-    tasks.push(getMarketOverview().then((v) => ['market', v]))
+    taskKeys.push('indices')
+    tasks.push(getIndices())
+    taskKeys.push('market')
+    tasks.push(getMarketOverview())
   }
   // 黄金
   if (canRefreshGold) {
+    taskKeys.push('gold')
     tasks.push(
-      getGoldRealtime({holding: config.gold.holding, avgPrice: config.gold.avgPrice}).then(
-        (v) => ['gold', v],
-      ),
+      getGoldRealtime({holding: config.gold.holding, avgPrice: config.gold.avgPrice}),
     )
   }
 
-  if (tasks.length === 0) return // 所有数据源都在非交易时段，跳过
+  if (tasks.length === 0) {
+    return // 所有数据源都在非交易时段，跳过
+  }
 
   const results = await Promise.allSettled(tasks)
 
+  // 每个失败任务打印完整错误（含 stack），便于在 SW console 定位根因
+  let failedCount = 0
+  results.forEach((r, i) => {
+    const key = taskKeys[i] || 'unknown'
+    if (r.status === 'fulfilled') return
+    failedCount++
+    const err = r.reason
+    console.warn(`[fund01] refresh 失败 source=${key} index=${i}/${tasks.length}`, {
+      message: err instanceof Error ? err.message : String(err),
+      name: err?.name,
+      stack: err instanceof Error ? err.stack : undefined,
+      error: err,
+    })
+  })
+  if (failedCount > 0) {
+    console.warn(
+      `[fund01] refresh 完成：${tasks.length - failedCount}/${tasks.length} 成功，${failedCount} 失败`,
+    )
+  }
+
   // 后端合并计算：把行情与配置合并成 UI 可直接渲染的 payload
-  const holdingsEntry = results.find(
-    (r): r is PromiseFulfilledResult<[string, any]> =>
-      r.status === 'fulfilled' && (r.value as [string, any])[0] === 'holdings',
-  )
-  const watchlistEntry = results.find(
-    (r): r is PromiseFulfilledResult<[string, any]> =>
-      r.status === 'fulfilled' && (r.value as [string, any])[0] === 'watchlist',
-  )
-  const holdingsQuotes = holdingsEntry ? holdingsEntry.value[1] : null
-  const watchlistQuotes = watchlistEntry ? watchlistEntry.value[1] : null
+  function fulfilled(key: TaskKey): any | null {
+    const i = taskKeys.indexOf(key)
+    if (i < 0) return null
+    const r = results[i]
+    return r.status === 'fulfilled' ? r.value : null
+  }
+
+  const holdingsQuotes = fulfilled('holdings')
+  const watchlistQuotes = fulfilled('watchlist')
+
+  // FundMNFInfo 在 15:00 收盘后清空 GSZ/GZTIME（空窗期）。
+  // 参考项目靠 GZTIME=null 时 substr 抛错中断回调，保留上一次有效估算。
+  // 这里用显式逻辑：新 quote 无估算时，从上次缓存合并旧 estimate 字段，
+  // 使空窗期 UI 仍能看到 15:00 最后估值，等 20:00 官方净值披露后自动覆盖。
+  if (holdingsQuotes || watchlistQuotes) {
+    const cached = await chrome.storage.local.get([
+      CACHE_KEYS.holdings,
+      CACHE_KEYS.watchlist,
+    ])
+    if (holdingsQuotes) mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
+    if (watchlistQuotes) mergeStaleEstimate(watchlistQuotes, cached[CACHE_KEYS.watchlist])
+  }
 
   let holdingsResult: ReturnType<typeof calcHoldings> | null = null
   let watchlistResult: ReturnType<typeof mergeWatchlist> | null = null
@@ -121,14 +217,14 @@ async function refreshAll(): Promise<void> {
     try {
       holdingsResult = calcHoldings(holdFunds, holdingsQuotes)
     } catch (e) {
-      console.warn('[wzk-fund] calcHoldings failed', e)
+      console.warn('[fund01] calcHoldings failed', e)
     }
   }
   if (watchlistQuotes) {
     try {
       watchlistResult = mergeWatchlist(watchFunds, watchlistQuotes)
     } catch (e) {
-      console.warn('[wzk-fund] mergeWatchlist failed', e)
+      console.warn('[fund01] mergeWatchlist failed', e)
     }
   }
 
@@ -136,23 +232,14 @@ async function refreshAll(): Promise<void> {
   if (holdingsResult) patch[CACHE_KEYS.holdings] = holdingsResult
   if (watchlistResult) patch[CACHE_KEYS.watchlist] = watchlistResult.list
   if (canRefreshAShare) {
-    const indicesEntry = results.find(
-      (r): r is PromiseFulfilledResult<[string, any]> =>
-        r.status === 'fulfilled' && (r.value as [string, any])[0] === 'indices',
-    )
-    const marketEntry = results.find(
-      (r): r is PromiseFulfilledResult<[string, any]> =>
-        r.status === 'fulfilled' && (r.value as [string, any])[0] === 'market',
-    )
-    if (indicesEntry) patch[CACHE_KEYS.indices] = indicesEntry.value[1]
-    if (marketEntry) patch[CACHE_KEYS.market] = marketEntry.value[1]
+    const indicesValue = fulfilled('indices')
+    const marketValue = fulfilled('market')
+    if (indicesValue) patch[CACHE_KEYS.indices] = indicesValue
+    if (marketValue) patch[CACHE_KEYS.market] = marketValue
   }
   if (canRefreshGold) {
-    const goldEntry = results.find(
-      (r): r is PromiseFulfilledResult<[string, any]> =>
-        r.status === 'fulfilled' && (r.value as [string, any])[0] === 'gold',
-    )
-    if (goldEntry) patch[CACHE_KEYS.gold] = goldEntry.value[1]
+    const goldValue = fulfilled('gold')
+    if (goldValue) patch[CACHE_KEYS.gold] = goldValue
   }
 
   await chrome.storage.local.set(patch)
@@ -190,7 +277,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   try {
     await refreshAll()
   } catch (e) {
-    console.warn('[wzk-fund] alarm refresh failed', e)
+    console.warn('[fund01] alarm refresh failed', e)
   }
   // 根据当前时段与最新配置安排下一次
   const config = await getSessionConfig()
@@ -210,7 +297,7 @@ chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
     try {
       switch (msg.type) {
         case 'REFRESH': {
-          await refreshAll()
+          await refreshAll(true)
           sendResponse({ok: true})
           return
         }

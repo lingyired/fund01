@@ -26,7 +26,7 @@ pnpm tauri init
 
 ```jsonc
 {
-  "productName": "wzk-fund",
+  "productName": "fund01",
   "version": "1.0.0",
   "identifier": "com.wzk.fund01",
   "build": {
@@ -89,7 +89,7 @@ fn main() {
             // 1. 创建托盘图标
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("wzk-fund 基金盯盘")
+                .tooltip("fund01 基金盯盘")
                 .on_tray_icon_event(|tray, event| {
                     match event {
                         TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, position, .. } => {
@@ -164,7 +164,7 @@ fn start_refresh_loop(app: AppHandle) {
         loop {
             interval.tick().await;
             if let Err(e) = refresh_all(&app).await {
-                eprintln!("[wzk-fund] refresh failed: {:?}", e);
+                eprintln!("[fund01] refresh failed: {:?}", e);
             }
         }
     });

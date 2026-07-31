@@ -50,6 +50,9 @@ async function eastmoneyGet(
       })
     } catch (e) {
       lastErr = e
+      // 打印 fallback 链每次失败，便于定位是哪个 host / 接口出问题
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] eastmoneyGet 失败 host=${host} path=${url}`, msg)
     }
   }
   throw lastErr || new Error('eastmoney request failed')
@@ -230,14 +233,21 @@ export async function getIndexHistory(code: string, range = '1m') {
     try {
       points = await fetchTencentDaily(meta.tx, limit)
       source = 'tencent'
-    } catch {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchTencentDaily 失败 tx=${meta.tx}`, msg)
       points = []
     }
   }
 
   if (points.length < 10 && (meta as any).sina) {
-    points = await fetchSinaCnDaily((meta as any).sina, limit)
-    source = 'sina'
+    try {
+      points = await fetchSinaCnDaily((meta as any).sina, limit)
+      source = 'sina'
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchSinaCnDaily 失败 sina=${(meta as any).sina}`, msg)
+    }
   }
   if ((points.length < 10 || key === '3y') && (meta as any).sinaUs) {
     try {
@@ -246,8 +256,9 @@ export async function getIndexHistory(code: string, range = '1m') {
         points = usPoints
         source = 'sina-us'
       }
-    } catch {
-      // keep previous
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchSinaUsDaily 失败 sinaUs=${(meta as any).sinaUs}`, msg)
     }
   }
 

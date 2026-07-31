@@ -56,7 +56,7 @@ export function FundDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] w-[calc(100%-1rem)] max-w-2xl overflow-y-auto p-4 sm:p-5">
+      <DialogContent className="w-[calc(100%-1rem)] max-w-2xl p-4 sm:p-5">
         <DialogHeader className="pr-6">
           <DialogTitle className="truncate text-base sm:text-lg">
             {row.name}

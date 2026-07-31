@@ -3,7 +3,7 @@ import path from 'node:path'
 import {execSync} from 'node:child_process'
 
 const distDir = path.resolve(process.cwd(), 'dist')
-const zipPath = path.resolve(process.cwd(), 'wzk-fund.zip')
+const zipPath = path.resolve(process.cwd(), 'fund01.zip')
 
 if (!existsSync(distDir)) {
   console.error('dist/ 不存在，请先运行 npm run build')
