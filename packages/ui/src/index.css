@@ -162,19 +162,51 @@
   color: var(--gray-12);
 }
 
-/* 持仓列表：表头吸顶 */
-.rt-sticky-thead {
+/* 持仓列表：整表单元格垂直居中（Radix 默认 vertical-align:inherit 会退化为 baseline，导致表头文字偏上） */
+.rt-fund-table .rt-TableCell {
+  vertical-align: middle;
+}
+/* 持仓列表：表体单元格上下内边距从 Radix 默认 12px(space-3) 收到 8px，让数据行更紧凑；
+   只作用于 tbody，不影响已设 6px 的表头。 */
+.rt-fund-table tbody .rt-TableCell {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+/* 持仓列表：表头吸顶。
+   注意：sticky 必须加在 th 单元格上，不能加在 thead/tr —— Chrome 对 thead/tr 的
+   position:sticky 支持不稳定（历史 bug），加在 th 才是可靠方案。 */
+.rt-sticky-thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-}
-.rt-sticky-thead th {
+  /* 用不透明 panel 色而非半透明 surface：surface 在暗色模式带 alpha，滚动时数据行
+     会透过来叠加成脏色；panel-solid 是完全不透明色，吸顶时干净利落。 */
   background: var(--color-panel-solid);
-  /* 列宽较窄（84/76px），缩小表头字号并禁止换行，避免「当日收益/持有收益」折成两行 */
+  /* 列宽较窄（84/76px），缩小表头字号并禁止换行，避免「当日收益/持有收益」折成两行；
+     压缩上下内边距让表头更紧凑 */
   font-size: 12px;
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  /* 用 box-shadow 画分隔线而非 border-bottom：Radix 表格是 border-collapse:collapse，
+     collapse 模式下 sticky th 的 border 在滚动时会消失，inset box-shadow 不受影响。 */
+  box-shadow: inset 0 -1px 0 var(--app-line);
+}
+/* 持仓列表：让表头吸顶真正生效。
+   Radix Table.Root 内部 DOM 链为：.rt-TableRoot → ScrollArea(Root/Viewport，overflow:hidden 滚动容器)
+   → table.rt-TableRootTable(overflow:hidden) → thead → th。
+   这层 ScrollArea 和 table 自身的 overflow:hidden 都会成为 position:sticky 的"滚动容器"，
+   把表头的吸顶参照截留在内部，导致 th 永远粘不到最外层列表滚动区（PopupLayout 的 overflow-y-auto）。
+   这里把整条链上的中间滚动容器全部改为 overflow:visible，让 th 的吸顶参照回到外层列表滚动区。
+   注意：ScrollArea 视口的 overflow 是 Radix 内联 style 写入的，必须用 !important 才能覆盖。 */
+.rt-fund-table .rt-ScrollAreaRoot,
+.rt-fund-table .rt-ScrollAreaViewport,
+.rt-fund-table .rt-TableRootTable {
+  overflow: visible !important;
+}
+/* 中间滚动容器失效后，Radix 自带的滚动条不再需要（外层列表滚动区已是原生滚动条），隐藏避免双重滚动条 */
+.rt-fund-table .rt-ScrollAreaScrollbar {
+  display: none !important;
 }

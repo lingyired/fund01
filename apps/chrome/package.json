@@ -1,6 +1,6 @@
 {
   "name": "@fund01/chrome",
-  "version": "1.0.53",
+  "version": "1.0.62",
   "private": true,
   "type": "module",
   "scripts": {

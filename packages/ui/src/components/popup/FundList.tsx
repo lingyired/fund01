@@ -136,7 +136,10 @@ export function FundList({
                             setDetailRow(row)
                           }
                         }}
-                        className="block max-w-full cursor-pointer truncate text-left text-sm font-medium text-ink hover:underline"
+                        className={cn(
+                          'block max-w-full cursor-pointer truncate text-left text-sm font-medium hover:underline',
+                          pctClass(pnl),
+                        )}
                         title="点击查看详情"
                       >
                         {row.name}
