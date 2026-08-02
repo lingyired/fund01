@@ -1,7 +1,7 @@
 import {useState} from 'react'
 import type {IndexItem, MarketOverview} from '@fund01/core'
 import {formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
-import {Panel, PanelHeader} from './ui/panel'
+import {Card} from '@radix-ui/themes'
 import {IndexTrendDialog} from './IndexTrendDialog'
 
 export function IndicesModule({
@@ -15,8 +15,13 @@ export function IndicesModule({
   const [open, setOpen] = useState(false)
 
   return (
-    <Panel className="w-full min-w-0">
-      <PanelHeader title="指数看板" desc="点击查看历史趋势" />
+    <Card className="rt-panel w-full min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line/70 px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h2 className="shrink-0 font-display text-base font-bold tracking-tight">指数看板</h2>
+          <p className="min-w-0 truncate text-xs text-muted">点击查看历史趋势</p>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-2 px-3 py-3 sm:grid-cols-3 sm:px-4 sm:py-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-10">
         {loading && !list.length
           ? Array.from({length: 10}).map((_, i) => (
@@ -51,7 +56,7 @@ export function IndicesModule({
       </div>
 
       <IndexTrendDialog item={active} open={open} onOpenChange={setOpen} />
-    </Panel>
+    </Card>
   )
 }
 
@@ -71,8 +76,13 @@ export function MarketModule({
   const barPct = up + down > 0 ? (up / (up + down)) * 100 : 50
 
   return (
-    <Panel className="h-full min-w-0">
-      <PanelHeader title="A股大盘" desc="涨跌家数占比 · 板块指数涨跌前十" />
+    <Card className="rt-panel h-full min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line/70 px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h2 className="shrink-0 font-display text-base font-bold tracking-tight">A股大盘</h2>
+          <p className="min-w-0 truncate text-xs text-muted">涨跌家数占比 · 板块指数涨跌前十</p>
+        </div>
+      </div>
       <div className="space-y-3 px-3 py-3 sm:space-y-4 sm:px-5 sm:py-4">
         <div className="rounded-xl border border-line/70 bg-paper/50 p-3 sm:p-4">
           <div className="text-xs text-muted">今日涨跌家数</div>
@@ -100,7 +110,7 @@ export function MarketModule({
           <SectorList title="跌幅前十板块" items={data?.topLosers || []} tone="fall" />
         </div>
       </div>
-    </Panel>
+    </Card>
   )
 }
 

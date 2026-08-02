@@ -1,6 +1,6 @@
 import {Fragment, useState} from 'react'
 import {ChevronDown, ChevronRight} from 'lucide-react'
-import {Table} from '@radix-ui/themes'
+import {Skeleton, Table} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {
   cn,
@@ -13,7 +13,6 @@ import type {DisplayRow} from '../../lib/groupStats'
 import {groupAmount, groupPnl} from '../../lib/groupStats'
 import {ConfirmedUpdatedBadge} from '../fundBits'
 import {FundDetailDialog} from '../FundDetailDialog'
-import {Skeleton} from '../ui/skeleton'
 
 const COL_W = {day: 84, cum: 84, nav: 76}
 

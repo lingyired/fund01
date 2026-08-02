@@ -2,14 +2,9 @@ import {useEffect, useMemo, useState} from 'react'
 import ReactECharts from 'echarts-for-react'
 import type {IndexHistoryPayload, IndexHistoryRange, IndexItem} from '@fund01/core'
 import {usePorts} from '../context'
+import {Button, Dialog} from '@radix-ui/themes'
+import {X} from 'lucide-react'
 import {cn, formatPct, pctClass} from '@fund01/core'
-import {Button} from './ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 
 const RANGES: {key: IndexHistoryRange; label: string}[] = [
   {key: '1m', label: '近一月'},
@@ -193,13 +188,13 @@ export function IndexTrendDialog({
   }, [data])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-1rem)] max-w-2xl p-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:p-5 lg:max-w-5xl">
-        <DialogHeader className="pr-6">
-          <DialogTitle className="truncate text-base sm:text-lg">
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content className="rt-popup-dialog w-[calc(100%-1rem)] max-w-2xl p-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:p-5 lg:max-w-5xl">
+        <div className="mb-4 flex flex-col gap-1 pr-6">
+          <Dialog.Title className="font-display font-bold truncate text-base sm:text-lg">
             {item?.name || '指数趋势'}
-          </DialogTitle>
-        </DialogHeader>
+          </Dialog.Title>
+        </div>
 
         <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
           {RANGES.map((r) => {
@@ -209,7 +204,7 @@ export function IndexTrendDialog({
               <Button
                 key={r.key}
                 type="button"
-                size="sm"
+                size="1"
                 variant="outline"
                 className={cn(
                   'h-auto min-h-9 shrink-0 flex-col gap-0.5 px-2.5 py-1.5 text-xs sm:px-3',
@@ -266,7 +261,10 @@ export function IndexTrendDialog({
             </div>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 }

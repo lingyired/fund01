@@ -3,8 +3,7 @@ import {LineChart, Plus, Trash2} from 'lucide-react'
 import type {FundQuoteRow} from '@fund01/core'
 import {createFund, removeFund} from '../lib/fundOps'
 import {usePorts} from '../context'
-import {Button} from './ui/button'
-import {Panel, PanelHeader} from './ui/panel'
+import {Button, Card, IconButton} from '@radix-ui/themes'
 import {FundTrendDialog} from './FundTrendDialog'
 import {FundFormDialog} from './FundFormDialog'
 import {SectorTags} from './fundBits'
@@ -29,21 +28,23 @@ export function WatchlistModule({
       .map((p) => ({time: p.time, value: p.growth as number}))
 
   return (
-    <Panel className="min-w-0">
-      <PanelHeader
-        title="自选基金"
-        desc="按添加顺序固定排列"
-        action={
+    <Card className="rt-panel min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line/70 px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h2 className="shrink-0 font-display text-base font-bold tracking-tight">自选基金</h2>
+          <p className="min-w-0 truncate text-xs text-muted">按添加顺序固定排列</p>
+        </div>
+        <div className="shrink-0">
           <Button
-            size="sm"
-            variant="secondary"
+            size="1"
+            variant="soft"
             onClick={() => setOpen(true)}
           >
             <Plus className="h-4 w-4" />
             添加自选
           </Button>
-        }
-      />
+        </div>
+      </div>
 
       <div className="space-y-2 px-3 pb-4 pt-2 md:hidden">
         {loading && !list.length ? (
@@ -67,15 +68,14 @@ export function WatchlistModule({
               </div>
               <div className="mt-2 flex justify-end gap-1">
                 <Button
-                  size="sm"
+                  size="1"
                   variant="ghost"
                   onClick={() => setTrendRow(row)}
                 >
                   <LineChart className="h-4 w-4" />
                   走势
                 </Button>
-                <Button
-                  size="icon"
+                <IconButton
                   variant="ghost"
                   onClick={async () => {
                     if (!confirm(`删除自选 ${row.name}?`)) return
@@ -84,7 +84,7 @@ export function WatchlistModule({
                   }}
                 >
                   <Trash2 className="h-4 w-4 text-rise" />
-                </Button>
+                </IconButton>
               </div>
             </div>
           ))
@@ -132,15 +132,14 @@ export function WatchlistModule({
                   <td className="whitespace-nowrap pl-4 pr-3 py-2">
                     <div className="flex justify-center gap-1">
                       <Button
-                        size="sm"
+                        size="1"
                         variant="ghost"
                         onClick={() => setTrendRow(row)}
                       >
                         <LineChart className="h-4 w-4" />
                         走势
                       </Button>
-                      <Button
-                        size="icon"
+                      <IconButton
                         variant="ghost"
                         className="h-8 w-8"
                         onClick={async () => {
@@ -150,7 +149,7 @@ export function WatchlistModule({
                         }}
                       >
                         <Trash2 className="h-4 w-4 text-rise" />
-                      </Button>
+                      </IconButton>
                     </div>
                   </td>
                 </tr>
@@ -181,6 +180,6 @@ export function WatchlistModule({
         intradayPoints={trendRow ? trendPoints(trendRow) : []}
         badgePercent={trendRow?.percent ?? null}
       />
-    </Panel>
+    </Card>
   )
 }

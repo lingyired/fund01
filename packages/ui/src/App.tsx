@@ -12,7 +12,6 @@ import {
 import {useMarketData} from './hooks'
 import {usePorts} from './context'
 import {createFund, listHoldingGroups} from './lib/fundOps'
-import {Button} from './components/ui/button'
 import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
 import {FundActionsMenu} from './components/popup/FundActionsMenu'
@@ -20,7 +19,7 @@ import {ConfigDialog} from './components/ConfigDialog'
 import {FundFormDialog} from './components/FundFormDialog'
 import {ImportHoldingsDialog} from './components/ImportHoldingsDialog'
 import {BatchEditHoldingsDialog} from './components/BatchEditHoldingsDialog'
-import {Theme} from '@radix-ui/themes'
+import {IconButton, Theme} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
 // 以便和 Tailwind 建立正确的 CSS 层级顺序（详见 index.css 顶部注释）。
@@ -131,18 +130,16 @@ export function App({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <Button
+          <IconButton
             variant="outline"
-            size="icon"
             onClick={handleRefresh}
             disabled={refreshing}
             title="刷新"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          </Button>
-          <Button
+          </IconButton>
+          <IconButton
             variant="outline"
-            size="icon"
             onClick={toggleTheme}
             title={resolved === 'light' ? '切换暗色' : '切换亮色'}
           >
@@ -151,16 +148,15 @@ export function App({
             ) : (
               <Sun className="h-4 w-4" />
             )}
-          </Button>
+          </IconButton>
           {openAsTab ? (
-            <Button
+            <IconButton
               variant="outline"
-              size="icon"
               onClick={openAsTab}
               title="在新标签页中打开"
             >
               <ExternalLink className="h-4 w-4" />
-            </Button>
+            </IconButton>
           ) : null}
           <FundActionsMenu
             onAdd={() => setAddOpen(true)}
@@ -168,14 +164,13 @@ export function App({
             onImport={() => setImportOpen(true)}
             onOpenTab={openAsTab}
           />
-          <Button
+          <IconButton
             variant="outline"
-            size="icon"
             onClick={() => setConfigOpen(true)}
             title="配置"
           >
             <FolderSync className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
       </header>
 

@@ -1,5 +1,6 @@
 import {useEffect, useMemo, useState} from 'react'
-import {ArrowDown, ArrowUp, Trash2} from 'lucide-react'
+import {ArrowDown, ArrowUp, Trash2, X} from 'lucide-react'
+import {Button, Dialog, IconButton, TextField} from '@radix-ui/themes'
 import type {FundRecord, Ports} from '@fund01/core'
 import {
   getHoldingGroupOrder,
@@ -10,14 +11,6 @@ import {
   setHoldingGroupOrder,
 } from '../lib/fundOps'
 import {usePorts} from '../context'
-import {Button} from './ui/button'
-import {Input} from './ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 
 /** 一行可编辑项：某基金在某分组的份额与成本 */
 type EditRow = {
@@ -216,11 +209,11 @@ export function BatchEditHoldingsDialog({
   const currentTabGroup = isAllTab ? null : activeGroupKey
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader className="shrink-0">
-          <DialogTitle>批量编辑持仓</DialogTitle>
-        </DialogHeader>
+    <Dialog.Root open={open} onOpenChange={(v) => !saving && onOpenChange(v)}>
+      <Dialog.Content className="rt-popup-dialog max-w-3xl">
+        <div className="mb-4 flex flex-col gap-1 shrink-0">
+          <Dialog.Title className="font-display font-bold">批量编辑持仓</Dialog.Title>
+        </div>
         <p className="shrink-0 text-xs text-muted">
           可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；上下箭头调整组内排序；删除分组会连带删除组内所有基金。保存后生效。
         </p>
@@ -274,7 +267,7 @@ export function BatchEditHoldingsDialog({
             </div>
             <Button
               type="button"
-              size="sm"
+              size="1"
               variant="ghost"
               disabled={saving}
               onClick={() => deleteGroup(currentTabGroup)}
@@ -345,7 +338,7 @@ export function BatchEditHoldingsDialog({
                         </div>
                       </td>
                       <td className="px-2 py-1.5 align-middle">
-                        <Input
+                        <TextField.Root
                           type="number"
                           step="0.0001"
                           min="0"
@@ -357,7 +350,7 @@ export function BatchEditHoldingsDialog({
                         />
                       </td>
                       <td className="px-2 py-1.5 align-middle">
-                        <Input
+                        <TextField.Root
                           type="number"
                           step="0.0001"
                           min="0"
@@ -370,9 +363,8 @@ export function BatchEditHoldingsDialog({
                       </td>
                       <td className="px-2 py-1.5 align-middle">
                         <div className="flex justify-center gap-0.5">
-                          <Button
+                          <IconButton
                             type="button"
-                            size="icon"
                             variant="ghost"
                             className="h-7 w-7"
                             disabled={saving || !canMove || isFirst}
@@ -384,10 +376,9 @@ export function BatchEditHoldingsDialog({
                             }
                           >
                             <ArrowUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
+                          </IconButton>
+                          <IconButton
                             type="button"
-                            size="icon"
                             variant="ghost"
                             className="h-7 w-7"
                             disabled={saving || !canMove || isLast}
@@ -399,14 +390,13 @@ export function BatchEditHoldingsDialog({
                             }
                           >
                             <ArrowDown className="h-3.5 w-3.5" />
-                          </Button>
+                          </IconButton>
                         </div>
                       </td>
                       <td className="px-2 py-1.5 align-middle">
                         <div className="flex justify-center">
-                          <Button
+                          <IconButton
                             type="button"
-                            size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-rise hover:bg-rise/10"
                             disabled={saving}
@@ -414,7 +404,7 @@ export function BatchEditHoldingsDialog({
                             title="移除该分组份额"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          </IconButton>
                         </div>
                       </td>
                     </tr>
@@ -438,7 +428,10 @@ export function BatchEditHoldingsDialog({
             {saving ? '保存中...' : '保存'}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 }

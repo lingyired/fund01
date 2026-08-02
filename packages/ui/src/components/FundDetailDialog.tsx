@@ -1,12 +1,6 @@
 import {useState} from 'react'
-import {LineChart} from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
-import {Button} from './ui/button'
+import {LineChart, X} from 'lucide-react'
+import {Button, Dialog} from '@radix-ui/themes'
 import {FundTrendDialog} from './FundTrendDialog'
 import {SectorTags} from './fundBits'
 import {formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
@@ -55,14 +49,14 @@ export function FundDetailDialog({
   const s = stats
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100%-1rem)] max-w-2xl p-4 sm:p-5">
-        <DialogHeader className="pr-6">
-          <DialogTitle className="truncate text-base sm:text-lg">
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content className="rt-popup-dialog w-[calc(100%-1rem)] max-w-2xl p-4 sm:p-5">
+        <div className="mb-4 flex flex-col gap-1 pr-6">
+          <Dialog.Title className="font-display font-bold truncate text-base sm:text-lg">
             {row.name}
-          </DialogTitle>
+          </Dialog.Title>
           <div className="font-mono text-xs text-muted">{row.code}</div>
-        </DialogHeader>
+        </div>
 
         {/* 收益数据：与列表一致，4 项两行展示 */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -119,7 +113,7 @@ export function FundDetailDialog({
           <div className="mb-1 flex items-center justify-between">
             <span className="text-[11px] text-muted">走势（涨幅）</span>
             <Button
-              size="sm"
+              size="1"
               variant="ghost"
               className="h-7 px-2 text-xs"
               onClick={() => setTrendOpen(true)}
@@ -134,7 +128,11 @@ export function FundDetailDialog({
             点击「查看走势」加载分时/历史曲线
           </div>
         </div>
-      </DialogContent>
+
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
 
       <FundTrendDialog
         open={trendOpen}
@@ -145,7 +143,7 @@ export function FundDetailDialog({
         intradayPoints={trendPoints}
         badgePercent={row.percent ?? null}
       />
-    </Dialog>
+    </Dialog.Root>
   )
 }
 

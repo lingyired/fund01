@@ -1,16 +1,8 @@
 import {useEffect, useRef, useState} from 'react'
-import {ChevronDown, ChevronRight} from 'lucide-react'
+import {ChevronDown, ChevronRight, X} from 'lucide-react'
+import {Button, Dialog, TextField} from '@radix-ui/themes'
 import {addHoldingGroup, createFund, listHoldingGroups} from '../lib/fundOps'
 import {usePorts} from '../context'
-import {Button} from './ui/button'
-import {Input} from './ui/input'
-import {Label} from './ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 
 /** 一条导入记录：一个 (基金, 分组, 金额[, 成本]) 元组 */
 export type ImportEntry = {
@@ -219,11 +211,11 @@ export function ImportHoldingsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !running && onOpenChange(v)}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>导入持仓</DialogTitle>
-        </DialogHeader>
+    <Dialog.Root open={open} onOpenChange={(v) => !running && onOpenChange(v)}>
+      <Dialog.Content className="rt-popup-dialog max-w-lg">
+        <div className="mb-4 flex flex-col gap-1">
+          <Dialog.Title className="font-display font-bold">导入持仓</Dialog.Title>
+        </div>
 
         {/* 格式说明（可折叠） */}
         <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
@@ -260,7 +252,7 @@ export function ImportHoldingsDialog({
 
         {/* 默认分组选择（用于 JSON 中未指定 group 的条目） */}
         <div className="space-y-1.5">
-          <Label htmlFor="default-group">默认分组（JSON 未指定 group 时应用）</Label>
+          <label htmlFor="default-group" className="text-sm font-medium text-ink-soft leading-none">默认分组（JSON 未指定 group 时应用）</label>
           <select
             id="default-group"
             value={defaultGroup}
@@ -286,8 +278,8 @@ export function ImportHoldingsDialog({
         <div className="flex gap-2">
           <Button
             type="button"
-            size="sm"
-            variant={mode === 'file' ? 'default' : 'outline'}
+            size="1"
+            variant={mode === 'file' ? 'solid' : 'outline'}
             onClick={() => setMode('file')}
             disabled={running}
           >
@@ -295,8 +287,8 @@ export function ImportHoldingsDialog({
           </Button>
           <Button
             type="button"
-            size="sm"
-            variant={mode === 'paste' ? 'default' : 'outline'}
+            size="1"
+            variant={mode === 'paste' ? 'solid' : 'outline'}
             onClick={() => setMode('paste')}
             disabled={running}
           >
@@ -306,8 +298,8 @@ export function ImportHoldingsDialog({
 
         {mode === 'file' ? (
           <div className="space-y-1.5">
-            <Label htmlFor="import-file">JSON 文件</Label>
-            <Input
+            <label htmlFor="import-file" className="text-sm font-medium text-ink-soft leading-none">JSON 文件</label>
+            <input
               id="import-file"
               ref={fileRef}
               type="file"
@@ -317,6 +309,7 @@ export function ImportHoldingsDialog({
                 const f = e.target.files?.[0]
                 if (f) handleFile(f)
               }}
+              className="flex h-9 w-full rounded-md border border-line bg-panel px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
             />
             {text ? (
               <div className="text-xs text-muted">已加载文件，预览见下方</div>
@@ -324,7 +317,7 @@ export function ImportHoldingsDialog({
           </div>
         ) : (
           <div className="space-y-1.5">
-            <Label htmlFor="import-text">粘贴 JSON 数组</Label>
+            <label htmlFor="import-text" className="text-sm font-medium text-ink-soft leading-none">粘贴 JSON 数组</label>
             <textarea
               id="import-text"
               value={text}
@@ -431,7 +424,10 @@ export function ImportHoldingsDialog({
               : `导入 ${entries.length} 条`}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 }

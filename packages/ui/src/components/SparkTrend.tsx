@@ -1,12 +1,8 @@
 import {useMemo, useState} from 'react'
 import ReactECharts from 'echarts-for-react'
+import {Dialog} from '@radix-ui/themes'
+import {X} from 'lucide-react'
 import {cn, pctClass} from '@fund01/core'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 import {FundTrendDialog} from './FundTrendDialog'
 
 export type TrendPoint = {
@@ -272,10 +268,10 @@ export function SparkTrend({
           badgePercent={badgePercent}
         />
       ) : (
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center justify-between gap-3 pr-6">
+        <Dialog.Root open={open} onOpenChange={setOpen}>
+          <Dialog.Content className="rt-popup-dialog max-w-2xl">
+            <div className="mb-4 flex flex-col gap-1">
+              <Dialog.Title className="font-display font-bold flex items-center justify-between gap-3 pr-6">
                 <span className="truncate">{title}</span>
                 <span className="flex shrink-0 flex-col items-end gap-0.5">
                   {mode === 'percent' ? <MiniPct value={lastPct} /> : null}
@@ -286,16 +282,19 @@ export function SparkTrend({
                     />
                   ) : null}
                 </span>
-              </DialogTitle>
-            </DialogHeader>
+              </Dialog.Title>
+            </div>
             <ReactECharts
               option={fullOption}
               style={{height: 320, width: '100%'}}
               opts={{renderer: 'canvas'}}
               notMerge
             />
-          </DialogContent>
-        </Dialog>
+            <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+              <X className="h-4 w-4" />
+            </Dialog.Close>
+          </Dialog.Content>
+        </Dialog.Root>
       )}
     </>
   )

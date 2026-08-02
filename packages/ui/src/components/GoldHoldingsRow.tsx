@@ -1,19 +1,10 @@
 import {useEffect, useState} from 'react'
-import {Settings2} from 'lucide-react'
+import {Settings2, X} from 'lucide-react'
 import type {GoldPayload} from '@fund01/core'
 import {updateGoldConfig} from '../lib/fundOps'
 import {usePorts} from '../context'
 import {formatAmount, formatMoney, pctClass} from '@fund01/core'
-import {Button} from './ui/button'
-import {Input} from './ui/input'
-import {Label} from './ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
-import {Panel, PanelHeader} from './ui/panel'
+import {Button, Card, Dialog, TextField} from '@radix-ui/themes'
 import {SparkTrend} from './SparkTrend'
 
 function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
@@ -30,11 +21,13 @@ function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
   }, [data?.holding, data?.avgPrice])
 
   const dialog = (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>AU9999 仓位设置</DialogTitle>
-        </DialogHeader>
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Content className="rt-popup-dialog">
+        <div className="mb-4 flex flex-col gap-1">
+          <Dialog.Title className="font-display font-bold">
+            AU9999 仓位设置
+          </Dialog.Title>
+        </div>
         <form
           className="space-y-3"
           onSubmit={async (e) => {
@@ -54,8 +47,13 @@ function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
         >
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="gold-holding">持有（克）</Label>
-              <Input
+              <label
+                htmlFor="gold-holding"
+                className="text-sm font-medium text-ink-soft leading-none"
+              >
+                持有（克）
+              </label>
+              <TextField.Root
                 id="gold-holding"
                 type="number"
                 step="0.01"
@@ -65,8 +63,13 @@ function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="gold-avg">均价（元/克）</Label>
-              <Input
+              <label
+                htmlFor="gold-avg"
+                className="text-sm font-medium text-ink-soft leading-none"
+              >
+                均价（元/克）
+              </label>
+              <TextField.Root
                 id="gold-avg"
                 type="number"
                 step="0.01"
@@ -85,8 +88,11 @@ function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 
   return {openSettings: () => setOpen(true), dialog}
@@ -123,17 +129,23 @@ export function GoldPanel({
   const points = goldPricePoints(data)
 
   return (
-    <Panel className="min-w-0 w-full">
-      <PanelHeader
-        title="黄金"
-        desc="AU9999 沪金 · 交易跨日，独立于基金当日结算"
-        action={
-          <Button size="sm" variant="outline" onClick={openSettings}>
+    <Card className="rt-panel min-w-0 w-full">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line/70 px-3 py-2.5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <h2 className="shrink-0 font-display text-base font-bold tracking-tight">
+            黄金
+          </h2>
+          <p className="min-w-0 truncate text-xs text-muted">
+            AU9999 沪金 · 交易跨日，独立于基金当日结算
+          </p>
+        </div>
+        <div className="shrink-0">
+          <Button size="1" variant="outline" onClick={openSettings}>
             <Settings2 className="h-4 w-4" />
             仓位
           </Button>
-        }
-      />
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 px-3 pb-4 pt-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-5 sm:px-5 sm:pt-5">
         {/* 左侧数据 */}
@@ -228,6 +240,6 @@ export function GoldPanel({
         </div>
       </div>
       {dialog}
-    </Panel>
+    </Card>
   )
 }

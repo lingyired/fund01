@@ -2,7 +2,7 @@ import {useState} from 'react'
 import type {IndexItem} from '@fund01/core'
 import {cn, formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
 import {IndexTrendDialog} from '../IndexTrendDialog'
-import {Skeleton} from '../ui/skeleton'
+import {Skeleton} from '@radix-ui/themes'
 
 /** 指数看板：无标题，按 selected 过滤（最多 5 个），横向展示名称/价格/涨跌值/涨跌幅 */
 export function IndexBar({

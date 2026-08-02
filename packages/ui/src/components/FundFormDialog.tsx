@@ -1,17 +1,9 @@
 import {useEffect, useState} from 'react'
-import {Plus} from 'lucide-react'
+import {Plus, X} from 'lucide-react'
+import {Button, Dialog, TextField} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {addHoldingGroup} from '../lib/fundOps'
 import {usePorts} from '../context'
-import {Button} from './ui/button'
-import {Input} from './ui/input'
-import {Label} from './ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 
 /** 录入金额对应哪一版确认净值市值 */
 export type AmountBasis = 'prev' | 'today'
@@ -111,10 +103,10 @@ export function FundFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content className="rt-popup-dialog">
+        <div className="mb-4 flex flex-col gap-1">
+          <Dialog.Title className="font-display font-bold">
             {initial
               ? mode === 'hold'
                 ? '编辑持仓金额'
@@ -122,8 +114,8 @@ export function FundFormDialog({
               : mode === 'hold'
                 ? '添加持仓'
                 : '添加自选'}
-          </DialogTitle>
-        </DialogHeader>
+          </Dialog.Title>
+        </div>
 
         <form
           className="space-y-3"
@@ -159,8 +151,8 @@ export function FundFormDialog({
           }}
         >
           <div className="space-y-1.5">
-            <Label htmlFor="code">基金代码</Label>
-            <Input
+            <label htmlFor="code" className="text-sm font-medium text-ink-soft leading-none">基金代码</label>
+            <TextField.Root
               id="code"
               value={code}
               disabled={!!initial}
@@ -175,9 +167,9 @@ export function FundFormDialog({
             <>
               {/* 分组（单选） */}
               <div className="space-y-1.5">
-                <Label>
+                <label className="text-sm font-medium text-ink-soft leading-none">
                   分组（单选，本次金额对应的分组份额；一个基金可在多个分组各持有独立份额）
-                </Label>
+                </label>
                 <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-paper/40 p-2">
                   {/* 未分组选项 */}
                   <button
@@ -222,7 +214,7 @@ export function FundFormDialog({
                 )}
                 {/* 内联新增分组 */}
                 <div className="flex gap-2 pt-1">
-                  <Input
+                  <TextField.Root
                     type="text"
                     value={newGroup}
                     onChange={(e) => setNewGroup(e.target.value)}
@@ -233,7 +225,7 @@ export function FundFormDialog({
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
+                    size="1"
                     disabled={saving || addingGroup || !newGroup.trim()}
                     onClick={handleAddGroup}
                   >
@@ -277,12 +269,12 @@ export function FundFormDialog({
                 </label>
               </fieldset>
               <div className="space-y-1.5">
-                <Label htmlFor="amount">
+                <label htmlFor="amount" className="text-sm font-medium text-ink-soft leading-none">
                   {initial
                     ? `持仓金额（${selectedGroup || '未分组'}）`
                     : '持仓金额'}
-                </Label>
-                <Input
+                </label>
+                <TextField.Root
                   id="amount"
                   type="number"
                   step="0.01"
@@ -294,10 +286,10 @@ export function FundFormDialog({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="cost">
+                <label htmlFor="cost" className="text-sm font-medium text-ink-soft leading-none">
                   持仓成本单价（可选，用于累计收益）
-                </Label>
-                <Input
+                </label>
+                <TextField.Root
                   id="cost"
                   type="number"
                   step="0.0001"
@@ -329,7 +321,10 @@ export function FundFormDialog({
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 }

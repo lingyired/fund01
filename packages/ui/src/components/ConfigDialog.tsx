@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from 'react'
 import {Check, Download, Pencil, Plus, Trash2, Upload, X} from 'lucide-react'
+import {Button, Dialog, IconButton, TextField} from '@radix-ui/themes'
 import type {AppConfig, AppThemePref, IndexItem} from '@fund01/core'
 import {
   DEFAULT_SELECTED_INDICES,
@@ -18,15 +19,6 @@ import {
 import {usePorts} from '../context'
 import {MIN_REFRESH_INTERVAL} from '@fund01/core'
 import {applyTheme} from '../theme'
-import {Button} from './ui/button'
-import {Input} from './ui/input'
-import {Label} from './ui/label'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog'
 import {cn} from '@fund01/core'
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
@@ -261,11 +253,11 @@ export function ConfigDialog({
     : DEFAULT_SELECTED_INDICES.map((code) => ({code, name: code, percent: null}))
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>个人配置</DialogTitle>
-        </DialogHeader>
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Content className="rt-popup-dialog">
+        <div className="mb-4 flex flex-col gap-1">
+          <Dialog.Title className="font-display font-bold">个人配置</Dialog.Title>
+        </div>
 
         {/* 外观：主题 */}
         <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">
@@ -345,7 +337,7 @@ export function ConfigDialog({
                 >
                   {editingIdx === idx ? (
                     <>
-                      <Input
+                      <TextField.Root
                         type="text"
                         value={editingName}
                         onChange={(e) => setEditingName(e.target.value)}
@@ -356,31 +348,28 @@ export function ConfigDialog({
                           if (e.key === 'Escape') setEditingIdx(null)
                         }}
                       />
-                      <Button
+                      <IconButton
                         type="button"
-                        size="icon"
                         variant="ghost"
                         className="h-7 w-7"
                         onClick={() => handleRenameGroup(idx)}
                       >
                         <Check className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
+                      </IconButton>
+                      <IconButton
                         type="button"
-                        size="icon"
                         variant="ghost"
                         className="h-7 w-7"
                         onClick={() => setEditingIdx(null)}
                       >
                         <X className="h-3.5 w-3.5" />
-                      </Button>
+                      </IconButton>
                     </>
                   ) : (
                     <>
                       <span className="flex-1 truncate text-sm text-ink">{g}</span>
-                      <Button
+                      <IconButton
                         type="button"
-                        size="icon"
                         variant="ghost"
                         className="h-7 w-7"
                         onClick={() => {
@@ -389,16 +378,15 @@ export function ConfigDialog({
                         }}
                       >
                         <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
+                      </IconButton>
+                      <IconButton
                         type="button"
-                        size="icon"
                         variant="ghost"
                         className="h-7 w-7"
                         onClick={() => handleRemoveGroup(g)}
                       >
                         <Trash2 className="h-3.5 w-3.5 text-rise" />
-                      </Button>
+                      </IconButton>
                     </>
                   )}
                 </div>
@@ -408,7 +396,7 @@ export function ConfigDialog({
 
           {/* 新增分组 */}
           <div className="flex gap-2 pt-1">
-            <Input
+            <TextField.Root
               type="text"
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
@@ -422,7 +410,7 @@ export function ConfigDialog({
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="1"
               disabled={addingGroup || !newGroupName.trim()}
               onClick={handleAddGroup}
             >
@@ -440,7 +428,7 @@ export function ConfigDialog({
             基金当日净值/估值/涨跌幅的来源。两种数据源的盘中分时走势均走 fund123。
           </p>
           <div className="space-y-1 pt-1">
-            <Label htmlFor="quote-source">当日行情数据源</Label>
+            <label htmlFor="quote-source" className="text-sm font-medium text-ink-soft leading-none">当日行情数据源</label>
             <select
               id="quote-source"
               value={quoteSource}
@@ -469,8 +457,8 @@ export function ConfigDialog({
           </p>
           <div className="grid grid-cols-2 gap-3 pt-1">
             <div className="space-y-1">
-              <Label htmlFor="ri-trading">盘中（秒）</Label>
-              <Input
+              <label htmlFor="ri-trading" className="text-sm font-medium text-ink-soft leading-none">盘中（秒）</label>
+              <TextField.Root
                 id="ri-trading"
                 type="number"
                 min={MIN_REFRESH_INTERVAL.trading}
@@ -482,8 +470,8 @@ export function ConfigDialog({
               <p className="text-[11px] text-muted">最低 {MIN_REFRESH_INTERVAL.trading}s</p>
             </div>
             <div className="space-y-1">
-              <Label htmlFor="ri-nontrading">非开市（秒）</Label>
-              <Input
+              <label htmlFor="ri-nontrading" className="text-sm font-medium text-ink-soft leading-none">非开市（秒）</label>
+              <TextField.Root
                 id="ri-nontrading"
                 type="number"
                 min={MIN_REFRESH_INTERVAL.nonTrading}
@@ -498,7 +486,7 @@ export function ConfigDialog({
           <div className="flex justify-end pt-1">
             <Button
               type="button"
-              size="sm"
+              size="1"
               disabled={savingInterval}
               onClick={saveRefreshInterval}
             >
@@ -536,7 +524,10 @@ export function ConfigDialog({
         </div>
         {message ? <p className="mt-1 text-sm text-fall">{message}</p> : null}
         {error ? <p className="mt-1 text-sm text-rise">{error}</p> : null}
-      </DialogContent>
-    </Dialog>
+        <Dialog.Close className="rt-dialog-close" aria-label="关闭">
+          <X className="h-4 w-4" />
+        </Dialog.Close>
+      </Dialog.Content>
+    </Dialog.Root>
   )
 }
