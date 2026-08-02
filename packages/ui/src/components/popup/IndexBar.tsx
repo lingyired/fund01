@@ -31,36 +31,46 @@ export function IndexBar({
         ) : ordered.length === 0 ? (
           <div className="py-3 text-xs text-muted">未选择指数，可在设置中勾选</div>
         ) : (
-          ordered.map((item) => (
-            <button
-              key={item.code}
-              type="button"
-              onClick={() => {
-                setActive(item)
-                setOpen(true)
-              }}
-              className="w-[124px] shrink-0 rounded-xl border border-line/70 bg-panel px-3 py-2 text-left transition-colors hover:bg-paper-deep"
-            >
-              <div className="truncate text-xs text-muted">{item.name}</div>
+          ordered.map((item) => {
+            const open = () => {
+              setActive(item)
+              setOpen(true)
+            }
+            return (
               <div
-                className={cn(
-                  'mt-1 font-mono text-base font-semibold tabular-nums',
-                  pctClass(item.percent),
-                )}
+                key={item.code}
+                role="button"
+                tabIndex={0}
+                onClick={open}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    open()
+                  }
+                }}
+                className="w-[124px] shrink-0 cursor-pointer rounded-xl border border-line/70 bg-panel px-3 py-2 text-left transition-colors hover:bg-paper-deep"
               >
-                {formatAmount(item.price)}
+                <div className="truncate text-xs text-muted">{item.name}</div>
+                <div
+                  className={cn(
+                    'mt-1 font-mono text-base font-semibold tabular-nums',
+                    pctClass(item.percent),
+                  )}
+                >
+                  {formatAmount(item.price)}
+                </div>
+                <div
+                  className={cn(
+                    'mt-0.5 flex items-baseline gap-1 font-mono text-xs tabular-nums',
+                    pctClass(item.percent),
+                  )}
+                >
+                  <span>{formatMoney(item.change)}</span>
+                  <span>{formatPct(item.percent)}</span>
+                </div>
               </div>
-              <div
-                className={cn(
-                  'mt-0.5 flex items-baseline gap-1 font-mono text-xs tabular-nums',
-                  pctClass(item.percent),
-                )}
-              >
-                <span>{formatMoney(item.change)}</span>
-                <span>{formatPct(item.percent)}</span>
-              </div>
-            </button>
-          ))
+            )
+          })
         )}
       </div>
       <IndexTrendDialog item={active} open={open} onOpenChange={setOpen} />

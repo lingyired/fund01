@@ -13,18 +13,27 @@ export function GroupTabs({
 }) {
   if (tabs.length <= 1) return null
   return (
-    <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-line/70 px-3">
+    <div className="scrollbar-hide flex gap-1 overflow-x-auto border-b border-line/70 px-3" role="tablist">
       {tabs.map((t) => {
         const active = t.id === activeTab
         const dot =
           t.up > t.down ? 'bg-rise' : t.down > t.up ? 'bg-fall' : ''
+        const activate = () => onChange(t.id)
         return (
-          <button
+          <div
             key={t.id}
-            type="button"
-            onClick={() => onChange(t.id)}
+            role="tab"
+            aria-selected={active}
+            tabIndex={0}
+            onClick={activate}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                activate()
+              }
+            }}
             className={cn(
-              'relative flex items-center whitespace-nowrap px-3 py-2 text-sm transition-colors',
+              'relative flex cursor-pointer items-center whitespace-nowrap px-3 py-2 text-sm transition-colors',
               active ? 'font-medium text-ink' : 'text-muted hover:text-ink-soft',
             )}
           >
@@ -36,7 +45,7 @@ export function GroupTabs({
             {active ? (
               <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />
             ) : null}
-          </button>
+          </div>
         )
       })}
     </div>

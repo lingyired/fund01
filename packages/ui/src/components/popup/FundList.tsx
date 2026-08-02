@@ -105,10 +105,17 @@ export function FundList({
                 <Table.Cell>
                   <div className="flex min-w-0 items-center gap-1.5">
                     {canExpand ? (
-                      <button
-                        type="button"
+                      <span
+                        role="button"
+                        tabIndex={0}
                         onClick={() => toggleExpand(row.code)}
-                        className="shrink-0 text-muted hover:text-ink"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            toggleExpand(row.code)
+                          }
+                        }}
+                        className="shrink-0 cursor-pointer text-muted hover:text-ink"
                         aria-label="展开分组"
                       >
                         {expandedRow ? (
@@ -116,17 +123,24 @@ export function FundList({
                         ) : (
                           <ChevronRight className="h-3.5 w-3.5" />
                         )}
-                      </button>
+                      </span>
                     ) : null}
                     <div className="min-w-0">
-                      <button
-                        type="button"
+                      <span
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setDetailRow(row)}
-                        className="block max-w-full truncate text-left text-sm font-medium text-ink hover:underline"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setDetailRow(row)
+                          }
+                        }}
+                        className="block max-w-full cursor-pointer truncate text-left text-sm font-medium text-ink hover:underline"
                         title="点击查看详情"
                       >
                         {row.name}
-                      </button>
+                      </span>
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="font-mono text-xs text-muted">
                           {row.code}

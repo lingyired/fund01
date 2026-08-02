@@ -27,32 +27,42 @@ export function IndicesModule({
           ? Array.from({length: 10}).map((_, i) => (
             <div key={i} className="h-20 animate-pulse rounded-xl bg-paper-deep/80 sm:h-24" />
           ))
-          : list.map((item) => (
-            <button
-              key={item.code}
-              type="button"
-              className="rounded-xl border border-line/70 bg-paper/50 px-3 py-2.5 text-left transition-transform duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
-              onClick={() => {
-                setActive(item)
-                setOpen(true)
-              }}
-            >
-              <div className="truncate text-xs text-muted">{item.name}</div>
-              {/* 指数值单独一行（随涨跌着色） */}
+          : list.map((item) => {
+            const open = () => {
+              setActive(item)
+              setOpen(true)
+            }
+            return (
               <div
-                className={`mt-1.5 font-mono text-base font-semibold tabular-nums sm:text-lg ${pctClass(item.percent)}`}
+                key={item.code}
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer rounded-xl border border-line/70 bg-paper/50 px-3 py-2.5 text-left transition-transform duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+                onClick={open}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    open()
+                  }
+                }}
               >
-                {formatAmount(item.price)}
+                <div className="truncate text-xs text-muted">{item.name}</div>
+                {/* 指数值单独一行（随涨跌着色） */}
+                <div
+                  className={`mt-1.5 font-mono text-base font-semibold tabular-nums sm:text-lg ${pctClass(item.percent)}`}
+                >
+                  {formatAmount(item.price)}
+                </div>
+                {/* 涨跌额 + 百分比 一行 */}
+                <div
+                  className={`mt-0.5 flex items-baseline gap-1.5 font-mono text-xs tabular-nums sm:text-sm ${pctClass(item.percent)}`}
+                >
+                  <span>{formatMoney(item.change)}</span>
+                  <span>{formatPct(item.percent)}</span>
+                </div>
               </div>
-              {/* 涨跌额 + 百分比 一行 */}
-              <div
-                className={`mt-0.5 flex items-baseline gap-1.5 font-mono text-xs tabular-nums sm:text-sm ${pctClass(item.percent)}`}
-              >
-                <span>{formatMoney(item.change)}</span>
-                <span>{formatPct(item.percent)}</span>
-              </div>
-            </button>
-          ))}
+            )
+          })}
       </div>
 
       <IndexTrendDialog item={active} open={open} onOpenChange={setOpen} />
