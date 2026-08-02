@@ -182,7 +182,12 @@ export function FundList({
       <Table.Header className="rt-sticky-thead">
         <Table.Row>
           {/* 基金：按持仓金额排序 */}
-          <SortableHeader sortKey="amount" label="基金" sort={sort} onSort={handleSort} />
+          <SortableHeader
+            sortKey="amount"
+            label="基金（持仓金额）"
+            sort={sort}
+            onSort={handleSort}
+          />
           <SortableHeader
             sortKey="pnl"
             label="当日收益"
