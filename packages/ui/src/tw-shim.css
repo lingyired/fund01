@@ -17,6 +17,7 @@
 .bg-accent{background-color:var(--accent-9)}
 .bg-accent\/10{background-color:color-mix(in oklab, var(--accent-9) 10%, transparent)}
 .bg-fall\/20{background-color:color-mix(in oklab, var(--app-fall) 20%, transparent)}
+.bg-fall{background-color:var(--app-fall)}
 .bg-gold\/10{background-color:color-mix(in oklab, var(--app-gold) 10%, transparent)}
 .bg-gradient-to-br{--tw-gradient-position:to bottom right;background-image:linear-gradient(var(--tw-gradient-position),var(--tw-gradient-stops))}
 .bg-panel{background-color:var(--color-panel)}
