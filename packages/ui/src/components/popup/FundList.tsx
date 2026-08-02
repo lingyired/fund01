@@ -1,5 +1,11 @@
-import {Fragment, useState} from 'react'
-import {ChevronDown, ChevronRight} from 'lucide-react'
+import {Fragment, useMemo, useState} from 'react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
+} from 'lucide-react'
 import {Skeleton, Table} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {
@@ -16,6 +22,75 @@ import {FundDetailDialog} from '../FundDetailDialog'
 
 const COL_W = {day: 84, cum: 84, nav: 76}
 
+type SortKey = 'amount' | 'pnl' | 'cumPnl' | 'netValue'
+type SortDir = 'asc' | 'desc'
+
+function sortValue(row: DisplayRow, key: SortKey): number {
+  switch (key) {
+    case 'amount':
+      return row.amount
+    case 'pnl':
+      return row.pnl
+    case 'cumPnl':
+      // 未录入成本的行缺乏可比数据，排到最后
+      return row.cumPnl ?? Number.NEGATIVE_INFINITY
+    case 'netValue': {
+      const v = row.row.estimateNetValue ?? row.row.netValue ?? null
+      return v != null && Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY
+    }
+  }
+}
+
+function SortIcon({active, dir}: {active: boolean; dir?: SortDir}) {
+  if (!active) {
+    return (
+      <ChevronsUpDown className="rt-sort-icon rt-sort-icon--idle" aria-hidden />
+    )
+  }
+  return dir === 'asc' ? (
+    <ArrowUp className="rt-sort-icon rt-sort-icon--active" aria-hidden />
+  ) : (
+    <ArrowDown className="rt-sort-icon rt-sort-icon--active" aria-hidden />
+  )
+}
+
+function SortableHeader({
+  sortKey,
+  label,
+  align,
+  sort,
+  onSort,
+}: {
+  sortKey: SortKey
+  label: string
+  align?: 'left' | 'right'
+  sort: {key: SortKey; dir: SortDir} | null
+  onSort: (k: SortKey) => void
+}) {
+  const active = sort?.key === sortKey
+  return (
+    <Table.ColumnHeaderCell
+      align={align}
+      aria-sort={
+        active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+      }
+    >
+      <button
+        type="button"
+        className={cn(
+          'rt-sort-btn',
+          align === 'right' ? 'rt-sort-btn--right' : 'rt-sort-btn--left',
+        )}
+        onClick={() => onSort(sortKey)}
+        aria-label={`按${label}排序`}
+      >
+        {label}
+        <SortIcon active={active} dir={sort?.dir} />
+      </button>
+    </Table.ColumnHeaderCell>
+  )
+}
+
 export function FundList({
   rows,
   activeTab,
@@ -30,6 +105,26 @@ export function FundList({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [detailRow, setDetailRow] = useState<FundQuoteRow | null>(null)
   const isAll = activeTab === 'all'
+
+  const [sort, setSort] = useState<{key: SortKey; dir: SortDir} | null>(null)
+  function handleSort(key: SortKey) {
+    setSort((cur) =>
+      cur && cur.key === key
+        ? {key, dir: cur.dir === 'asc' ? 'desc' : 'asc'}
+        : // 金额/收益类默认降序更符合直觉；再次点击切换方向
+          {key, dir: 'desc'},
+    )
+  }
+
+  // 默认（sort 为 null）保持入参顺序（后端按持仓金额降序），仅点击表头后才排序，
+  // 避免污染 PopupLayout 的汇总计算。
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows
+    const factor = sort.dir === 'asc' ? 1 : -1
+    return [...rows].sort(
+      (a, b) => (sortValue(a, sort.key) - sortValue(b, sort.key)) * factor,
+    )
+  }, [rows, sort])
 
   function toggleExpand(code: string) {
     setExpanded((cur) => {
@@ -86,14 +181,33 @@ export function FundList({
     >
       <Table.Header className="rt-sticky-thead">
         <Table.Row>
-          <Table.ColumnHeaderCell>基金</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell align="right">当日收益</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell align="right">持有收益</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell align="right">最新净值</Table.ColumnHeaderCell>
+          {/* 基金：按持仓金额排序 */}
+          <SortableHeader sortKey="amount" label="基金" sort={sort} onSort={handleSort} />
+          <SortableHeader
+            sortKey="pnl"
+            label="当日收益"
+            align="right"
+            sort={sort}
+            onSort={handleSort}
+          />
+          <SortableHeader
+            sortKey="cumPnl"
+            label="持有收益"
+            align="right"
+            sort={sort}
+            onSort={handleSort}
+          />
+          <SortableHeader
+            sortKey="netValue"
+            label="最新净值"
+            align="right"
+            sort={sort}
+            onSort={handleSort}
+          />
         </Table.Row>
       </Table.Header>
       <Table.Body>
-        {rows.map(({row, amount, pnl, cumPnl, cumPnlPercent, group}) => {
+        {sortedRows.map(({row, amount, pnl, cumPnl, cumPnlPercent, group}) => {
           const allocKeys = Object.keys(row.allocations || {})
           const canExpand = isAll && allocKeys.length > 1
           const expandedRow = expanded.has(row.code)

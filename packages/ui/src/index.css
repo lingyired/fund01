@@ -210,3 +210,47 @@
 .rt-fund-table .rt-ScrollAreaScrollbar {
   display: none !important;
 }
+/* 持仓列表：表头点击排序。
+   ColumnHeaderCell 内的按钮铺满单元格，靠 flex 对齐方向区分左/右列；
+   默认占位图标半透明，当前排序列高亮并用 accent 色，提示用户可点击。 */
+.rt-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.rt-sort-btn--left {
+  justify-content: flex-start;
+}
+.rt-sort-btn--right {
+  justify-content: flex-end;
+}
+.rt-sort-btn:hover {
+  color: var(--gray-12);
+}
+.rt-sort-btn:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.rt-sort-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.rt-sort-icon--idle {
+  opacity: 0.45;
+}
+.rt-sort-icon--active {
+  opacity: 1;
+  color: var(--accent-9);
+}
