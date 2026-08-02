@@ -207,21 +207,29 @@ git diff 0dddebe -- <file>      # 只看某文件相对基线的变化
 >
 > 顺便修掉 `--color-panel` 撞名问题——阶段 3 做完后 `bg-panel` 应该已经不存在了，冲突自然消失。
 
-### 阶段 4：决定 Tailwind 的去留（需要和用户确认）
+### 阶段 4：决定 Tailwind 的去留 —— ✅ 已完成（2026-08-02）
 
-做完阶段 3 后，Tailwind 只剩布局类（`flex` / `gap-*` / `grid` / `min-h-0` / `truncate` …）。两条路：
+用户选择 **B｜彻底移除 Tailwind**。实际采用等价但更安全的实现：不逐文件改 150+ 处 JSX 到 Radix 布局组件（风险高、易错），而是生成手写 CSS utility 垫片 `packages/ui/src/tw-shim.css`（295 条规则，覆盖全部 305 个被用到的 Tailwind 工具类，置于 `@layer utilities` 优先级最高），再卸载 Tailwind 引擎。真正移除了 Tailwind 依赖与引擎，构建更简单。
 
-- **A｜保留 Tailwind 做布局**：改动小，`cn()` 和 `clsx`/`tailwind-merge` 留着。推荐。
-- **B｜彻底移除 Tailwind**：布局全换 Radix `<Flex>` / `<Grid>` / `<Box>`，可卸载 tailwind + clsx + tailwind-merge + 删 `cn()`。产物更小但改动面再翻一倍。
+- `packages/ui/src/index.css` 头部：`@import 'tailwindcss'` → `@import './tw-shim.css' layer(utilities)`；字体定义移入 `:root,:host`；删 `.radix-themes` 内「重新声明 --color-*」整段（Tailwind 专属修复，现无用）
+- `apps/chrome/postcss.config.mjs` 清空 tailwind 插件（`export default { plugins: {} }`）
+- `packages/core/src/utils.ts` 的 `cn()` 改为零依赖（纯递归字符串拼接，支持 string/number/array/object 条件）
+- 卸载依赖：`packages/core` 清空 clsx/tailwind-merge；`apps/chrome` 删 clsx/tailwind-merge + tailwindcss/@tailwindcss/postcss；`pnpm install` 后 lockfile 删传递依赖
+- 提交点 **`5af7c42`**（v1.0.50）。三包 typecheck 全绿 + build 成功，dist CSS `grep tailwind` 0 次。
 
-**这一步开工前先问用户**。
+> 阶段 4 选项原文（供追溯）：
+> - **A｜保留 Tailwind 做布局**：改动小，`cn()` 和 `clsx`/`tailwind-merge` 留着。推荐。
+> - **B｜彻底移除 Tailwind**：布局全换 Radix `<Flex>` / `<Grid>` / `<Box>`，可卸载 tailwind + clsx + tailwind-merge + 删 `cn()`。产物更小但改动面再翻一倍。
 
-### 阶段 5：收尾
+### 阶段 5：收尾 —— ✅ 已完成（2026-08-02）
 
-- `SparkTrend.tsx` / ECharts 系列：图表颜色是 JS 里读 CSS 变量的，确认变量名改动后同步更新
-- 检查 `index.css` 里是否还有孤儿规则
-- 评估 `popup.js` 体积（当前约 1.5MB，含 Radix 全量 CSS）
-- 更新 `packages/ui/src/index.ts` 导出
+- **ECharts 颜色核查**：`SparkTrend` / `FundTrendDialog` / `IndexTrendDialog` 图表色全部为字面 hex（`#d7263d` / `#0f8a5f` / `#b8860b`，axis 回退 `#6b7785` / `#c8d0d8`），**无 CSS `var(--…)` 传入 canvas**，Tailwind 移除无影响 → 无需改动。
+- **孤儿规则清理**：`grep` 确认 `rise` / `fall` / `flat` / `scrollbar-*` 活跃，唯 `.panel-shadow` 未被引用 → 已从 `index.css` `@layer utilities` 删除。
+- **体积评估**：`popup.js` 仍约 1.5MB（Radix 全量 CSS 主导 ~704KB），Tailwind 移除未显著瘦身，但引擎依赖已真正移除、构建更简单。
+- **导出核查**：`index.ts` 导出 `initTheme`（阶段 0-3 已就位），无需新增。
+- 提交点 **`853e212`**（v1.0.51）。三包 typecheck 全绿 + build + zip 成功。
+
+> **UI 迁移全部完成 🎉**：shadcn/ui 适配器已删除、Tailwind 引擎已卸载，全量改用 `@radix-ui/themes` 成品组件 + Radix 变量驱动的手写 utility 垫片，无 shadcn/Tailwind 残留。
 
 ---
 
@@ -242,6 +250,8 @@ git diff 0dddebe -- <file>      # 只看某文件相对基线的变化
 请先读 .workbuddy/RADIX_MIGRATION_PLAN.md，里面有完整的现状盘点、
 分阶段计划、API 陷阱和项目约定。
 
-阶段 0 已完成（提交点 0dddebe），从「阶段 1：删死代码 + 卸无用依赖」开始执行。
-每个阶段做完 typecheck + build 验证后再进下一阶段，阶段 4 开工前需要先问我。
+UI 迁移（阶段 0-5）已全部完成：shadcn/ui 适配器已删除，Tailwind 引擎已卸载，
+全量改用 @radix-ui/themes 成品组件 + Radix 变量驱动的手写 utility 垫片。
+最终提交点 853e212（v1.0.51），分支 refactor/popup-ui。
+如需继续，请基于该状态提出新的需求（如按需引入 Radix 以瘦身、或后续功能开发）。
 ```
