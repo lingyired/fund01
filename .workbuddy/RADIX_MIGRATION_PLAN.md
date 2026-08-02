@@ -144,15 +144,23 @@ text-field theme theme-panel tooltip visually-hidden
 
 > 每阶段结束都要：`pnpm --filter @fund01/ui typecheck` → `pnpm --filter @fund01/chrome typecheck` → `pnpm --filter @fund01/chrome build`，全绿才进下一阶段。
 
-### 阶段 0：清理起点（必做，5 分钟）
+### 阶段 0：清理起点 —— ✅ 已完成（2026-08-02）
 
-当前工作区有 **22 个文件未提交**（1486 插入 / 1172 删除），包含上一轮全部迁移成果。
+提交点 **`0dddebe`** `refactor(ui): popup 布局重构 + 全量迁移 @radix-ui/themes`
+（37 文件，+2796 / −1172，分支 `refactor/popup-ui`，提交时 ui/core/chrome typecheck 全绿 + build 成功）
+
+出问题回滚基线：
 
 ```bash
-git add -A && git commit -m "refactor(ui): migrate to @radix-ui/themes (phase 1, adapters)"
+git reset --hard 0dddebe        # 丢弃后续所有改动
+git diff 0dddebe -- <file>      # 只看某文件相对基线的变化
 ```
 
-**必须先提交**，否则阶段 2 的大规模改写一旦出问题无法二分回滚。
+同时落地的两件事：
+- `.gitignore` 新增 `*.zip`（构建产物）与 `.workbuddy/memory/`（AI 工作日志），本交接文档仍入库
+- git 身份写入 **repo-local**（`git config --local`）：`lingyired <lingyired@users.noreply.github.com>`，全局配置未被污染
+
+**新会话请直接从阶段 1 开始。**
 
 ### 阶段 1：删死代码 + 卸无用依赖（低风险）
 
@@ -234,6 +242,6 @@ git add -A && git commit -m "refactor(ui): migrate to @radix-ui/themes (phase 1,
 请先读 .workbuddy/RADIX_MIGRATION_PLAN.md，里面有完整的现状盘点、
 分阶段计划、API 陷阱和项目约定。
 
-从「阶段 0：清理起点」开始执行。每个阶段做完 typecheck + build 验证后
-再进下一阶段，阶段 4 开工前需要先问我。
+阶段 0 已完成（提交点 0dddebe），从「阶段 1：删死代码 + 卸无用依赖」开始执行。
+每个阶段做完 typecheck + build 验证后再进下一阶段，阶段 4 开工前需要先问我。
 ```
