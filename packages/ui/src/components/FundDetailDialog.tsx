@@ -8,7 +8,7 @@ import {
 } from './ui/dialog'
 import {Button} from './ui/button'
 import {FundTrendDialog} from './FundTrendDialog'
-import {SectorTags} from './HoldingsModule'
+import {SectorTags} from './fundBits'
 import {formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
 import type {FundQuoteRow} from '@fund01/core'
 

@@ -1,45 +1,42 @@
-import * as React from 'react';
-import { Slot } from '@radix-ui/react-slot';
-import { cva, type VariantProps } from 'class-variance-authority';
-import { cn } from '@fund01/core';
+import {Button as RadixButton} from '@radix-ui/themes'
+import type {ComponentProps} from 'react'
+import {cn} from '@fund01/core'
 
-const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50',
-  {
-    variants: {
-      variant: {
-        default: 'bg-accent text-white hover:bg-accent/90',
-        secondary: 'bg-paper-deep text-ink hover:bg-line/60',
-        outline: 'border border-line bg-panel hover:bg-paper-deep',
-        ghost: 'hover:bg-paper-deep',
-        danger: 'bg-rise text-white hover:bg-rise/90',
-      },
-      size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
-        lg: 'h-10 rounded-md px-6',
-        icon: 'h-9 w-9',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-      size: 'default',
-    },
-  },
-);
+type ShadcnVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'danger'
+type ShadcnSize = 'default' | 'sm' | 'lg' | 'icon'
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
+  extends Omit<ComponentProps<typeof RadixButton>, 'variant' | 'size'> {
+  variant?: ShadcnVariant
+  size?: ShadcnSize
 }
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button';
-    return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
-    );
-  },
-);
-Button.displayName = 'Button';
+const VARIANT_MAP: Record<ShadcnVariant, NonNullable<ComponentProps<typeof RadixButton>['variant']>> = {
+  default: 'solid',
+  secondary: 'soft',
+  outline: 'outline',
+  ghost: 'ghost',
+  danger: 'solid',
+}
+const SIZE_MAP: Record<ShadcnSize, NonNullable<ComponentProps<typeof RadixButton>['size']>> = {
+  default: '2',
+  sm: '1',
+  lg: '3',
+  icon: '1',
+}
+
+export function Button({variant, size, className, color, ...props}: ButtonProps) {
+  const rVariant = variant ? VARIANT_MAP[variant] : undefined
+  const rSize = size ? SIZE_MAP[size] : undefined
+  const resolvedColor = variant === 'danger' ? 'red' : color
+  const iconCls = size === 'icon' ? 'aspect-square p-0' : ''
+  return (
+    <RadixButton
+      variant={rVariant}
+      size={rSize}
+      color={resolvedColor}
+      className={cn(iconCls, className)}
+      {...props}
+    />
+  )
+}

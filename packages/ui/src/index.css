@@ -1,4 +1,17 @@
+/* ── CSS 层级顺序（Radix Themes 官方推荐的 Tailwind 共存方案）──────────────
+   Radix 的 styles.css 完全未分层（3948 处 .rt-* 规则，0 处 @layer），
+   而 Tailwind v4 把 theme/base/utilities 全部放进 layer。
+   CSS 规范里「未分层样式优先级高于任何 layer」，因此默认情况下
+   Radix 组件样式会压过所有 Tailwind 工具类 —— 我们传给适配器的
+   className 会静默失效。
+   这里显式建立层序，把 Radix 插在 base 之后、utilities 之前：
+     · Radix 组件样式  >  Tailwind preflight（避免官方文档提到的按钮背景丢失）
+     · Tailwind 工具类  >  Radix 组件样式（适配器上的 className 才能生效）
+   参考 https://www.radix-ui.com/themes/docs/overview/styling#tailwind-base-styles */
+@layer theme, base, radix-themes, components, utilities;
 @import 'tailwindcss';
+@import '@radix-ui/themes/styles.css' layer(radix-themes);
+
 /* Tailwind v4 自动内容检测以构建工具 CWD（apps/chrome/）为基准，
    扫描不到 packages/ui/src/ 下的组件文件，导致 utility class 不生成。
    显式声明 @source 让 Tailwind 扫描本目录（含 components/、lib/）。 */
@@ -22,50 +35,52 @@
   --color-muted: var(--app-muted);
 }
 
-:root,
-html[data-theme='light'] {
-  color-scheme: light;
-  --app-ink: #15202b;
-  --app-ink-soft: #3d4f5f;
-  --app-paper: #eef3f6;
-  --app-paper-deep: #e2eaf0;
-  --app-line: #c5d2dc;
-  --app-panel: #f7fafc;
-  --app-rise: #d7263d;
-  --app-fall: #0f8a5f;
-  --app-accent: #1f6f8b;
-  --app-gold: #b8860b;
-  --app-muted: #6b7c8a;
-  --app-panel-shadow: 0 10px 40px rgba(21, 32, 43, 0.04);
-  --app-body-bg:
-    radial-gradient(1200px 600px at 8% -10%, rgba(31, 111, 139, 0.12), transparent 55%),
-    radial-gradient(900px 500px at 100% 0%, rgba(184, 134, 11, 0.1), transparent 50%),
-    linear-gradient(180deg, #f4f8fa 0%, #eef3f6 40%, #e8eef3 100%);
-  --app-grid-line: rgba(197, 210, 220, 0.35);
-  --app-grid-opacity: 0;
-}
-
-html[data-theme='dark'] {
-  color-scheme: dark;
-  /* 借鉴原 hero：ink 底 + ticker 网格 */
-  --app-ink: #e8eef3;
-  --app-ink-soft: #b7c5d0;
-  --app-paper: #1a2733;
-  --app-paper-deep: #223342;
-  --app-line: #334556;
-  --app-panel: #1e2c38;
-  --app-rise: #ff6b7a;
-  --app-fall: #3ecf9a;
-  --app-accent: #3d9bbb;
+/* 把设计 token 重映射到 Radix Themes 的 CSS 变量。
+   Radix Themes 把变量挂在 .radix-themes（<Theme> 根元素）上，
+   因此这些映射只在 <Theme> 子树内生效，天然跟随亮/暗。 */
+.radix-themes {
+  /* 注意：Radix Themes 并没有 --color-text / --color-text-secondary / --color-border
+     这几个变量（它只提供 --color-background / --color-surface / --color-panel* /
+     --color-overlay 以及 --gray-*、--accent-* 色阶），必须映射到真实存在的变量。 */
+  --app-ink: var(--gray-12);
+  --app-ink-soft: var(--gray-11);
+  --app-paper: var(--color-background);
+  --app-paper-deep: var(--color-surface);
+  --app-line: var(--gray-a6);
+  --app-panel: var(--color-panel-solid);
+  --app-rise: #e5484d;
+  --app-fall: #46a758;
+  --app-accent: var(--accent-9);
   --app-gold: #d4a017;
-  --app-muted: #8a9bab;
-  --app-panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
-  --app-body-bg:
-    radial-gradient(1000px 520px at 10% -8%, rgba(61, 155, 187, 0.14), transparent 55%),
-    radial-gradient(800px 420px at 100% 0%, rgba(212, 160, 23, 0.08), transparent 50%),
-    linear-gradient(180deg, #121c26 0%, #15202b 45%, #101820 100%);
-  --app-grid-line: rgba(197, 210, 220, 0.08);
-  --app-grid-opacity: 1;
+  --app-muted: var(--gray-10);
+  --app-panel-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+  --app-body-bg: var(--color-background);
+  --app-grid-line: transparent;
+  --app-grid-opacity: 0;
+
+  /* 关键修复：Tailwind 的 @theme 会在 :root 上生成 `--color-ink: var(--app-ink)` 等声明，
+     但 --app-* 只定义在 .radix-themes（:root 的后代）。自定义属性的 var() 替换发生在
+     「声明所在元素」的计算值阶段，:root 上取不到 --app-*，于是 --color-* 全部变成
+     guaranteed-invalid，导致 text-ink / bg-accent / border-line 等工具类整体失效。
+     在 .radix-themes 上重新声明一次，让替换发生在变量可见的作用域内。 */
+  --color-ink: var(--app-ink);
+  --color-ink-soft: var(--app-ink-soft);
+  --color-paper: var(--app-paper);
+  --color-paper-deep: var(--app-paper-deep);
+  --color-line: var(--app-line);
+  --color-rise: var(--app-rise);
+  --color-fall: var(--app-fall);
+  --color-accent: var(--app-accent);
+  --color-gold: var(--app-gold);
+  --color-muted: var(--app-muted);
+  /* --color-panel 刻意不覆盖：该名字与 Radix 自带的面板色变量同名，
+     直接复用 Radix 的值即可（bg-panel 会自动跟随 appearance）。 */
+  /* Radix 根 <Theme> 默认 min-height:100vh，会让 popup 在 600px 窗口内高度崩溃，
+     导致列表区无法形成固定高度（无滚动条）且 footer 被挤出可视区。
+     改为填满父容器（#root 在 popup 模式为 600px，tab 模式为 100vh）。
+     选择器特异性高于 Radix 的 :where([data-is-root-theme='true']) 规则，可覆盖 100vh。 */
+  height: 100%;
+  min-height: 0;
 }
 
 @layer base {
@@ -86,29 +101,17 @@ html[data-theme='dark'] {
     min-height: 100dvh;
     overflow-x: clip;
     font-family: var(--font-sans);
-    color: var(--app-ink);
-    background: var(--app-body-bg);
-    background-attachment: fixed;
-    transition: background 0.25s ease, color 0.2s ease;
+    /* body 在 .radix-themes 之外，取不到 Radix 变量，按 <html data-theme> 手写兜底。
+       实际可视区几乎都被 .radix-themes 铺满，这里只是防止边缘露出异色。 */
+    background: #fff;
   }
 
-  /* 暗色：铺一层原 hero 风格的 ticker 网格 */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    opacity: var(--app-grid-opacity);
-    background-image:
-      linear-gradient(var(--app-grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
-    background-size: 24px 24px;
+  html[data-theme='dark'] body {
+    background: #0b0b0e;
   }
 
   #root {
     position: relative;
-    z-index: 1;
     width: 100%;
     min-height: 100vh;
     min-height: 100dvh;
@@ -131,13 +134,6 @@ html[data-theme='dark'] {
     font-family: var(--font-display);
   }
 
-  .ticker-grid {
-    background-image:
-      linear-gradient(var(--app-grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-
   .rise {
     color: var(--app-rise);
   }
@@ -153,4 +149,68 @@ html[data-theme='dark'] {
   .panel-shadow {
     box-shadow: var(--app-panel-shadow);
   }
+
+  /* 隐藏滚动条：保留滚动行为，但不可见轨道，避免 popup 内多处滚动条堆叠 */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 细滚动条：仅用于持仓列表等需要可见滚动条的区域 */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--app-muted) 45%, transparent);
+    border-radius: 999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--app-muted) 75%, transparent);
+  }
+}
+
+/* Radix Dialog 关闭按钮（DialogContent 适配器内置） */
+.rt-dialog-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--gray-11);
+  cursor: pointer;
+}
+.rt-dialog-close:hover {
+  background: var(--gray-4);
+  color: var(--gray-12);
+}
+
+/* 持仓列表：表头吸顶 */
+.rt-sticky-thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.rt-sticky-thead th {
+  background: var(--color-panel-solid);
+  /* 列宽较窄（84/76px），缩小表头字号并禁止换行，避免「当日收益/持有收益」折成两行 */
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }

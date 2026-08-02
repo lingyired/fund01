@@ -1,6 +1,10 @@
 import {useEffect, useRef, useState} from 'react'
 import {Check, Download, Pencil, Plus, Trash2, Upload, X} from 'lucide-react'
-import type {AppConfig} from '@fund01/core'
+import type {AppConfig, AppThemePref, IndexItem} from '@fund01/core'
+import {
+  DEFAULT_SELECTED_INDICES,
+  MAX_SELECTED_INDICES,
+} from '@fund01/core'
 import {
   addHoldingGroup,
   exportConfig,
@@ -13,6 +17,7 @@ import {
 } from '../lib/fundOps'
 import {usePorts} from '../context'
 import {MIN_REFRESH_INTERVAL} from '@fund01/core'
+import {applyTheme} from '../theme'
 import {Button} from './ui/button'
 import {Input} from './ui/input'
 import {Label} from './ui/label'
@@ -22,15 +27,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog'
+import {cn} from '@fund01/core'
+
+const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
+  {value: 'system', label: '跟随系统'},
+  {value: 'light', label: '亮色'},
+  {value: 'dark', label: '暗色'},
+]
 
 export function ConfigDialog({
   open,
   onOpenChange,
   onImported,
+  onSettingsChanged,
+  indices,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   onImported: () => void
+  onSettingsChanged?: () => void
+  indices: IndexItem[]
 }) {
   const ports = usePorts()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -40,8 +56,16 @@ export function ConfigDialog({
   const [trading, setTrading] = useState('')
   const [nonTrading, setNonTrading] = useState('')
   const [savingInterval, setSavingInterval] = useState(false)
-  const [quoteSource, setQuoteSource] = useState<'fund123' | 'fundmnfinfo'>('fundmnfinfo')
+  const [quoteSource, setQuoteSource] = useState<'fund123' | 'fundmnfinfo'>(
+    'fundmnfinfo',
+  )
   const [savingSource, setSavingSource] = useState(false)
+
+  // 外观
+  const [themePref, setThemePref] = useState<AppThemePref>('system')
+  const [selectedIndices, setSelectedIndices] = useState<string[]>(
+    DEFAULT_SELECTED_INDICES,
+  )
 
   // 分组管理
   const [groups, setGroups] = useState<string[]>([])
@@ -51,7 +75,7 @@ export function ConfigDialog({
   const [editingName, setEditingName] = useState('')
   const [groupError, setGroupError] = useState('')
 
-  // 打开时载入当前刷新间隔 + 分组列表
+  // 打开时载入当前刷新间隔 + 分组列表 + 外观
   useEffect(() => {
     if (!open) return
     const s = fetchSettings(ports)
@@ -59,6 +83,12 @@ export function ConfigDialog({
     setNonTrading(String(s.refreshInterval?.nonTrading ?? ''))
     setQuoteSource(s.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo')
     setGroups(listHoldingGroups(ports))
+    setThemePref(s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system')
+    setSelectedIndices(
+      s.selectedIndices && s.selectedIndices.length > 0
+        ? s.selectedIndices
+        : DEFAULT_SELECTED_INDICES,
+    )
     setNewGroupName('')
     setAddingGroup(false)
     setEditingIdx(null)
@@ -105,7 +135,6 @@ export function ConfigDialog({
       await importConfig(ports, parsed)
       setMessage('配置已导入')
       onImported()
-      // 刷新分组列表
       setGroups(listHoldingGroups(ports))
     } catch (e: unknown) {
       setError((e as Error)?.message || '导入失败，请检查 JSON 文件')
@@ -128,7 +157,6 @@ export function ConfigDialog({
       })
       setTrading(String(next.refreshInterval?.trading ?? ''))
       setNonTrading(String(next.refreshInterval?.nonTrading ?? ''))
-      // 同步给 SW 让它立即按新间隔重排 alarm
       setMessage('刷新间隔已保存')
     } catch (e: unknown) {
       setError((e as Error)?.message || '保存失败')
@@ -145,7 +173,6 @@ export function ConfigDialog({
     setMessage('')
     try {
       await updateSettings(ports, {quoteSource: next})
-      // 同步给 SW 让其立即按新数据源刷新
       setMessage(
         `数据源已切换为 ${next === 'fundmnfinfo' ? 'FundMNFInfo' : 'fund123'}`,
       )
@@ -153,6 +180,35 @@ export function ConfigDialog({
       setError((e as Error)?.message || '切换数据源失败')
     } finally {
       setSavingSource(false)
+    }
+  }
+
+  async function handleThemeChange(next: AppThemePref) {
+    setThemePref(next)
+    applyTheme(next)
+    try {
+      await updateSettings(ports, {theme: next})
+      onSettingsChanged?.()
+    } catch {
+      // ignore
+    }
+  }
+
+  async function toggleIndex(code: string) {
+    const has = selectedIndices.includes(code)
+    let next: string[]
+    if (has) {
+      next = selectedIndices.filter((c) => c !== code)
+    } else {
+      if (selectedIndices.length >= MAX_SELECTED_INDICES) return
+      next = [...selectedIndices, code]
+    }
+    setSelectedIndices(next)
+    try {
+      await updateSettings(ports, {selectedIndices: next})
+      onSettingsChanged?.()
+    } catch {
+      // ignore
     }
   }
 
@@ -200,12 +256,75 @@ export function ConfigDialog({
     }
   }
 
+  const indexOptions = indices.length
+    ? indices
+    : DEFAULT_SELECTED_INDICES.map((code) => ({code, name: code, percent: null}))
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>个人配置</DialogTitle>
         </DialogHeader>
+
+        {/* 外观：主题 */}
+        <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">
+          <div className="text-sm font-medium text-ink">主题</div>
+          <p className="text-xs text-muted">默认跟随系统，可在亮色 / 暗色间切换。</p>
+          <div className="flex gap-1.5 pt-1">
+            {THEME_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => void handleThemeChange(opt.value)}
+                className={cn(
+                  'flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors',
+                  themePref === opt.value
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : 'border-line bg-panel text-ink-soft hover:border-accent/50',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 指数看板：最多选 5 个 */}
+        <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-ink">指数看板</div>
+            <span className="font-mono text-xs text-muted">
+              {selectedIndices.length}/{MAX_SELECTED_INDICES}
+            </span>
+          </div>
+          <p className="text-xs text-muted">勾选要在看板显示的指数（最多 5 个）。</p>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {indexOptions.map((item) => {
+              const selected = selectedIndices.includes(item.code)
+              const disabled =
+                !selected && selectedIndices.length >= MAX_SELECTED_INDICES
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void toggleIndex(item.code)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                    selected
+                      ? 'border-accent bg-accent text-white'
+                      : disabled
+                        ? 'cursor-not-allowed border-line bg-panel text-muted/50'
+                        : 'border-line bg-panel text-ink-soft hover:border-accent/50',
+                  )}
+                >
+                  {item.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         {/* 持仓分组管理 */}
         <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">

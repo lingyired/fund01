@@ -1,4 +1,8 @@
 import type {AppConfig, AppSettings, FundRecord, RefreshInterval} from './types'
+import {
+  DEFAULT_SELECTED_INDICES,
+  MAX_SELECTED_INDICES,
+} from './types'
 
 /** 刷新间隔默认值（秒）与下限（chrome.alarms 最小 30s） */
 export const DEFAULT_REFRESH_INTERVAL: RefreshInterval = {trading: 60, nonTrading: 600}
@@ -10,6 +14,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     refreshInterval: {...DEFAULT_REFRESH_INTERVAL},
     quoteSource: 'fundmnfinfo',
     holdingGroups: [],
+    theme: 'system',
+    selectedIndices: [...DEFAULT_SELECTED_INDICES],
   },
   holdings: {},
   watchlist: {},
@@ -180,6 +186,23 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo',
       holdingGroups,
       holdingGroupOrders,
+      theme:
+        payload?.settings?.theme === 'light' ||
+        payload?.settings?.theme === 'dark' ||
+        payload?.settings?.theme === 'system'
+          ? payload.settings.theme
+          : DEFAULT_CONFIG.settings.theme,
+      selectedIndices:
+        Array.isArray(payload?.settings?.selectedIndices) &&
+        payload!.settings!.selectedIndices!.length > 0
+          ? Array.from(
+              new Set(
+                payload!.settings!.selectedIndices!
+                  .map((c) => String(c ?? '').trim())
+                  .filter(Boolean),
+              ),
+            ).slice(0, MAX_SELECTED_INDICES)
+          : [...DEFAULT_CONFIG.settings.selectedIndices!],
     },
     holdings,
     watchlist,

@@ -7,7 +7,7 @@ import {Button} from './ui/button'
 import {Panel, PanelHeader} from './ui/panel'
 import {FundTrendDialog} from './FundTrendDialog'
 import {FundFormDialog} from './FundFormDialog'
-import {SectorTags} from './HoldingsModule'
+import {SectorTags} from './fundBits'
 import {formatPct, pctClass} from '@fund01/core'
 
 export function WatchlistModule({

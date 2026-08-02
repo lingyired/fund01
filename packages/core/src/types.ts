@@ -121,6 +121,20 @@ export type RefreshInterval = {
  */
 export type QuoteSource = 'fund123' | 'fundmnfinfo'
 
+/** 主题偏好：跟随系统 / 亮色 / 暗色，默认 system */
+export type AppThemePref = 'system' | 'light' | 'dark'
+
+/** 指数看板默认显示的指数 code（最多 5 个） */
+export const DEFAULT_SELECTED_INDICES: string[] = [
+  '000001', // 上证指数
+  '399001', // 深证成指
+  '399006', // 创业板指
+  '000300', // 沪深300
+  'NDX', // 纳斯达克100
+]
+
+export const MAX_SELECTED_INDICES = 5
+
 export type AppSettings = {
   showGold: boolean
   /** 定时刷新间隔配置（秒） */
@@ -135,6 +149,10 @@ export type AppSettings = {
    * 批量编辑弹窗中可调整。
    */
   holdingGroupOrders?: Record<string, string[]>
+  /** 主题偏好，默认 system（跟随系统） */
+  theme?: AppThemePref
+  /** 指数看板显示的指数 code 列表（最多 5 个），默认见 DEFAULT_SELECTED_INDICES */
+  selectedIndices?: string[]
 }
 
 export type AppConfig = {

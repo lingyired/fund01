@@ -11,6 +11,7 @@ import type {
 } from '@fund01/core'
 import {
   clampRefreshInterval,
+  MAX_SELECTED_INDICES,
   normalizeConfig,
   normalizeFund,
 } from '@fund01/core'
@@ -231,6 +232,23 @@ export function updateSettings(
   }
   if (patch.quoteSource === 'fund123' || patch.quoteSource === 'fundmnfinfo') {
     config.settings.quoteSource = patch.quoteSource
+  }
+  if (
+    patch.theme === 'system' ||
+    patch.theme === 'light' ||
+    patch.theme === 'dark'
+  ) {
+    config.settings.theme = patch.theme
+  }
+  if (Array.isArray(patch.selectedIndices)) {
+    const next = Array.from(
+      new Set(
+        patch.selectedIndices
+          .map((c) => String(c ?? '').trim())
+          .filter(Boolean),
+      ),
+    ).slice(0, MAX_SELECTED_INDICES)
+    config.settings.selectedIndices = next
   }
   if (patch.refreshInterval) {
     config.settings.refreshInterval = clampRefreshInterval({

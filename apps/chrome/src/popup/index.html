@@ -9,20 +9,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" />
     <style>
-      /* Chrome 扩展 popup 默认无尺寸，需显式设定固定宽高。
-         packages/ui 的 index.css 用 100vh 是为 dashboard 标签页设计，
-         在 popup 中 100vh = popup 视口高度但视口本身未定义，不能依赖。
-         高度优先用 900px；popup.js 启动时会读取 screen.availHeight
-         做兜底（取 min(900, screen.availHeight)），保证不超过屏幕分辨率高度。
-         MV3 CSP 禁止内联 script，所以兜底逻辑必须在打包的 popup.js 中执行。 */
+      /* Chrome 扩展 popup 窗口高度被浏览器限制（多数环境约 600px）。
+         这里给一个保守的默认高度，避免加载瞬间出现整窗滚动条；
+         真实高度由 popup.js 运行时按 popup 窗口实际高度 (window.innerHeight) 精确覆盖。 */
       html, body {
-        width: 666px !important;
-        min-height: 900px !important;
-        max-width: 666px !important;
+        width: 680px !important;
+        height: 600px !important;
+        min-height: 0 !important;
+        max-width: 680px !important;
+        max-height: 600px !important;
+        overflow: hidden !important;
       }
       #root {
-        width: 666px !important;
-        min-height: 900px !important;
+        width: 680px !important;
+        height: 600px !important;
+        min-height: 0 !important;
+        max-height: 600px !important;
+        overflow: hidden !important;
       }
     </style>
   </head>
