@@ -135,12 +135,17 @@ export const DEFAULT_SELECTED_INDICES: string[] = [
 
 export const MAX_SELECTED_INDICES = 5
 
+/** 扩展程序角标（badge）显示方式 */
+export type BadgeMode = 'percent' | 'amount' | 'hidden'
+
 export type AppSettings = {
   showGold: boolean
   /** 定时刷新间隔配置（秒） */
   refreshInterval?: RefreshInterval
   /** 基金当日行情数据源，默认 fundmnfinfo */
   quoteSource?: QuoteSource
+  /** 扩展角标显示方式：收益率百分比 / 收益额 / 隐藏。默认 percent */
+  badgeMode?: BadgeMode
   /** 持仓分组名称列表（按顺序展示，未在此列表的 groups 视为未分组） */
   holdingGroups?: string[]
   /**
