@@ -9,30 +9,15 @@
      · Tailwind 工具类  >  Radix 组件样式（适配器上的 className 才能生效）
    参考 https://www.radix-ui.com/themes/docs/overview/styling#tailwind-base-styles */
 @layer theme, base, radix-themes, components, utilities;
-@import 'tailwindcss';
+@import './tw-shim.css' layer(utilities);
 @import '@radix-ui/themes/styles.css' layer(radix-themes);
 
-/* Tailwind v4 自动内容检测以构建工具 CWD（apps/chrome/）为基准，
-   扫描不到 packages/ui/src/ 下的组件文件，导致 utility class 不生成。
-   显式声明 @source 让 Tailwind 扫描本目录（含 components/、lib/）。 */
-@source ".";
-
-@theme {
+/* 字体栈：原 Tailwind @theme 的字体定义，脱离 Tailwind 后改为 :root 变量 */
+:root,
+:host {
   --font-display: 'Syne', 'Noto Sans SC', sans-serif;
   --font-sans: 'Noto Sans SC', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
-
-  --color-ink: var(--app-ink);
-  --color-ink-soft: var(--app-ink-soft);
-  --color-paper: var(--app-paper);
-  --color-paper-deep: var(--app-paper-deep);
-  --color-line: var(--app-line);
-  --color-panel: var(--app-panel);
-  --color-rise: var(--app-rise);
-  --color-fall: var(--app-fall);
-  --color-accent: var(--app-accent);
-  --color-gold: var(--app-gold);
-  --color-muted: var(--app-muted);
 }
 
 /* 把设计 token 重映射到 Radix Themes 的 CSS 变量。
@@ -58,27 +43,10 @@
   --app-grid-line: transparent;
   --app-grid-opacity: 0;
 
-  /* 关键修复：Tailwind 的 @theme 会在 :root 上生成 `--color-ink: var(--app-ink)` 等声明，
-     但 --app-* 只定义在 .radix-themes（:root 的后代）。自定义属性的 var() 替换发生在
-     「声明所在元素」的计算值阶段，:root 上取不到 --app-*，于是 --color-* 全部变成
-     guaranteed-invalid，导致 text-ink / bg-accent / border-line 等工具类整体失效。
-     在 .radix-themes 上重新声明一次，让替换发生在变量可见的作用域内。 */
-  --color-ink: var(--app-ink);
-  --color-ink-soft: var(--app-ink-soft);
-  --color-paper: var(--app-paper);
-  --color-paper-deep: var(--app-paper-deep);
-  --color-line: var(--app-line);
-  --color-rise: var(--app-rise);
-  --color-fall: var(--app-fall);
-  --color-accent: var(--app-accent);
-  --color-gold: var(--app-gold);
-  --color-muted: var(--app-muted);
-  /* --color-panel 刻意不覆盖：该名字与 Radix 自带的面板色变量同名，
-     直接复用 Radix 的值即可（bg-panel 会自动跟随 appearance）。 */
   /* Radix 根 <Theme> 默认 min-height:100vh，会让 popup 在 600px 窗口内高度崩溃，
-     导致列表区无法形成固定高度（无滚动条）且 footer 被挤出可视区。
-     改为填满父容器（#root 在 popup 模式为 600px，tab 模式为 100vh）。
-     选择器特异性高于 Radix 的 :where([data-is-root-theme='true']) 规则，可覆盖 100vh。 */
+  导致列表区无法形成固定高度（无滚动条）且 footer 被挤出可视区。
+  改为填满父容器（#root 在 popup 模式为 600px，tab 模式为 100vh）。
+  选择器特异性高于 Radix 的 :where([data-is-root-theme='true']) 规则，可覆盖 100vh。 */
   height: 100%;
   min-height: 0;
 }

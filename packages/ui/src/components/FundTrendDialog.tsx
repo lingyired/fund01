@@ -225,7 +225,7 @@ export function FundTrendDialog({
           </Dialog.Title>
         </div>
 
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-hide sm:flex-wrap sm:overflow-visible">
           {TABS.map((r) => {
             const pct = tabPercent(r.key)
             const selected = range === r.key

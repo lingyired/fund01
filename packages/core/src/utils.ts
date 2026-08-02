@@ -1,8 +1,21 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+export type ClassValue = string | number | null | false | undefined | ClassValue[] | Record<string, boolean | null | undefined>;
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+export function cn(...inputs: ClassValue[]): string {
+  const out: string[] = [];
+  for (const input of inputs) {
+    if (!input) continue;
+    if (typeof input === 'string' || typeof input === 'number') {
+      out.push(String(input));
+    } else if (Array.isArray(input)) {
+      const s = cn(...input);
+      if (s) out.push(s);
+    } else if (typeof input === 'object') {
+      for (const key of Object.keys(input)) {
+        if ((input as Record<string, boolean | null | undefined>)[key]) out.push(key);
+      }
+    }
+  }
+  return out.join(' ');
 }
 
 export function pctClass(v: number | null | undefined) {

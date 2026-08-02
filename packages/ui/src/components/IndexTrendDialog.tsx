@@ -196,7 +196,7 @@ export function IndexTrendDialog({
           </Dialog.Title>
         </div>
 
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible">
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 scrollbar-hide sm:flex-wrap sm:overflow-visible">
           {RANGES.map((r) => {
             const pct = byRange[r.key]?.periodPercent
             const selected = range === r.key
