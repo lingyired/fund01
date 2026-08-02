@@ -114,10 +114,6 @@
     color: var(--app-muted);
   }
 
-  .panel-shadow {
-    box-shadow: var(--app-panel-shadow);
-  }
-
   /* 隐藏滚动条：保留滚动行为，但不可见轨道，避免 popup 内多处滚动条堆叠 */
   .scrollbar-hide {
     -ms-overflow-style: none;
