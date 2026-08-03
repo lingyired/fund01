@@ -1,7 +1,5 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   Database,
   Download,
@@ -33,7 +31,7 @@ import {
   MAX_SELECTED_INDICES,
   MIN_REFRESH_INTERVAL,
 } from '@fund01/core'
-import {cn} from '@fund01/core'
+import {cn, formatAmount} from '@fund01/core'
 import {
   addHoldingGroup,
   createFund,
@@ -694,6 +692,8 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  // 最新净值缓存（code → netValue），用于展示「当前持仓金额」（只读，不参与保存）
+  const [navMap, setNavMap] = useState<Record<string, number>>({})
 
   useEffect(() => {
     setError('')
@@ -707,26 +707,42 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
       .catch((e) => setError((e as Error)?.message || '加载失败'))
   }, [ports, reloadSignal])
 
+  // 行集合的 code 指纹：编辑份额/成本不触发重拉，删除行或重载时才重新拉净值
+  const navCodes = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.code))).sort().join(','),
+    [rows],
+  )
+  useEffect(() => {
+    const codes = navCodes ? navCodes.split(',') : []
+    if (!codes.length) {
+      setNavMap({})
+      return
+    }
+    let cancelled = false
+    Promise.all(
+      codes.map(async (code) => {
+        try {
+          const meta = await ports.data.resolveFund({code, type: 'hold'})
+          return [code, meta?.netValue ?? null] as const
+        } catch {
+          return [code, null] as const
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return
+      const m: Record<string, number> = {}
+      for (const [code, nav] of results) {
+        if (nav != null && nav > 0) m[code] = nav
+      }
+      setNavMap(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ports, navCodes])
+
   function updateRow(index: number, patch: Partial<EditRow>) {
     setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch} : r)))
-  }
-
-  function moveRow(group: string, code: string, dir: -1 | 1) {
-    setRows((cur) => {
-      const idxInGroup: number[] = []
-      cur.forEach((r, i) => {
-        if (r.group === group) idxInGroup.push(i)
-      })
-      const pos = idxInGroup.findIndex((i) => cur[i].code === code)
-      if (pos < 0) return cur
-      const swapWith = pos + dir
-      if (swapWith < 0 || swapWith >= idxInGroup.length) return cur
-      const next = [...cur]
-      const a = idxInGroup[pos]
-      const b = idxInGroup[swapWith]
-      ;[next[a], next[b]] = [next[b], next[a]]
-      return next
-    })
   }
 
   function removeRow(index: number) {
@@ -797,7 +813,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
   return (
     <SectionCard title="编辑持仓">
       <p className="text-xs text-muted">
-        可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；在「全部」标签下不能调整排序（请进入具体分组标签）；删除分组会连带删除组内所有基金。记得点保存。
+        可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；「持仓金额」按最新净值实时估算、仅供查看不可编辑；删除分组会连带删除组内所有基金。记得点保存。
       </p>
       {error ? <p className="text-sm text-rise">{error}</p> : null}
       {message ? <p className="text-sm text-fall">{message}</p> : null}
@@ -861,33 +877,27 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                 <div className="overflow-x-auto">
                   <table className="w-full table-fixed text-left text-xs">
                     <colgroup>
-                      <col className="w-[40%]" />
+                      <col className="w-[30%]" />
+                      <col className="w-[14%]" />
                       <col className="w-[22%]" />
                       <col className="w-[22%]" />
-                      <col className="w-[10%]" />
-                      <col className="w-[6%]" />
+                      <col className="w-[12%]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-panel text-muted">
                       <tr className="border-b border-line/40">
                         <th className="px-2 py-1.5 font-medium">基金</th>
+                        <th className="px-2 py-1.5 text-right font-medium">持仓金额</th>
                         <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
                         <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
-                        <th className="px-2 py-1.5 text-center font-medium">排序</th>
                         <th className="px-2 py-1.5 text-center font-medium">删</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map(({r, i}, idx) => {
-                        const groupRows = isAll
-                          ? []
-                          : rows
-                              .map((rr, ii) => ({rr, ii}))
-                              .filter(({rr}) => rr.group === r.group)
-                        const idxInGroup = isAll
-                          ? idx
-                          : groupRows.findIndex(({rr}) => rr.code === r.code)
-                        const isFirst = !isAll ? idxInGroup === 0 : true
-                        const isLast = !isAll ? idxInGroup === groupRows.length - 1 : true
+                      {items.map(({r, i}) => {
+                        const sharesNum = Number(r.shares) || 0
+                        const nav = navMap[r.code]
+                        const amountText =
+                          sharesNum > 0 && nav != null ? `¥${formatAmount(sharesNum * nav)}` : '—'
                         return (
                           <tr key={`${r.code}-${r.group}`} className="border-b border-line/30">
                             <td className="px-2 py-1.5 align-middle">
@@ -901,6 +911,14 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                                     · {r.group || '未分组'}
                                   </span>
                                 ) : null}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1.5 align-middle">
+                              <div
+                                className="truncate text-right font-mono text-ink"
+                                title={amountText}
+                              >
+                                {amountText}
                               </div>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
@@ -926,30 +944,6 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                                 className="h-8 text-right font-mono text-xs"
                                 placeholder="留空"
                               />
-                            </td>
-                            <td className="px-2 py-1.5 align-middle">
-                              <div className="flex justify-center gap-0.5">
-                                <IconButton
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-7 w-7"
-                                  disabled={saving || isFirst}
-                                  onClick={() => moveRow(r.group, r.code, -1)}
-                                  title="上移"
-                                >
-                                  <ArrowUp className="h-3.5 w-3.5" />
-                                </IconButton>
-                                <IconButton
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-7 w-7"
-                                  disabled={saving || isLast}
-                                  onClick={() => moveRow(r.group, r.code, 1)}
-                                  title="下移"
-                                >
-                                  <ArrowDown className="h-3.5 w-3.5" />
-                                </IconButton>
-                              </div>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
                               <div className="flex justify-center">
