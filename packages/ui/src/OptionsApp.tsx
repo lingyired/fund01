@@ -8,10 +8,8 @@ import {
   FolderTree,
   Plus,
   Settings2,
-  Table2,
   Trash2,
   Upload,
-  Wallet,
   X,
 } from 'lucide-react'
 import {
@@ -57,22 +55,23 @@ import {applyTheme} from './theme'
 import {usePorts} from './context'
 import './index.css'
 
-/* ── 分区定义 ─────────────────────────────────────────────── */
-type SectionId =
-  | 'general'
-  | 'groups'
-  | 'add'
-  | 'edit'
-  | 'import'
-  | 'data'
+/* ── Tab 定义 ─────────────────────────────────────────────── */
+type TabId = 'general' | 'holdings' | 'data'
 
-const SECTIONS: {id: SectionId; label: string; icon: typeof Settings2; desc: string}[] = [
-  {id: 'general', label: '个人设置', icon: Settings2, desc: '主题 · 角标 · 指数 · 数据源 · 刷新'},
-  {id: 'groups', label: '持仓分组', icon: FolderTree, desc: '管理持仓的分组'},
-  {id: 'add', label: '添加持仓', icon: Wallet, desc: '录入基金与金额'},
-  {id: 'edit', label: '编辑持仓', icon: Table2, desc: '调整份额 · 成本 · 排序'},
-  {id: 'import', label: '导入持仓', icon: Upload, desc: '从 JSON 批量导入'},
-  {id: 'data', label: '数据备份', icon: Database, desc: '导出 / 导入整个配置'},
+const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
+  {id: 'general', label: '通用', icon: Settings2},
+  {id: 'holdings', label: '持仓', icon: FolderTree},
+  {id: 'data', label: '数据', icon: Database},
+]
+
+/* 持仓 tab 内部二级导航 */
+type HoldingsSub = 'groups' | 'add' | 'edit' | 'import'
+
+const HOLDINGS_SUBS: {id: HoldingsSub; label: string}[] = [
+  {id: 'groups', label: '分组'},
+  {id: 'add', label: '添加'},
+  {id: 'edit', label: '编辑'},
+  {id: 'import', label: '导入'},
 ]
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
@@ -88,91 +87,99 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
 ]
 
 export function OptionsApp() {
-  const [active, setActive] = useState<SectionId>('general')
+  const [tab, setTab] = useState<TabId>('general')
+  // 持仓 tab 内部二级导航
+  const [sub, setSub] = useState<HoldingsSub>('groups')
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
 
   return (
     <Theme accentColor="blue" grayColor="gray" radius="small">
-        <div className="flex bg-paper text-ink">
-        {/* 左侧导航：自然文档流，sticky 随页面滚动跟随 */}
-        <aside className="sticky top-0 h-screen w-60 shrink-0 border-r border-line/70 bg-panel/60">
-          <div className="flex items-center gap-2 px-4 py-4">
-            <span className="font-display text-lg font-extrabold tracking-tight">
-              Fund01
-            </span>
-            <span className="font-mono text-[11px] text-muted">设置</span>
+      <Tabs.Root
+        value={tab}
+        onValueChange={(v) => setTab(v as TabId)}
+        className="flex min-h-screen flex-col bg-paper text-ink"
+      >
+        {/* 顶部：品牌 + 一级 Tab 导航（激活态颜色由 Radix 主题变量驱动，暗色模式自动正确） */}
+        <header className="shrink-0 border-b border-line/70 bg-panel/85">
+          <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
+            <div className="flex items-center gap-2">
+              <span className="font-display text-lg font-extrabold tracking-tight">
+                Fund01
+              </span>
+              <span className="font-mono text-[11px] text-muted">设置</span>
+            </div>
+            <span className="text-[11px] text-muted">修改即时保存到本机浏览器。</span>
           </div>
-          <nav className="space-y-1 px-2 pb-4">
-          {SECTIONS.map((s) => {
-            const Icon = s.icon
-            const isActive = active === s.id
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  setActive(s.id)
-                  document
-                    .getElementById(`section-${s.id}`)
-                    ?.scrollIntoView({behavior: 'smooth', block: 'start'})
-                }}
-                className={cn(
-                  'flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors',
-                  isActive
-                    ? 'bg-accent/10 text-accent'
-                    : 'text-ink-soft hover:bg-panel',
-                )}
-              >
-                <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium leading-tight">
-                    {s.label}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted">
-                    {s.desc}
-                  </span>
-                </span>
-              </button>
-            )
-          })}
-        </nav>
-        <div className="border-t border-line/70 px-4 py-3 text-[11px] text-muted">
-          修改即时保存到本机浏览器。
-        </div>
-      </aside>
+          <div className="mx-auto max-w-3xl px-6">
+            <Tabs.List>
+              {TABS.map((t) => {
+                const Icon = t.icon
+                return (
+                  <Tabs.Trigger key={t.id} value={t.id} className="gap-1.5">
+                    <Icon className="h-4 w-4" />
+                    {t.label}
+                  </Tabs.Trigger>
+                )
+              })}
+            </Tabs.List>
+          </div>
+        </header>
 
-      {/* 右侧内容：自然文档流，整页随内容增高、由浏览器原生滚动 */}
-      <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-3xl space-y-8 px-6 py-8">
-          <GeneralSection onSectionChange={setActive} />
-          <HoldingGroupsSection />
-          <AddFundSection />
-          <EditHoldingsSection reloadSignal={holdingsReload} />
-          <ImportSection onImported={() => setHoldingsReload((t) => t + 1)} />
-          <DataBackupSection />
-        </div>
-      </main>
-      </div>
+        {/* 内容区：每个 tab 只渲染自己的内容 */}
+        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-6">
+          <Tabs.Content value="general">
+            <GeneralSection onNavigate={setTab} />
+          </Tabs.Content>
+
+          <Tabs.Content value="holdings">
+            <div className="space-y-4">
+              <SegmentedControl.Root
+                value={sub}
+                onValueChange={(v) => setSub(v as HoldingsSub)}
+                size="1"
+              >
+                {HOLDINGS_SUBS.map((s) => (
+                  <SegmentedControl.Item key={s.id} value={s.id}>
+                    {s.label}
+                  </SegmentedControl.Item>
+                ))}
+              </SegmentedControl.Root>
+              {sub === 'groups' ? <HoldingGroupsSection /> : null}
+              {sub === 'add' ? <AddFundSection /> : null}
+              {sub === 'edit' ? (
+                <EditHoldingsSection reloadSignal={holdingsReload} />
+              ) : null}
+              {sub === 'import' ? (
+                <ImportSection onImported={() => setHoldingsReload((t) => t + 1)} />
+              ) : null}
+            </div>
+          </Tabs.Content>
+
+          <Tabs.Content value="data">
+            <DataBackupSection />
+          </Tabs.Content>
+        </main>
+      </Tabs.Root>
     </Theme>
   )
 }
 
 /* ── 通用卡片外壳 ─────────────────────────────────────────── */
 function SectionCard({
-  id,
   title,
   children,
 }: {
-  id: SectionId
-  title: string
+  title?: string
   children: React.ReactNode
 }) {
   return (
-    <section id={`section-${id}`} style={{scrollMarginTop: 16}}>
-      <h1 className="mb-3 font-display text-xl font-bold tracking-tight text-ink">
-        {title}
-      </h1>
+    <section>
+      {title ? (
+        <h1 className="mb-3 font-display text-xl font-bold tracking-tight text-ink">
+          {title}
+        </h1>
+      ) : null}
       <div className="space-y-3 rounded-xl border border-line/70 bg-paper/40 p-4">
         {children}
       </div>
@@ -180,11 +187,11 @@ function SectionCard({
   )
 }
 
-/* ── 个人设置 ─────────────────────────────────────────────── */
+/* ── 通用（个人设置） ─────────────────────────────────────── */
 function GeneralSection({
-  onSectionChange,
+  onNavigate,
 }: {
-  onSectionChange: (id: SectionId) => void
+  onNavigate: (tab: TabId) => void
 }) {
   const ports = usePorts()
   const [badgeMode, setBadgeMode] = useState<BadgeMode>('percent')
@@ -311,7 +318,7 @@ function GeneralSection({
   }, [selectedIndices])
 
   return (
-    <SectionCard id="general" title="个人设置">
+    <SectionCard title="个人设置">
       {/* 主题 */}
       <div className="space-y-2">
         <div className="text-sm font-medium text-ink">主题</div>
@@ -480,7 +487,7 @@ function GeneralSection({
           type="button"
           variant="soft"
           size="1"
-          onClick={() => onSectionChange('data')}
+          onClick={() => onNavigate('data')}
         >
           <Database className="h-4 w-4" />
           去「数据备份」导出 / 导入配置
@@ -556,7 +563,7 @@ function HoldingGroupsSection() {
   }
 
   return (
-    <SectionCard id="groups" title="持仓分组">
+    <SectionCard>
       <p className="text-xs text-muted">
         管理持仓的分组。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
@@ -668,7 +675,7 @@ function AddFundSection() {
   }, [ports])
 
   return (
-    <SectionCard id="add" title="添加持仓">
+    <SectionCard>
       <p className="text-xs text-muted">
         录入基金代码与金额即可添加。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
       </p>
@@ -815,7 +822,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
   )
 
   return (
-    <SectionCard id="edit" title="编辑持仓">
+    <SectionCard>
       <p className="text-xs text-muted">
         可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；在「全部」标签下不能调整排序（请进入具体分组标签）；删除分组会连带删除组内所有基金。记得点保存。
       </p>
@@ -1136,7 +1143,7 @@ function ImportSection({onImported}: {onImported: () => void}) {
   }
 
   return (
-    <SectionCard id="import" title="导入持仓">
+    <SectionCard>
       {/* 格式说明 */}
       <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
         <Button
@@ -1412,7 +1419,7 @@ function DataBackupSection() {
   }
 
   return (
-    <SectionCard id="data" title="数据备份">
+    <SectionCard title="数据备份">
       <p className="text-xs text-muted">
         持仓、自选、黄金与开关保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
       </p>
