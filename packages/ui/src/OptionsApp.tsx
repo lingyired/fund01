@@ -877,10 +877,10 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                 <div className="overflow-x-auto">
                   <table className="w-full table-fixed text-left text-xs">
                     <colgroup>
-                      <col className="w-[calc(46%-44px)]" />
-                      <col className="w-[14%]" />
-                      <col className="w-[20%]" />
-                      <col className="w-[20%]" />
+                      <col className="w-auto" />
+                      <col className="w-[150px]" />
+                      <col className="w-[150px]" />
+                      <col className="w-[150px]" />
                       <col className="w-[44px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-panel text-muted">

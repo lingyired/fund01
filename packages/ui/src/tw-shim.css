@@ -301,12 +301,14 @@
 .w-60{width:15rem}
 .w-\[10\%\]{width:10%}
 .w-\[124px\]{width:124px}
+.w-\[150px\]{width:150px}
 .w-\[22\%\]{width:22%}
 .w-\[40\%\]{width:40%}
 .w-\[44px\]{width:44px}
 .w-\[6\%\]{width:6%}
 .w-\[calc\(100\%-1rem\)\]{width:calc(100% - 1rem)}
 .w-\[calc\(46\%-44px\)\]{width:calc(46% - 44px)}
+.w-auto{width:auto}
 .w-full{width:100%}
 .whitespace-nowrap{white-space:nowrap}
 .whitespace-pre{white-space:pre}
