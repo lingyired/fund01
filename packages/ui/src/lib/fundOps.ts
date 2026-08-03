@@ -240,6 +240,13 @@ export function updateSettings(
   ) {
     config.settings.theme = patch.theme
   }
+  if (
+    patch.badgeMode === 'percent' ||
+    patch.badgeMode === 'amount' ||
+    patch.badgeMode === 'hidden'
+  ) {
+    config.settings.badgeMode = patch.badgeMode
+  }
   if (Array.isArray(patch.selectedIndices)) {
     const next = Array.from(
       new Set(
