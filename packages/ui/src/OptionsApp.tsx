@@ -78,6 +78,8 @@ export function OptionsApp() {
   const [tab, setTab] = useState<TabId>('general')
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
+  // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
+  const [groupsReload, setGroupsReload] = useState(0)
 
   return (
     <Theme accentColor="blue" grayColor="gray" radius="small">
@@ -120,10 +122,23 @@ export function OptionsApp() {
 
           <Tabs.Content value="holdings">
             <div className="space-y-8">
-              <HoldingGroupsSection />
-              <AddFundSection />
-              <EditHoldingsSection reloadSignal={holdingsReload} />
-              <ImportSection onImported={() => setHoldingsReload((t) => t + 1)} />
+              <HoldingGroupsSection
+                groupsReload={groupsReload}
+                onGroupsChanged={() => setGroupsReload((t) => t + 1)}
+              />
+              <AddFundSection groupsReload={groupsReload} />
+              <EditHoldingsSection
+                reloadSignal={holdingsReload}
+                groupsReload={groupsReload}
+                onGroupsChanged={() => setGroupsReload((t) => t + 1)}
+              />
+              <ImportSection
+                groupsReload={groupsReload}
+                onImported={() => {
+                  setHoldingsReload((t) => t + 1)
+                  setGroupsReload((t) => t + 1)
+                }}
+              />
             </div>
           </Tabs.Content>
 
@@ -472,7 +487,13 @@ function GeneralSection({
 }
 
 /* ── 持仓分组 ─────────────────────────────────────────────── */
-function HoldingGroupsSection() {
+function HoldingGroupsSection({
+  groupsReload,
+  onGroupsChanged,
+}: {
+  groupsReload: number
+  onGroupsChanged: () => void
+}) {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [newGroupName, setNewGroupName] = useState('')
@@ -487,7 +508,7 @@ function HoldingGroupsSection() {
     setAddingGroup(false)
     setEditingIdx(null)
     setGroupError('')
-  }, [ports])
+  }, [ports, groupsReload])
 
   async function handleAddGroup() {
     const name = newGroupName.trim()
@@ -498,6 +519,7 @@ function HoldingGroupsSection() {
       const next = await addHoldingGroup(ports, name)
       setGroups(next)
       setNewGroupName('')
+      onGroupsChanged()
     } catch (e: unknown) {
       setGroupError((e as Error)?.message || '新增分组失败')
     } finally {
@@ -517,6 +539,7 @@ function HoldingGroupsSection() {
       const next = await renameHoldingGroup(ports, oldName, newName)
       setGroups(next)
       setEditingIdx(null)
+      onGroupsChanged()
     } catch (e: unknown) {
       setGroupError((e as Error)?.message || '重命名失败')
     }
@@ -528,6 +551,7 @@ function HoldingGroupsSection() {
     try {
       const next = await removeHoldingGroup(ports, name)
       setGroups(next)
+      onGroupsChanged()
     } catch (e: unknown) {
       setGroupError((e as Error)?.message || '删除失败')
     }
@@ -635,7 +659,7 @@ function HoldingGroupsSection() {
 }
 
 /* ── 添加持仓 ─────────────────────────────────────────────── */
-function AddFundSection() {
+function AddFundSection({groupsReload}: {groupsReload: number}) {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [message, setMessage] = useState('')
@@ -643,7 +667,7 @@ function AddFundSection() {
 
   useEffect(() => {
     setGroups(listHoldingGroups(ports))
-  }, [ports])
+  }, [ports, groupsReload])
 
   return (
     <SectionCard title="添加持仓">
@@ -684,7 +708,15 @@ function AddFundSection() {
 const ALL_TAB = 'all'
 const UNGROUPED_TAB = '__ungrouped__'
 
-function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
+function EditHoldingsSection({
+  reloadSignal,
+  groupsReload,
+  onGroupsChanged,
+}: {
+  reloadSignal: number
+  groupsReload: number
+  onGroupsChanged: () => void
+}) {
   const ports = usePorts()
   const [rows, setRows] = useState<EditRow[]>([])
   const [groups, setGroups] = useState<string[]>([])
@@ -705,7 +737,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
         setActiveTab(ALL_TAB)
       })
       .catch((e) => setError((e as Error)?.message || '加载失败'))
-  }, [ports, reloadSignal])
+  }, [ports, reloadSignal, groupsReload])
 
   // 行集合的 code 指纹：编辑份额/成本不触发重拉，删除行或重载时才重新拉净值
   const navCodes = useMemo(
@@ -761,6 +793,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
       setGroups(newGroups)
       setActiveTab(ALL_TAB)
       setMessage(`已删除分组「${label}」`)
+      onGroupsChanged()
     } catch (e) {
       setError((e as Error)?.message || '删除分组失败')
     } finally {
@@ -983,7 +1016,13 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
 /* ── 导入持仓 ─────────────────────────────────────────────── */
 const UNGROUPED_VALUE = '__ungrouped__'
 
-function ImportSection({onImported}: {onImported: () => void}) {
+function ImportSection({
+  onImported,
+  groupsReload,
+}: {
+  onImported: () => void
+  groupsReload: number
+}) {
   const ports = usePorts()
   const [mode, setMode] = useState<'file' | 'paste'>('file')
   const [text, setText] = useState('')
@@ -1002,6 +1041,7 @@ function ImportSection({onImported}: {onImported: () => void}) {
   const [message, setMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 挂载/换 ports 时重置表单（不清 groups）
   useEffect(() => {
     setMode('file')
     setText('')
@@ -1012,8 +1052,12 @@ function ImportSection({onImported}: {onImported: () => void}) {
     setWarnings([])
     setDefaultGroup('')
     setShowFormat(false)
-    setGroups(listHoldingGroups(ports))
   }, [ports])
+
+  // 分组列表跟随外部信号（持仓分组增删改、导入建组后同步）
+  useEffect(() => {
+    setGroups(listHoldingGroups(ports))
+  }, [ports, groupsReload])
 
   useEffect(() => {
     if (!text.trim()) {
