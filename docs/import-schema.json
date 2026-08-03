@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fund01.local/schemas/import-holdings.json",
+  "title": "fund01 持仓导入 JSON",
+  "description": "fund01 浏览器扩展「导入持仓」接受的 JSON。数组的每个元素 = 一个（基金 × 分组）持仓条目；同一只基金分到多个分组时拆成多条（code 相同、group 不同）。",
+  "type": "array",
+  "minItems": 1,
+  "items": {"$ref": "#/$defs/HoldingEntry"},
+  "$defs": {
+    "HoldingEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "amount", "amountBasis"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^\\d{6}$",
+          "description": "6 位基金代码，不足前面补 0。截图只有名称时不要凭记忆编造，填 \"000000\" 并在数组外另列待确认清单。注意区分同一基金的 A/C 份额，代码不同。",
+          "examples": ["025687", "001618"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "基金全称。强烈建议填——扩展导入时会用它对传入的 code 做交叉校验：若 code 对应的官方名与 name 不符，扩展会按 name 反查正确代码并自动纠正，或给出核对提示（AI 识图常把代码错认一两位数字、但名称通常识别正确）。名称必须和 code 指向同一只基金，末尾 A/C/E 份额字母不能省略（009994 与 009995 是不同基金）。"
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0,
+          "description": "当前市值（元）。取截图里的「资产」「持仓金额」「持有金额」「市值」，已含持有收益。不是本金、不是投入金额、不是成本。",
+          "examples": [27538.49]
+        },
+        "amountBasis": {
+          "enum": ["prev", "today"],
+          "default": "prev",
+          "description": "amount 对应哪一天的确认净值。截图出现「今日收益已更新 / 今日收益更新 / 净值已更新」→ \"today\"；无该字样或标着「估算」「盘中估值」「昨日收益」→ \"prev\"。拿不准填 \"prev\"。填错会让份额整体偏掉一整天涨跌幅，且导入后表面看不出异常。navDate 存在时本字段被忽略。"
+        },
+        "navDate": {
+          "type": "string",
+          "pattern": "^(\\d{4}[-/])?\\d{1,2}[-/]\\d{1,2}$",
+          "description": "amount 对应的净值日期，优先级高于 amountBasis（最稳）。截图能读到「净值更新至 08-01」这类日期时必填。推荐 YYYY-MM-DD；也接受 MM-DD（省略年份时自动补，若晚于今天则退一年）与 / 分隔。按日期精确锚定，隔夜导入或数据源更新不同步都不会错位。",
+          "examples": ["2026-08-01", "07-31"]
+        },
+        "group": {
+          "type": "string",
+          "description": "分组名，由用户指定；用户没说就省略（归默认分组）。同一基金分多组时拆成多条，且 amount / dailyProfit / holdProfit 必须按同一比例一起拆。"
+        },
+        "dailyProfit": {
+          "type": "number",
+          "description": "当日/昨日收益（元，含负号）。不参与任何计算，仅用于导入时的一致性校验：理论值 = 份额 ×（最新确认净值 − 前一日净值），相对偏差 > 5% 会告警。这是「只有金额没有份额」场景下唯一能自动发现口径错位的信号，强烈建议填。⚠️ 但收益栏显示 0.00 时请【省略本字段】而不是填 0——App 在非交易日空窗期（周末、节假日、周一今日净值未更新、当天新买入份额未确认）会把收益显示成 0.00，那是「无数据」不是「收益为零」。填 0 语义不清（扩展会按无数据跳过校验，不会误报，但字段本身失去意义）。",
+          "examples": [768.29, -2783.89]
+        },
+        "holdProfit": {
+          "type": "number",
+          "description": "持仓收益 / 累计收益（元，含负号）。用于反推成本单价：成本 =（amount − holdProfit）÷ 份额。",
+          "examples": [2401.57, -382.32]
+        },
+        "holdProfitRate": {
+          "description": "持仓收益率。holdProfit 缺失时用于反推，两者都有时做成本交叉校验（偏差 > 2% 告警）。强烈建议用带 % 的字符串（无歧义）；写纯数字时 |v| ≥ 1 按百分数解析、|v| < 1 按小数解析，因此 0.5 会被当成 50% 而非 0.5%。",
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[+-]?\\d+(\\.\\d+)?%$",
+              "examples": ["9.95%", "-1.91%"]
+            },
+            {"type": "number"}
+          ]
+        },
+        "shares": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "持有份额（份）。截图若有则填——直接作为份额写入，完全跳过「金额 ÷ 净值」折算，没有任何净值基准歧义，是最精确的方式。优先级：shares > amount 折算。",
+          "examples": [14076.31]
+        },
+        "cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "持仓成本单价（元/份）。截图若有「持仓成本价」则填。优先级高于用 holdProfit 反推。与 shares 搭配可完全不经净值换算。",
+          "examples": [1.7858]
+        }
+      }
+    }
+  },
+  "examples": [
+    [
+      {
+        "code": "025687",
+        "name": "国泰半导体制造精选混合发起C",
+        "amount": 24754.6,
+        "amountBasis": "today",
+        "group": "人工智能",
+        "dailyProfit": -2783.89,
+        "holdProfit": -382.32,
+        "holdProfitRate": "-1.52%"
+      },
+      {
+        "code": "001618",
+        "name": "天弘中证电子ETF联接C",
+        "amount": 27538.49,
+        "amountBasis": "prev",
+        "navDate": "07-31",
+        "dailyProfit": 768.29,
+        "holdProfit": 2401.57,
+        "holdProfitRate": "9.95%"
+      }
+    ]
+  ]
+}

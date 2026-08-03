@@ -64,7 +64,11 @@ function openAsTab() {
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
-      <App version={version} openAsTab={openAsTab} />
+      <App
+        version={version}
+        openAsTab={openAsTab}
+        onOpenSettings={() => chrome.runtime.openOptionsPage()}
+      />
     </PortsContext.Provider>
   </React.StrictMode>,
 )

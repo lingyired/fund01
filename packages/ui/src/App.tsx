@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react'
-import {ExternalLink, FolderSync, Moon, RefreshCw, Sun} from 'lucide-react'
+import {ExternalLink, Moon, RefreshCw, Settings2, Sun} from 'lucide-react'
 import type {AppThemePref} from '@fund01/core'
 import {DEFAULT_SELECTED_INDICES} from '@fund01/core'
 import {
@@ -11,14 +11,8 @@ import {
 } from './theme'
 import {useMarketData} from './hooks'
 import {usePorts} from './context'
-import {createFund, listHoldingGroups} from './lib/fundOps'
 import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
-import {FundActionsMenu} from './components/popup/FundActionsMenu'
-import {ConfigDialog} from './components/ConfigDialog'
-import {FundFormDialog} from './components/FundFormDialog'
-import {ImportHoldingsDialog} from './components/ImportHoldingsDialog'
-import {BatchEditHoldingsDialog} from './components/BatchEditHoldingsDialog'
 import {IconButton, Theme} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
@@ -28,14 +22,16 @@ import './index.css'
 export function App({
   version,
   openAsTab,
+  onOpenSettings,
 }: {
   version?: string
   openAsTab?: () => void
+  /** 打开设置页（popup 中齿轮按钮触发；Chrome 端走 chrome.runtime.openOptionsPage，Tauri 端打开设置窗口） */
+  onOpenSettings?: () => void
 }) {
   const ports = usePorts()
   const {config} = ports
   const {holdings, indices, lastUpdate, loading, refresh} = useMarketData()
-  const [configOpen, setConfigOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [cfgTick, setCfgTick] = useState(0)
 
@@ -77,7 +73,6 @@ export function App({
     settings.selectedIndices && settings.selectedIndices.length > 0
       ? settings.selectedIndices
       : DEFAULT_SELECTED_INDICES
-  const groups = listHoldingGroups(ports)
 
   const updatedAt = lastUpdate
     ? new Date(lastUpdate).toLocaleTimeString('zh-CN', {hour12: false})
@@ -100,11 +95,6 @@ export function App({
     setCfgTick((t) => t + 1)
     void refresh()
   }
-
-  // 管理弹窗
-  const [addOpen, setAddOpen] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [batchOpen, setBatchOpen] = useState(false)
 
   // 刻意不传 appearance：Radix 官方建议依赖祖先 class 切换（applyTheme 写在 <html> 上），
   // 这样配色在 React 挂载前就已就位，不会闪烁。默认 appearance="inherit" 不会输出
@@ -158,18 +148,12 @@ export function App({
               <ExternalLink className="h-4 w-4" />
             </IconButton>
           ) : null}
-          <FundActionsMenu
-            onAdd={() => setAddOpen(true)}
-            onEdit={() => setBatchOpen(true)}
-            onImport={() => setImportOpen(true)}
-            onOpenTab={openAsTab}
-          />
           <IconButton
             variant="outline"
-            onClick={() => setConfigOpen(true)}
-            title="配置"
+            onClick={() => onOpenSettings?.()}
+            title="设置"
           >
-            <FolderSync className="h-4 w-4" />
+            <Settings2 className="h-4 w-4" />
           </IconButton>
         </div>
       </header>
@@ -177,44 +161,6 @@ export function App({
       <IndexBar indices={indices} selected={selectedIndices} loading={loading} />
 
       <PopupLayout data={holdings} loading={loading} />
-
-      <ConfigDialog
-        open={configOpen}
-        onOpenChange={setConfigOpen}
-        onImported={onConfigChanged}
-        onSettingsChanged={onConfigChanged}
-        indices={indices}
-      />
-      <FundFormDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        mode="hold"
-        initial={null}
-        editingGroup=""
-        groups={groups}
-        onGroupsChanged={onConfigChanged}
-        onSubmit={async (payload) => {
-          await createFund(ports, {
-            code: payload.code,
-            amount: payload.amount,
-            amountBasis: payload.amountBasis,
-            group: payload.group,
-            cost: payload.cost,
-            type: 'hold',
-          })
-          onConfigChanged()
-        }}
-      />
-      <ImportHoldingsDialog
-        open={importOpen}
-        onOpenChange={setImportOpen}
-        onImported={onConfigChanged}
-      />
-      <BatchEditHoldingsDialog
-        open={batchOpen}
-        onOpenChange={setBatchOpen}
-        onChanged={onConfigChanged}
-      />
       </div>
     </Theme>
   )

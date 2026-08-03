@@ -25,9 +25,10 @@ function defaultBasis(initial: FundQuoteRow | null): AmountBasis {
   return initial.percentSource === 'confirmed' ? 'today' : 'prev'
 }
 
-export function FundFormDialog({
-  open,
-  onOpenChange,
+/** 表单内容（不含 Dialog 包装），可在弹窗里用，也可在设置页里内联常驻。
+ *  - 弹窗场景：FundFormDialog 用 <Dialog.Root> 包一层，传 open/onOpenChange。
+ *  - 设置页场景：OptionsApp 直接渲染 <FundFormBody>，onOpenChange 可省略。 */
+export function FundFormBody({
   mode,
   initial,
   /** 编辑/新增时默认选中的分组（空字符串=未分组）；新增时可作为预选 */
@@ -39,9 +40,10 @@ export function FundFormDialog({
   groups,
   onSubmit,
   onGroupsChanged,
+  onOpenChange,
+  /** 是否渲染底部「取消 / 保存」按钮（弹窗里由 Dialog 提供关闭，内联时自带回车提交） */
+  renderActions = true,
 }: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
   mode: 'hold' | 'watch'
   initial: FundQuoteRow | null
   /** 编辑/新增时默认选中的分组 */
@@ -55,6 +57,10 @@ export function FundFormDialog({
   onSubmit: (payload: Payload) => Promise<void>
   /** 分组列表变更时通知父组件刷新（新增分组后） */
   onGroupsChanged?: () => void
+  /** 内联场景不需要关闭弹窗，可省略 */
+  onOpenChange?: (v: boolean) => void
+  /** 是否渲染底部操作按钮区 */
+  renderActions?: boolean
 }) {
   const ports = usePorts()
   const [code, setCode] = useState('')
@@ -68,21 +74,18 @@ export function FundFormDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  // 内联常驻场景：始终以最新 props 同步表单（settings 页里打开即空白/预填）
   useEffect(() => {
-    if (!open) return
     setCode(initial?.code || '')
-    // 编辑某分组时优先用该分组的金额，避免显示总额误导
     const amt = initialAmount != null ? initialAmount : initial?.amount
     setAmount(amt != null ? String(amt) : '')
-    // 该分组的成本（未录入则为空）
     setCost(initialCost != null && initialCost > 0 ? String(initialCost) : '')
     setAmountBasis(defaultBasis(initial))
-    // 编辑模式：用 editingGroup 指定要编辑的分组份额；新增模式：预选 editingGroup（来自当前 tab）
     setSelectedGroup(editingGroup ?? '')
     setNewGroup('')
     setAddingGroup(false)
     setError('')
-  }, [open, initial, editingGroup, initialAmount, initialCost])
+  }, [initial, editingGroup, initialAmount, initialCost])
 
   async function handleAddGroup() {
     const name = newGroup.trim()
@@ -103,6 +106,244 @@ export function FundFormDialog({
   }
 
   return (
+    <form
+      className="space-y-3"
+      onSubmit={async (e) => {
+        e.preventDefault()
+        setSaving(true)
+        setError('')
+        try {
+          const payload: Payload = {
+            code: code.trim(),
+            type: mode,
+          }
+          if (mode === 'hold') {
+            payload.amount = Number(amount) || 0
+            payload.amountBasis = amountBasis
+            payload.group = selectedGroup
+            // 成本：空字符串=不传（保留原值/无成本）；0=清空；>0=覆盖
+            const costNum = cost.trim() === '' ? undefined : Number(cost) || 0
+            if (costNum !== undefined) payload.cost = costNum
+          }
+          await onSubmit(payload)
+          // 内联常驻场景没有弹窗可关，仅弹窗场景需要 onOpenChange
+          onOpenChange?.(false)
+          // 提交成功后清空，方便连续添加（内联场景；弹窗场景由 onOpenChange 关闭）
+          if (!onOpenChange && !initial) {
+            setCode('')
+            setAmount('')
+            setCost('')
+          }
+        } catch (err: unknown) {
+          const msg =
+            (err as {response?: {data?: {message?: string}}; message?: string})
+              ?.response?.data?.message ||
+            (err as Error)?.message ||
+            '保存失败'
+          setError(msg)
+        } finally {
+          setSaving(false)
+        }
+      }}
+    >
+      <div className="space-y-1.5">
+        <label htmlFor="code" className="text-sm font-medium text-ink-soft leading-none">
+          基金代码
+        </label>
+        <TextField.Root
+          id="code"
+          value={code}
+          disabled={!!initial}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="如 001618"
+          inputMode="numeric"
+          required
+        />
+      </div>
+
+      {mode === 'hold' ? (
+        <>
+          {/* 分组（单选） */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-ink-soft leading-none">
+              分组（单选，本次金额对应的分组份额；一个基金可在多个分组各持有独立份额）
+            </label>
+            <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-paper/40 p-2">
+              {/* 未分组选项 */}
+              <Button
+                type="button"
+                size="1"
+                radius="full"
+                variant={selectedGroup === '' ? 'solid' : 'outline'}
+                onClick={() => setSelectedGroup('')}
+                disabled={saving || addingGroup}
+              >
+                未分组
+              </Button>
+              {groups.map((g) => {
+                const checked = selectedGroup === g
+                return (
+                  <Button
+                    key={g}
+                    type="button"
+                    size="1"
+                    radius="full"
+                    variant={checked ? 'solid' : 'outline'}
+                    onClick={() => setSelectedGroup(g)}
+                    disabled={saving || addingGroup}
+                  >
+                    {g}
+                  </Button>
+                )
+              })}
+            </div>
+            {initial ? (
+              <p className="text-[11px] text-muted">
+                当前编辑「{selectedGroup || '未分组'}」分组下的份额；其他分组的份额保持不变。
+              </p>
+            ) : (
+              <p className="text-[11px] text-muted">
+                本次金额将记入「{selectedGroup || '未分组'}」分组。如需把同一基金加入其他分组，再次添加并选其它分组即可。
+              </p>
+            )}
+            {/* 内联新增分组 */}
+            <div className="flex gap-2 pt-1">
+              <TextField.Root
+                type="text"
+                value={newGroup}
+                onChange={(e) => setNewGroup(e.target.value)}
+                placeholder="输入新分组名"
+                disabled={saving || addingGroup}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="1"
+                disabled={saving || addingGroup || !newGroup.trim()}
+                onClick={handleAddGroup}
+              >
+                <Plus className="h-4 w-4" />
+                新增
+              </Button>
+            </div>
+          </div>
+
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-ink">金额口径</legend>
+            <RadioCards.Root
+              value={amountBasis}
+              onValueChange={(v) => setAmountBasis(v as AmountBasis)}
+              columns={{initial: '1', sm: '2'}}
+            >
+              <RadioCards.Item value="prev">
+                <div className="text-left">
+                  <div className="text-sm font-medium text-ink">昨日结算的持仓金额</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    用昨确认净值算份额；列表金额之后按最新净值实时计算
+                  </div>
+                </div>
+              </RadioCards.Item>
+              <RadioCards.Item value="today">
+                <div className="text-left">
+                  <div className="text-sm font-medium text-ink">今日结算的持仓金额</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    输入即今日确认市值（与列表一致）；用今净值算份额
+                  </div>
+                </div>
+              </RadioCards.Item>
+            </RadioCards.Root>
+          </fieldset>
+          <div className="space-y-1.5">
+            <label
+              htmlFor="amount"
+              className="text-sm font-medium text-ink-soft leading-none"
+            >
+              {initial ? `持仓金额（${selectedGroup || '未分组'}）` : '持仓金额'}
+            </label>
+            <TextField.Root
+              id="amount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="填写与上方口径一致的金额"
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label
+              htmlFor="cost"
+              className="text-sm font-medium text-ink-soft leading-none"
+            >
+              持仓成本单价（可选，用于累计收益）
+            </label>
+            <TextField.Root
+              id="cost"
+              type="number"
+              step="0.0001"
+              min="0"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              placeholder="留空则不统计累计收益；填 0 清空已有成本"
+            />
+            <p className="text-[11px] text-muted">
+              买入时的单位成本价（元/份）。累计收益 = 当前市值 − 成本单价 × 份额。
+            </p>
+          </div>
+        </>
+      ) : null}
+
+      {mode === 'watch' && initial ? (
+        <p className="text-sm text-muted">
+          自选仅需基金代码，当前：{initial.name || initial.code}
+        </p>
+      ) : null}
+
+      {error ? <p className="text-sm text-rise">{error}</p> : null}
+      {renderActions ? (
+        <div className="flex justify-end gap-2 pt-2">
+          {onOpenChange ? (
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              取消
+            </Button>
+          ) : null}
+          <Button type="submit" disabled={saving || (mode === 'watch' && !!initial)}>
+            {saving ? '保存中...' : '保存'}
+          </Button>
+        </div>
+      ) : null}
+    </form>
+  )
+}
+
+/** 弹窗版添加/编辑基金：仅供 popup 内（如自选添加）等需要模态的场景使用。
+ *  设置页里「添加持仓」直接内联 <FundFormBody>，不再包 Dialog。 */
+export function FundFormDialog({
+  open,
+  onOpenChange,
+  mode,
+  initial,
+  editingGroup,
+  initialAmount,
+  initialCost,
+  groups,
+  onSubmit,
+  onGroupsChanged,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  mode: 'hold' | 'watch'
+  initial: FundQuoteRow | null
+  editingGroup?: string
+  initialAmount?: number
+  initialCost?: number
+  groups: string[]
+  onSubmit: (payload: Payload) => Promise<void>
+  onGroupsChanged?: () => void
+}) {
+  return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content className="rt-popup-dialog">
         <div className="mb-4 flex flex-col gap-1">
@@ -116,199 +357,19 @@ export function FundFormDialog({
                 : '添加自选'}
           </Dialog.Title>
         </div>
-
-        <form
-          className="space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            setSaving(true)
-            setError('')
-            try {
-              const payload: Payload = {
-                code: code.trim(),
-                type: mode,
-              }
-              if (mode === 'hold') {
-                payload.amount = Number(amount) || 0
-                payload.amountBasis = amountBasis
-                payload.group = selectedGroup
-                // 成本：空字符串=不传（保留原值/无成本）；0=清空；>0=覆盖
-                const costNum = cost.trim() === '' ? undefined : Number(cost) || 0
-                if (costNum !== undefined) payload.cost = costNum
-              }
-              await onSubmit(payload)
-              onOpenChange(false)
-            } catch (err: unknown) {
-              const msg =
-                (err as {response?: {data?: {message?: string}}; message?: string})
-                  ?.response?.data?.message ||
-                (err as Error)?.message ||
-                '保存失败'
-              setError(msg)
-            } finally {
-              setSaving(false)
-            }
-          }}
-        >
-          <div className="space-y-1.5">
-            <label htmlFor="code" className="text-sm font-medium text-ink-soft leading-none">基金代码</label>
-            <TextField.Root
-              id="code"
-              value={code}
-              disabled={!!initial}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="如 001618"
-              inputMode="numeric"
-              required
-            />
-          </div>
-
-          {mode === 'hold' ? (
-            <>
-              {/* 分组（单选） */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-ink-soft leading-none">
-                  分组（单选，本次金额对应的分组份额；一个基金可在多个分组各持有独立份额）
-                </label>
-                <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-paper/40 p-2">
-                  {/* 未分组选项 */}
-                  <Button
-                    type="button"
-                    size="1"
-                    radius="full"
-                    variant={selectedGroup === '' ? 'solid' : 'outline'}
-                    onClick={() => setSelectedGroup('')}
-                    disabled={saving || addingGroup}
-                  >
-                    未分组
-                  </Button>
-                  {groups.map((g) => {
-                    const checked = selectedGroup === g
-                    return (
-                      <Button
-                        key={g}
-                        type="button"
-                        size="1"
-                        radius="full"
-                        variant={checked ? 'solid' : 'outline'}
-                        onClick={() => setSelectedGroup(g)}
-                        disabled={saving || addingGroup}
-                      >
-                        {g}
-                      </Button>
-                    )
-                  })}
-                </div>
-                {initial ? (
-                  <p className="text-[11px] text-muted">
-                    当前编辑「{selectedGroup || '未分组'}」分组下的份额；其他分组的份额保持不变。
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-muted">
-                    本次金额将记入「{selectedGroup || '未分组'}」分组。如需把同一基金加入其他分组，再次添加并选其它分组即可。
-                  </p>
-                )}
-                {/* 内联新增分组 */}
-                <div className="flex gap-2 pt-1">
-                  <TextField.Root
-                    type="text"
-                    value={newGroup}
-                    onChange={(e) => setNewGroup(e.target.value)}
-                    placeholder="输入新分组名"
-                    disabled={saving || addingGroup}
-                    className="flex-1"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="1"
-                    disabled={saving || addingGroup || !newGroup.trim()}
-                    onClick={handleAddGroup}
-                  >
-                    <Plus className="h-4 w-4" />
-                    新增
-                  </Button>
-                </div>
-              </div>
-
-              <fieldset className="space-y-2">
-                <legend className="text-sm font-medium text-ink">金额口径</legend>
-                <RadioCards.Root
-                  value={amountBasis}
-                  onValueChange={(v) => setAmountBasis(v as AmountBasis)}
-                  columns={{initial: '1', sm: '2'}}
-                >
-                  <RadioCards.Item value="prev">
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-ink">昨日结算的持仓金额</div>
-                      <div className="mt-0.5 text-xs text-muted">
-                        用昨确认净值算份额；列表金额之后按最新净值实时计算
-                      </div>
-                    </div>
-                  </RadioCards.Item>
-                  <RadioCards.Item value="today">
-                    <div className="text-left">
-                      <div className="text-sm font-medium text-ink">今日结算的持仓金额</div>
-                      <div className="mt-0.5 text-xs text-muted">
-                        输入即今日确认市值（与列表一致）；用今净值算份额
-                      </div>
-                    </div>
-                  </RadioCards.Item>
-                </RadioCards.Root>
-              </fieldset>
-              <div className="space-y-1.5">
-                <label htmlFor="amount" className="text-sm font-medium text-ink-soft leading-none">
-                  {initial
-                    ? `持仓金额（${selectedGroup || '未分组'}）`
-                    : '持仓金额'}
-                </label>
-                <TextField.Root
-                  id="amount"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="填写与上方口径一致的金额"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="cost" className="text-sm font-medium text-ink-soft leading-none">
-                  持仓成本单价（可选，用于累计收益）
-                </label>
-                <TextField.Root
-                  id="cost"
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                  placeholder="留空则不统计累计收益；填 0 清空已有成本"
-                />
-                <p className="text-[11px] text-muted">
-                  买入时的单位成本价（元/份）。累计收益 = 当前市值 − 成本单价 × 份额。
-                </p>
-              </div>
-            </>
-          ) : null}
-
-          {mode === 'watch' && initial ? (
-            <p className="text-sm text-muted">
-              自选仅需基金代码，当前：{initial.name || initial.code}
-            </p>
-          ) : null}
-
-          {error ? <p className="text-sm text-rise">{error}</p> : null}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button type="submit" disabled={saving || (mode === 'watch' && !!initial)}>
-              {saving ? '保存中...' : '保存'}
-            </Button>
-          </div>
-        </form>
+        {/* key 随 open 切换重挂载：每次打开都按 initial 重新初始化表单 */}
+        <FundFormBody
+          key={open ? 'open' : 'closed'}
+          mode={mode}
+          initial={initial}
+          editingGroup={editingGroup}
+          initialAmount={initialAmount}
+          initialCost={initialCost}
+          groups={groups}
+          onSubmit={onSubmit}
+          onGroupsChanged={onGroupsChanged}
+          onOpenChange={onOpenChange}
+        />
         <Dialog.Close className="rt-dialog-close" aria-label="关闭">
           <X className="h-4 w-4" />
         </Dialog.Close>
