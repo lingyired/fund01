@@ -877,11 +877,11 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                 <div className="overflow-x-auto">
                   <table className="w-full table-fixed text-left text-xs">
                     <colgroup>
-                      <col className="w-[30%]" />
+                      <col className="w-[calc(46%-44px)]" />
                       <col className="w-[14%]" />
-                      <col className="w-[22%]" />
-                      <col className="w-[22%]" />
-                      <col className="w-[12%]" />
+                      <col className="w-[20%]" />
+                      <col className="w-[20%]" />
+                      <col className="w-[44px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-panel text-muted">
                       <tr className="border-b border-line/40">
@@ -889,7 +889,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                         <th className="px-2 py-1.5 text-right font-medium">持仓金额</th>
                         <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
                         <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
-                        <th className="px-2 py-1.5 text-center font-medium">删</th>
+                        <th className="px-1 py-1.5 text-center font-medium">删</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -945,7 +945,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
                                 placeholder="留空"
                               />
                             </td>
-                            <td className="px-2 py-1.5 align-middle">
+                            <td className="px-1 py-1.5 align-middle">
                               <div className="flex justify-center">
                                 <IconButton
                                   type="button"
