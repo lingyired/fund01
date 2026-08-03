@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react'
-import {ChevronDown, ChevronRight, X} from 'lucide-react'
-import {Button, Dialog, TextField} from '@radix-ui/themes'
+import {ChevronDown, ChevronRight, Upload, X} from 'lucide-react'
+import {Button, Dialog, Select, TextArea, TextField} from '@radix-ui/themes'
 import {addHoldingGroup, createFund, listHoldingGroups} from '../lib/fundOps'
 import {usePorts} from '../context'
 
@@ -81,11 +81,9 @@ export function parseImport(input: string): ImportEntry[] {
   })
 }
 
-const SAMPLE = `[
-  { "code": "001618", "amount": 10000, "cost": 1.2345 },
-{ "code": "025687", "amount": 28175.78, "amountBasis": "today", "group": "人工智能投资", "holdProfit": 4038.86 },
-{ "code": "025687", "amount": 3000, "group": "核心" }
-]`
+const SAMPLE = `[\n  { "code": "001618", "amount": 10000, "cost": 1.2345 },\n{ "code": "025687", "amount": 28175.78, "amountBasis": "today", "group": "人工智能投资", "holdProfit": 4038.86 },\n{ "code": "025687", "amount": 3000, "group": "核心" }\n]`
+
+const UNGROUPED_VALUE = '__ungrouped__'
 
 export function ImportHoldingsDialog({
   open,
@@ -210,19 +208,29 @@ export function ImportHoldingsDialog({
     }
   }
 
+  const selectedFileName = (() => {
+    if (!text || mode !== 'file') return null
+    // 文件加载后 text 不为空，但没有文件名；显示已加载即可
+    return '已加载文件，预览见下方'
+  })()
+
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !running && onOpenChange(v)}>
       <Dialog.Content className="rt-popup-dialog max-w-lg">
         <div className="mb-4 flex flex-col gap-1">
-          <Dialog.Title className="font-display font-bold">导入持仓</Dialog.Title>
+          <Dialog.Title size="4" mb="0" className="font-display font-bold leading-none">
+            导入持仓
+          </Dialog.Title>
         </div>
 
         {/* 格式说明（可折叠） */}
         <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="1"
             onClick={() => setShowFormat((v) => !v)}
-            className="flex w-full items-center gap-1 px-3 py-2 text-left font-medium text-ink-soft transition-colors hover:bg-paper/60"
+            className="flex h-auto w-full items-center justify-start gap-1 px-3 py-2 text-left font-medium text-ink-soft"
             aria-expanded={showFormat}
           >
             {showFormat ? (
@@ -231,7 +239,7 @@ export function ImportHoldingsDialog({
               <ChevronRight className="h-3.5 w-3.5 shrink-0" />
             )}
             JSON 格式（数组，每条 = 一个基金在某分组的份额）
-          </button>
+          </Button>
           {showFormat ? (
             <div className="px-3 pb-2">
               <pre className="mt-1 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
@@ -253,20 +261,22 @@ export function ImportHoldingsDialog({
         {/* 默认分组选择（用于 JSON 中未指定 group 的条目） */}
         <div className="space-y-1.5">
           <label htmlFor="default-group" className="text-sm font-medium text-ink-soft leading-none">默认分组（JSON 未指定 group 时应用）</label>
-          <select
-            id="default-group"
-            value={defaultGroup}
-            onChange={(e) => setDefaultGroup(e.target.value)}
+          <Select.Root
+            value={defaultGroup || UNGROUPED_VALUE}
+            onValueChange={(v) => setDefaultGroup(v === UNGROUPED_VALUE ? '' : v)}
             disabled={running}
-            className="flex h-9 w-full rounded-md border border-line bg-panel px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            size="2"
           >
-            <option value="">未分组</option>
-            {groups.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
+            <Select.Trigger id="default-group" className="w-full" placeholder="选择默认分组" />
+            <Select.Content position="popper">
+              <Select.Item value={UNGROUPED_VALUE}>未分组</Select.Item>
+              {groups.map((g) => (
+                <Select.Item key={g} value={g}>
+                  {g}
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select.Root>
           {unknownGroups.length > 0 ? (
             <p className="text-[11px] text-muted">
               JSON 中出现新分组：{unknownGroups.join('、')}（导入时会自动创建）
@@ -298,34 +308,45 @@ export function ImportHoldingsDialog({
 
         {mode === 'file' ? (
           <div className="space-y-1.5">
-            <label htmlFor="import-file" className="text-sm font-medium text-ink-soft leading-none">JSON 文件</label>
-            <input
-              id="import-file"
-              ref={fileRef}
-              type="file"
-              accept=".json,application/json"
-              disabled={running}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) handleFile(f)
-              }}
-              className="flex h-9 w-full rounded-md border border-line bg-panel px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
-            />
-            {text ? (
-              <div className="text-xs text-muted">已加载文件，预览见下方</div>
-            ) : null}
+            <label className="text-sm font-medium text-ink-soft leading-none">JSON 文件</label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="1"
+                disabled={running}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Upload className="h-4 w-4" />
+                选择文件
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".json,application/json"
+                disabled={running}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) handleFile(f)
+                }}
+                className="hidden"
+              />
+              <span className="text-sm text-muted">
+                {selectedFileName ?? '未选择文件'}
+              </span>
+            </div>
           </div>
         ) : (
           <div className="space-y-1.5">
             <label htmlFor="import-text" className="text-sm font-medium text-ink-soft leading-none">粘贴 JSON 数组</label>
-            <textarea
+            <TextArea
               id="import-text"
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder={SAMPLE}
               rows={6}
               disabled={running}
-              className="flex w-full rounded-md border border-line bg-panel px-3 py-2 font-mono text-xs shadow-sm transition-colors placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full font-mono text-xs"
             />
           </div>
         )}

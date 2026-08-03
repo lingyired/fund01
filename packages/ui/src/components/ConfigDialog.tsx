@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react'
 import {Check, Download, Pencil, Plus, Trash2, Upload, X} from 'lucide-react'
-import {Button, Dialog, IconButton, TextField} from '@radix-ui/themes'
+import {Button, Dialog, IconButton, SegmentedControl, Select, TextField} from '@radix-ui/themes'
 import type {AppConfig, AppThemePref, BadgeMode, IndexItem} from '@fund01/core'
 import {
   DEFAULT_SELECTED_INDICES,
@@ -286,30 +286,26 @@ export function ConfigDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content className="rt-popup-dialog">
         <div className="mb-4 flex flex-col gap-1">
-          <Dialog.Title className="font-display font-bold">个人配置</Dialog.Title>
+          <Dialog.Title size="4" mb="0" className="font-display font-bold leading-none">
+            个人配置
+          </Dialog.Title>
         </div>
 
         {/* 外观：主题 */}
         <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">
           <div className="text-sm font-medium text-ink">主题</div>
           <p className="text-xs text-muted">默认跟随系统，可在亮色 / 暗色间切换。</p>
-          <div className="flex gap-1.5 pt-1">
+          <SegmentedControl.Root
+            value={themePref}
+            onValueChange={(v) => void handleThemeChange(v as AppThemePref)}
+            className="pt-1"
+          >
             {THEME_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => void handleThemeChange(opt.value)}
-                className={cn(
-                  'flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors',
-                  themePref === opt.value
-                    ? 'border-accent bg-accent/10 text-accent'
-                    : 'border-line bg-panel text-ink-soft hover:border-accent/50',
-                )}
-              >
+              <SegmentedControl.Item key={opt.value} value={opt.value}>
                 {opt.label}
-              </button>
+              </SegmentedControl.Item>
             ))}
-          </div>
+          </SegmentedControl.Root>
         </div>
 
         {/* 扩展角标显示方式 */}
@@ -318,23 +314,17 @@ export function ConfigDialog({
           <p className="text-xs text-muted">
             工具栏图标右下角的角标内容。收益额会用 k(千)/w(万)/kw(千万) 简写，文本最长 4 位；方向由角标颜色（红涨绿跌）表达。
           </p>
-          <div className="flex gap-1.5 pt-1">
+          <SegmentedControl.Root
+            value={badgeMode}
+            onValueChange={(v) => void handleBadgeModeChange(v as BadgeMode)}
+            className="pt-1"
+          >
             {BADGE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => void handleBadgeModeChange(opt.value)}
-                className={cn(
-                  'flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors',
-                  badgeMode === opt.value
-                    ? 'border-accent bg-accent/10 text-accent'
-                    : 'border-line bg-panel text-ink-soft hover:border-accent/50',
-                )}
-              >
+              <SegmentedControl.Item key={opt.value} value={opt.value}>
                 {opt.label}
-              </button>
+              </SegmentedControl.Item>
             ))}
-          </div>
+          </SegmentedControl.Root>
         </div>
 
         {/* 指数看板：最多选 5 个 */}
@@ -484,20 +474,18 @@ export function ConfigDialog({
           </p>
           <div className="space-y-1 pt-1">
             <label htmlFor="quote-source" className="text-sm font-medium text-ink-soft leading-none">当日行情数据源</label>
-            <select
-              id="quote-source"
+            <Select.Root
               value={quoteSource}
+              onValueChange={(v) => void handleQuoteSourceChange(v as 'fund123' | 'fundmnfinfo')}
               disabled={savingSource}
-              onChange={(e) =>
-                handleQuoteSourceChange(
-                  e.target.value as 'fund123' | 'fundmnfinfo',
-                )
-              }
-              className="flex h-9 w-full rounded-md border border-line bg-panel px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              size="2"
             >
-              <option value="fundmnfinfo">FundMNFInfo（东方财富批量接口，默认）</option>
-              <option value="fund123">fund123（蚂蚁基金）</option>
-            </select>
+              <Select.Trigger id="quote-source" className="w-full" placeholder="选择数据源" />
+              <Select.Content position="popper">
+                <Select.Item value="fundmnfinfo">FundMNFInfo（东方财富批量接口，默认）</Select.Item>
+                <Select.Item value="fund123">fund123（蚂蚁基金）</Select.Item>
+              </Select.Content>
+            </Select.Root>
             <p className="text-[11px] text-muted">
               FundMNFInfo：批量请求东方财富接口（最多 200 只/次），速度更快；fund123：逐只请求蚂蚁基金 + 东方财富历史净值。
             </p>

@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {Plus, X} from 'lucide-react'
-import {Button, Dialog, TextField} from '@radix-ui/themes'
+import {Button, Dialog, RadioCards, TextField} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {addHoldingGroup} from '../lib/fundOps'
 import {usePorts} from '../context'
@@ -106,7 +106,7 @@ export function FundFormDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content className="rt-popup-dialog">
         <div className="mb-4 flex flex-col gap-1">
-          <Dialog.Title className="font-display font-bold">
+          <Dialog.Title size="4" mb="0" className="font-display font-bold leading-none">
             {initial
               ? mode === 'hold'
                 ? '编辑持仓金额'
@@ -172,34 +172,30 @@ export function FundFormDialog({
                 </label>
                 <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-paper/40 p-2">
                   {/* 未分组选项 */}
-                  <button
+                  <Button
                     type="button"
+                    size="1"
+                    radius="full"
+                    variant={selectedGroup === '' ? 'solid' : 'outline'}
                     onClick={() => setSelectedGroup('')}
                     disabled={saving || addingGroup}
-                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                      selectedGroup === ''
-                        ? 'border-accent bg-accent text-white'
-                        : 'border-line bg-panel text-ink-soft hover:border-accent/50'
-                    }`}
                   >
                     未分组
-                  </button>
+                  </Button>
                   {groups.map((g) => {
                     const checked = selectedGroup === g
                     return (
-                      <button
+                      <Button
                         key={g}
                         type="button"
+                        size="1"
+                        radius="full"
+                        variant={checked ? 'solid' : 'outline'}
                         onClick={() => setSelectedGroup(g)}
                         disabled={saving || addingGroup}
-                        className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
-                          checked
-                            ? 'border-accent bg-accent text-white'
-                            : 'border-line bg-panel text-ink-soft hover:border-accent/50'
-                        }`}
                       >
                         {g}
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
@@ -237,36 +233,28 @@ export function FundFormDialog({
 
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium text-ink">金额口径</legend>
-                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-2.5">
-                  <input
-                    type="radio"
-                    name="amountBasis"
-                    className="mt-1"
-                    checked={amountBasis === 'prev'}
-                    onChange={() => setAmountBasis('prev')}
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm text-ink">昨日结算的持仓金额</span>
-                    <span className="mt-0.5 block text-xs text-muted">
-                      用昨确认净值算份额；列表金额之后按最新净值实时计算
-                    </span>
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-2.5">
-                  <input
-                    type="radio"
-                    name="amountBasis"
-                    className="mt-1"
-                    checked={amountBasis === 'today'}
-                    onChange={() => setAmountBasis('today')}
-                  />
-                  <span className="min-w-0">
-                    <span className="block text-sm text-ink">今日结算的持仓金额</span>
-                    <span className="mt-0.5 block text-xs text-muted">
-                      输入即今日确认市值（与列表一致）；用今净值算份额
-                    </span>
-                  </span>
-                </label>
+                <RadioCards.Root
+                  value={amountBasis}
+                  onValueChange={(v) => setAmountBasis(v as AmountBasis)}
+                  columns={{initial: '1', sm: '2'}}
+                >
+                  <RadioCards.Item value="prev">
+                    <div className="text-left">
+                      <div className="text-sm font-medium text-ink">昨日结算的持仓金额</div>
+                      <div className="mt-0.5 text-xs text-muted">
+                        用昨确认净值算份额；列表金额之后按最新净值实时计算
+                      </div>
+                    </div>
+                  </RadioCards.Item>
+                  <RadioCards.Item value="today">
+                    <div className="text-left">
+                      <div className="text-sm font-medium text-ink">今日结算的持仓金额</div>
+                      <div className="mt-0.5 text-xs text-muted">
+                        输入即今日确认市值（与列表一致）；用今净值算份额
+                      </div>
+                    </div>
+                  </RadioCards.Item>
+                </RadioCards.Root>
               </fieldset>
               <div className="space-y-1.5">
                 <label htmlFor="amount" className="text-sm font-medium text-ink-soft leading-none">

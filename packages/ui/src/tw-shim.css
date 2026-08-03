@@ -260,6 +260,15 @@
 .text-white{color:#fff}
 .text-xs{font-size:12px;line-height:1.25rem}
 .to-paper\/50{--tw-gradient-to:color-mix(in oklab, var(--color-background) 50%, transparent)}
+.bottom-0{bottom:0px}
+.fixed{position:fixed}
+.inset-0{top:0;right:0;bottom:0;left:0}
+.inset-x-0{right:0;left:0}
+.inset-y-0{top:0;bottom:0}
+.left-0{left:0px}
+.max-w-none{max-width:none}
+.rounded-none{border-radius:0}
+.z-50{z-index:50}
 .top-0{top:0px}
 .tracking-tight{letter-spacing:-0.025em}
 .tracking-wide{letter-spacing:0.025em}

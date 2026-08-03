@@ -139,13 +139,22 @@ async function refreshAll(force = false): Promise<void> {
   const taskKeys: TaskKey[] = []
 
   // 基金：持仓 + 自选共享同一时段
-  if (canRefreshFund && holdFunds.length) {
+  // 注意：即使持仓/自选为空也必须发起刷新任务（传入空数组）。否则 holdingsResult
+  // 为 null，下面的 cache-holdings 不会被重写，导致删除全部持仓/分组后，popup 仍残留
+  // 旧的缓存分组数据（编辑弹窗已空、持仓列表却还有一个分组）。
+  if (canRefreshFund) {
     taskKeys.push('holdings')
-    tasks.push(getFundsQuotes(holdFunds, quoteSource))
-  }
-  if (canRefreshFund && watchFunds.length) {
+    tasks.push(
+      holdFunds.length
+        ? getFundsQuotes(holdFunds, quoteSource)
+        : Promise.resolve([] as any[]),
+    )
     taskKeys.push('watchlist')
-    tasks.push(getFundsQuotes(watchFunds, quoteSource))
+    tasks.push(
+      watchFunds.length
+        ? getFundsQuotes(watchFunds, quoteSource)
+        : Promise.resolve([] as any[]),
+    )
   }
   // A 股指数 + 大盘
   if (canRefreshAShare) {

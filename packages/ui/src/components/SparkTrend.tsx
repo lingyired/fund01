@@ -271,7 +271,7 @@ export function SparkTrend({
         <Dialog.Root open={open} onOpenChange={setOpen}>
           <Dialog.Content className="rt-popup-dialog max-w-2xl">
             <div className="mb-4 flex flex-col gap-1">
-              <Dialog.Title className="font-display font-bold flex items-center justify-between gap-3 pr-6">
+              <Dialog.Title size="4" mb="0" className="font-display flex items-center justify-between gap-3 pr-6 leading-none">
                 <span className="truncate">{title}</span>
                 <span className="flex shrink-0 flex-col items-end gap-0.5">
                   {mode === 'percent' ? <MiniPct value={lastPct} /> : null}
