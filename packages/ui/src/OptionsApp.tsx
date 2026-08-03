@@ -134,10 +134,8 @@ export function OptionsApp() {
               />
               <ImportSection
                 groupsReload={groupsReload}
-                onImported={() => {
-                  setHoldingsReload((t) => t + 1)
-                  setGroupsReload((t) => t + 1)
-                }}
+                onGroupsChanged={() => setGroupsReload((t) => t + 1)}
+                onImported={() => setHoldingsReload((t) => t + 1)}
               />
             </div>
           </Tabs.Content>
@@ -1018,9 +1016,11 @@ const UNGROUPED_VALUE = '__ungrouped__'
 
 function ImportSection({
   onImported,
+  onGroupsChanged,
   groupsReload,
 }: {
   onImported: () => void
+  onGroupsChanged: () => void
   groupsReload: number
 }) {
   const ports = usePorts()
@@ -1140,14 +1140,16 @@ function ImportSection({
       setWarnings([...warns])
     }
     setRunning(false)
+    // 无论成败都广播：未知分组在导入循环前已创建，持仓也可能部分写入；
+    // 若不广播，部分失败时各分区列表会停留在旧数据
+    onGroupsChanged()
+    onImported()
     if (failed.length === 0) {
       setMessage(`成功导入 ${entries.length} 条`)
       // 重置，便于再次导入
       setText('')
       setEntries([])
       setGroups(listHoldingGroups(ports))
-      // 通知「编辑持仓」分区刷新数据
-      onImported()
     } else {
       setError(`导入完成，但有 ${failed.length} 条失败`)
     }
