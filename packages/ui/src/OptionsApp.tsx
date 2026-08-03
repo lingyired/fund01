@@ -64,16 +64,6 @@ const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
   {id: 'data', label: '数据', icon: Database},
 ]
 
-/* 持仓 tab 内部二级导航 */
-type HoldingsSub = 'groups' | 'add' | 'edit' | 'import'
-
-const HOLDINGS_SUBS: {id: HoldingsSub; label: string}[] = [
-  {id: 'groups', label: '分组'},
-  {id: 'add', label: '添加'},
-  {id: 'edit', label: '编辑'},
-  {id: 'import', label: '导入'},
-]
-
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
   {value: 'system', label: '跟随系统'},
   {value: 'light', label: '亮色'},
@@ -88,8 +78,6 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
 
 export function OptionsApp() {
   const [tab, setTab] = useState<TabId>('general')
-  // 持仓 tab 内部二级导航
-  const [sub, setSub] = useState<HoldingsSub>('groups')
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
 
@@ -133,26 +121,11 @@ export function OptionsApp() {
           </Tabs.Content>
 
           <Tabs.Content value="holdings">
-            <div className="space-y-4">
-              <SegmentedControl.Root
-                value={sub}
-                onValueChange={(v) => setSub(v as HoldingsSub)}
-                size="1"
-              >
-                {HOLDINGS_SUBS.map((s) => (
-                  <SegmentedControl.Item key={s.id} value={s.id}>
-                    {s.label}
-                  </SegmentedControl.Item>
-                ))}
-              </SegmentedControl.Root>
-              {sub === 'groups' ? <HoldingGroupsSection /> : null}
-              {sub === 'add' ? <AddFundSection /> : null}
-              {sub === 'edit' ? (
-                <EditHoldingsSection reloadSignal={holdingsReload} />
-              ) : null}
-              {sub === 'import' ? (
-                <ImportSection onImported={() => setHoldingsReload((t) => t + 1)} />
-              ) : null}
+            <div className="space-y-8">
+              <HoldingGroupsSection />
+              <AddFundSection />
+              <EditHoldingsSection reloadSignal={holdingsReload} />
+              <ImportSection onImported={() => setHoldingsReload((t) => t + 1)} />
             </div>
           </Tabs.Content>
 
@@ -563,7 +536,7 @@ function HoldingGroupsSection() {
   }
 
   return (
-    <SectionCard>
+    <SectionCard title="持仓分组">
       <p className="text-xs text-muted">
         管理持仓的分组。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
@@ -675,7 +648,7 @@ function AddFundSection() {
   }, [ports])
 
   return (
-    <SectionCard>
+    <SectionCard title="添加持仓">
       <p className="text-xs text-muted">
         录入基金代码与金额即可添加。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
       </p>
@@ -822,7 +795,7 @@ function EditHoldingsSection({reloadSignal}: {reloadSignal: number}) {
   )
 
   return (
-    <SectionCard>
+    <SectionCard title="编辑持仓">
       <p className="text-xs text-muted">
         可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；在「全部」标签下不能调整排序（请进入具体分组标签）；删除分组会连带删除组内所有基金。记得点保存。
       </p>
@@ -1143,7 +1116,7 @@ function ImportSection({onImported}: {onImported: () => void}) {
   }
 
   return (
-    <SectionCard>
+    <SectionCard title="导入持仓">
       {/* 格式说明 */}
       <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
         <Button
