@@ -13,6 +13,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     showGold: true,
     refreshInterval: {...DEFAULT_REFRESH_INTERVAL},
     quoteSource: 'fundmnfinfo',
+    badgeMode: 'percent',
     holdingGroups: [],
     theme: 'system',
     selectedIndices: [...DEFAULT_SELECTED_INDICES],
@@ -184,6 +185,11 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       refreshInterval: clampRefreshInterval(payload?.settings?.refreshInterval),
       quoteSource:
         payload?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo',
+      badgeMode:
+        payload?.settings?.badgeMode === 'amount' ||
+        payload?.settings?.badgeMode === 'hidden'
+          ? payload.settings.badgeMode
+          : DEFAULT_CONFIG.settings.badgeMode,
       holdingGroups,
       holdingGroupOrders,
       theme:

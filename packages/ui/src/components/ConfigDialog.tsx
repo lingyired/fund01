@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react'
 import {Check, Download, Pencil, Plus, Trash2, Upload, X} from 'lucide-react'
 import {Button, Dialog, IconButton, TextField} from '@radix-ui/themes'
-import type {AppConfig, AppThemePref, IndexItem} from '@fund01/core'
+import type {AppConfig, AppThemePref, BadgeMode, IndexItem} from '@fund01/core'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -25,6 +25,12 @@ const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
   {value: 'system', label: '跟随系统'},
   {value: 'light', label: '亮色'},
   {value: 'dark', label: '暗色'},
+]
+
+const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
+  {value: 'percent', label: '收益率%'},
+  {value: 'amount', label: '收益额'},
+  {value: 'hidden', label: '隐藏'},
 ]
 
 export function ConfigDialog({
@@ -53,6 +59,9 @@ export function ConfigDialog({
   )
   const [savingSource, setSavingSource] = useState(false)
 
+  // 扩展角标显示方式
+  const [badgeMode, setBadgeMode] = useState<BadgeMode>('percent')
+
   // 外观
   const [themePref, setThemePref] = useState<AppThemePref>('system')
   const [selectedIndices, setSelectedIndices] = useState<string[]>(
@@ -74,6 +83,9 @@ export function ConfigDialog({
     setTrading(String(s.refreshInterval?.trading ?? ''))
     setNonTrading(String(s.refreshInterval?.nonTrading ?? ''))
     setQuoteSource(s.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo')
+    setBadgeMode(
+      s.badgeMode === 'amount' || s.badgeMode === 'hidden' ? s.badgeMode : 'percent',
+    )
     setGroups(listHoldingGroups(ports))
     setThemePref(s.theme === 'light' || s.theme === 'dark' ? s.theme : 'system')
     setSelectedIndices(
@@ -175,6 +187,24 @@ export function ConfigDialog({
     }
   }
 
+  async function handleBadgeModeChange(next: BadgeMode) {
+    if (next === badgeMode) return
+    setBadgeMode(next)
+    setError('')
+    setMessage('')
+    try {
+      await updateSettings(ports, {badgeMode: next})
+      setMessage(
+        `角标显示方式已切换为 ${
+          next === 'percent' ? '收益率' : next === 'amount' ? '收益额' : '隐藏'
+        }`,
+      )
+      onSettingsChanged?.()
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '保存角标设置失败')
+    }
+  }
+
   async function handleThemeChange(next: AppThemePref) {
     setThemePref(next)
     applyTheme(next)
@@ -272,6 +302,31 @@ export function ConfigDialog({
                 className={cn(
                   'flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors',
                   themePref === opt.value
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : 'border-line bg-panel text-ink-soft hover:border-accent/50',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 扩展角标显示方式 */}
+        <div className="space-y-2 rounded-lg border border-line/70 bg-paper/40 px-3 py-3">
+          <div className="text-sm font-medium text-ink">扩展角标</div>
+          <p className="text-xs text-muted">
+            工具栏图标右下角的角标内容。收益额会用 k(千)/w(万)/kw(千万) 简写，文本最长 4 位；方向由角标颜色（红涨绿跌）表达。
+          </p>
+          <div className="flex gap-1.5 pt-1">
+            {BADGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => void handleBadgeModeChange(opt.value)}
+                className={cn(
+                  'flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors',
+                  badgeMode === opt.value
                     ? 'border-accent bg-accent/10 text-accent'
                     : 'border-line bg-panel text-ink-soft hover:border-accent/50',
                 )}
