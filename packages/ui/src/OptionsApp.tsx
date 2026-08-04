@@ -386,12 +386,6 @@ function GeneralSection({
           基金当日净值/估值/涨跌幅的来源。两种数据源的盘中分时走势均走 fund123。
         </p>
         <div className="space-y-1 pt-1">
-          <label
-            htmlFor="quote-source"
-            className="text-sm font-medium text-ink-soft leading-none"
-          >
-            当日行情数据源
-          </label>
           <Select.Root
             value={quoteSource}
             onValueChange={(v) =>
