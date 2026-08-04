@@ -31,5 +31,7 @@ tauri-plugin-multiline-menubar = { path = "../../../../tauri-plugin-multiline-me
 
 [profile.release]
 strip = true
-lto = true
+# fat LTO 与 tauri-plugin-multiline-menubar 的 native ObjC++ block 符号不兼容（arm64 链接失败），
+# 用 thin LTO 兼顾体积与兼容
+lto = "thin"
 codegen-units = 1
