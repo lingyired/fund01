@@ -33,6 +33,16 @@ export default defineConfig({
       '@fund01/ui': path.resolve(__dirname, '../../packages/ui/src'),
     },
   },
+  tools: {
+    rspack: {
+      module: {
+        rules: [
+          // `?raw` 后缀：以纯文本导入（如 docs/import-prompt.md?raw）
+          { resourceQuery: /\?raw$/, type: 'asset/source' },
+        ],
+      },
+    },
+  },
   performance: {
     chunkSplit: { strategy: 'all-in-one' },
   },

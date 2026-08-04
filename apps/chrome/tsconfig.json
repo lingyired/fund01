@@ -11,5 +11,5 @@
       "@fund01/ui/*": ["../../packages/ui/src/*"]
     }
   },
-  "include": ["src", "scripts"]
+  "include": ["src", "scripts", "../../packages/ui/src/env.d.ts"]
 }
