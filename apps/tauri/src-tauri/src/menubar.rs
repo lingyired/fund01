@@ -1,7 +1,7 @@
 //! menubar 多实例编排：总览恒在 + 每个持仓分组一个实例 + 未分组兜底。
 //! 实例 id：menubar-overview / menubar-group-{idx} / menubar-ungrouped；上限 6 个。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
@@ -21,14 +21,15 @@ const COLOR_FALL: &str = "#46a758"; // 跌/绿
 const COLOR_FLAT: &str = "#8e8e93"; // 平/灰
 
 static INSTANCE_TRACKED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-static CLICK_LISTENED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// 实例 id → click 事件 EventId；实例销毁时 app.unlisten(id) 移除监听，避免闭包永久持有 AppHandle
+static CLICK_LISTENERS: OnceLock<Mutex<HashMap<String, tauri::EventId>>> = OnceLock::new();
 
 fn tracked() -> &'static Mutex<HashSet<String>> {
     INSTANCE_TRACKED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn listened() -> &'static Mutex<HashSet<String>> {
-    CLICK_LISTENED.get_or_init(|| Mutex::new(HashSet::new()))
+fn listeners() -> &'static Mutex<HashMap<String, tauri::EventId>> {
+    CLICK_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn color_for(pct: f64) -> &'static str {
@@ -116,16 +117,16 @@ fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<(St
     out
 }
 
-/// 点击事件监听（每个实例一次）：解析状态项 rect → 弹出浮窗
+/// 点击事件监听（每个实例一次，记录 EventId 供销毁时移除）：解析状态项 rect → 弹出浮窗
 fn ensure_click_listener(app: &AppHandle, id: &str) {
-    let mut listened = listened().lock().unwrap();
-    if listened.contains(id) {
+    let mut map = listeners().lock().unwrap();
+    if map.contains_key(id) {
         return;
     }
     let event_name = format!("multiline-menubar://{id}//click");
     let app_listener = app.clone();
     let app_handler = app.clone();
-    app_listener.listen(event_name, move |event| {
+    let event_id = app_listener.listen(event_name, move |event| {
         let payload: Value = serde_json::from_str(event.payload()).unwrap_or(Value::Null);
         let rect = payload
             .get("rect")
@@ -143,7 +144,7 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
             show_popup(&app_handler, rect);
         }
     });
-    listened.insert(id.to_string());
+    map.insert(id.to_string(), event_id);
 }
 
 /// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
@@ -185,13 +186,16 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ensure_click_listener(app, id);
     }
 
-    // 2. 销毁多余实例
+    // 2. 销毁多余实例（同步移除 click 监听，释放闭包持有的 AppHandle）
     let mut tracked_set = tracked().lock().unwrap();
     let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _)| id).collect();
     let stale: Vec<String> = tracked_set.iter().filter(|id| !desired_ids.contains(id)).cloned().collect();
     for id in stale {
         let _ = app.multiline_menubar().remove(id.clone());
         tracked_set.remove(&id);
+        if let Some(event_id) = listeners().lock().unwrap().remove(&id) {
+            app.unlisten(event_id);
+        }
     }
 
     // 3. 应用布局模式与字号（对所有实例）

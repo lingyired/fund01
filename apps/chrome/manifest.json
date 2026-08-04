@@ -3,6 +3,9 @@
   "name": "fund01 基金盯盘",
   "version": "1.0.20",
   "description": "基金实时估值、持仓收益、大盘指数一站式盯盘",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "https://www.fund123.cn/*",

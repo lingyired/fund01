@@ -32,6 +32,8 @@ async function ensureCsrf(force = false): Promise<string> {
   const html = await httpGet('https://www.fund123.cn/fund', {
     responseType: 'text',
     headers: {Referer: 'https://www.fund123.cn/'},
+    // CSRF 依赖 GET /fund 下发的会话 cookie，必须携带
+    credentials: 'include',
   })
   const match = String(html || '').match(/"csrf":"([^"]+)"/)
   if (!match) throw new Error('获取 fund123 CSRF 失败')
@@ -48,6 +50,8 @@ async function fund123Post(path: string, body: any): Promise<any> {
         Referer: 'https://www.fund123.cn/fund',
         'X-API-Key': 'foobar',
       },
+      // fund123 接口可能校验会话 cookie，保持 include
+      credentials: 'include',
     })
   }
   try {
@@ -556,12 +560,28 @@ function filterFundNavByRange(
   return rowsAsc.filter((p) => p.date >= startStr)
 }
 
+/**
+ * 降采样：点数超过 max 时按比例均匀抽取（保留首尾），控制序列化体积与 echarts 渲染量。
+ * since 成立以来一次最多拉 40 页 × 500 = 2 万点，直接塞给前端会占 ~1MB 且渲染卡顿。
+ */
+function downsamplePoints<T>(points: T[], max: number): T[] {
+  if (points.length <= max) return points
+  const out: T[] = []
+  const step = (points.length - 1) / (max - 1)
+  for (let i = 0; i < max; i++) {
+    out.push(points[Math.round(i * step)])
+  }
+  return out
+}
+
 export async function getFundHistory(code: string, range = '3m') {
   const padded = String(code || '').padStart(6, '0')
   const key = FUND_RANGE_CALENDAR_DAYS[range] !== undefined ? range : '3m'
   let desc: any[]
   if (key === 'since') {
-    desc = await fetchFundNavHistoryPaged(padded, {pageSize: 500, maxPages: 40})
+    // minCount 提前退出：成立以来的净值大多 2000-5000 行，4-10 页即可拿到全量，
+    // 老基金才需要继续翻页，避免所有基金都串行拉满 40 页
+    desc = await fetchFundNavHistoryPaged(padded, {pageSize: 500, maxPages: 40, minCount: 2000})
   } else if (key === '3y') {
     desc = await fetchFundNavHistoryPaged(padded, {pageSize: 500, maxPages: 3, minCount: 900})
   } else if (key === '1y') {
@@ -573,12 +593,15 @@ export async function getFundHistory(code: string, range = '3m') {
   const asc = filterFundNavByRange([...desc].reverse(), key as string)
   if (!asc.length) throw new Error(`暂无该周期净值数据`)
   const base = asc[0].netValue
-  const points = asc.map((p) => ({
-    date: p.date,
-    netValue: p.netValue,
-    percent:
-      base && Number.isFinite(base) ? round4(((p.netValue! - base) / base) * 100) : null,
-  }))
+  const points = downsamplePoints(
+    asc.map((p) => ({
+      date: p.date,
+      netValue: p.netValue,
+      percent:
+        base && Number.isFinite(base) ? round4(((p.netValue! - base) / base) * 100) : null,
+    })),
+    1200,
+  )
   const last = points[points.length - 1]
   return {
     code: padded,
@@ -872,12 +895,49 @@ async function fetchFundMNFInfo(codes: string[]): Promise<Map<string, any>> {
 // 得到基金整体估算涨跌幅。联接基金无直接持仓时取 ETFCODE 再查对应 ETF 的重仓股。
 // 精度取决于重仓股覆盖率（通常前十大占 50%~80%），结果为"比较准确"但不完全精确。
 
-const HOLDINGS_CACHE = new Map<string, {stocks: any[]; expiresAt: number}>()
-const HOLDINGS_TTL = 60 * 60 * 1000 // 持仓按季度更新，缓存 1 小时足够
+/**
+ * 通用 TTL 缓存：set 时顺带清理过期项，超出 maxSize 淘汰最早插入的条目，
+ * 避免模块级 Map 在 SW 活跃期间无界增长（alarm 每 30-60s 唤醒，SW 可能长期不睡）。
+ */
+class TtlCache<V> {
+  private readonly map = new Map<string, {value: V; expiresAt: number}>()
+  constructor(
+    private readonly maxSize: number,
+    private readonly ttlMs: number,
+  ) {}
+
+  get(key: string): V | undefined {
+    const entry = this.map.get(key)
+    if (!entry) return undefined
+    if (Date.now() >= entry.expiresAt) {
+      this.map.delete(key)
+      return undefined
+    }
+    return entry.value
+  }
+
+  set(key: string, value: V): void {
+    const now = Date.now()
+    // 写入前清理过期项，保证 Map 内只保留有效条目
+    for (const [k, e] of this.map) {
+      if (now >= e.expiresAt) this.map.delete(k)
+    }
+    this.map.set(key, {value, expiresAt: now + this.ttlMs})
+    // 超上限：淘汰最早插入的条目（Map 迭代序 = 插入序）
+    while (this.map.size > this.maxSize) {
+      const oldest = this.map.keys().next().value
+      if (oldest === undefined) break
+      this.map.delete(oldest)
+    }
+  }
+}
+
+// 持仓按季度更新，缓存 1 小时足够；上限 200 只（自选/持仓合计常见规模）
+const HOLDINGS_CACHE = new TtlCache<any[]>(200, 60 * 60 * 1000)
 
 async function fetchFundTopHoldings(code: string): Promise<any[]> {
   const cached = HOLDINGS_CACHE.get(code)
-  if (cached && Date.now() < cached.expiresAt) return cached.stocks
+  if (cached) return cached
   const data = await eastmoneyFundGet('FundMNInverstPosition', {
     FCODE: String(code).padStart(6, '0'),
   })
@@ -889,11 +949,17 @@ async function fetchFundTopHoldings(code: string): Promise<any[]> {
     })
     stocks = Array.isArray(etfData?.fundStocks) ? etfData.fundStocks : []
   }
-  HOLDINGS_CACHE.set(code, {stocks, expiresAt: Date.now() + HOLDINGS_TTL})
+  HOLDINGS_CACHE.set(code, stocks)
   return stocks
 }
 
+// 股票涨跌幅 30s 缓存：空窗期多次自算共享一次 push2 请求，降低请求量
+const STOCK_PCT_CACHE = new TtlCache<Map<string, number>>(32, 30 * 1000)
+
 async function fetchStockPctChanges(secids: string[]): Promise<Map<string, number>> {
+  const cacheKey = secids.slice().sort().join(',')
+  const cached = STOCK_PCT_CACHE.get(cacheKey)
+  if (cached) return cached
   const out = new Map<string, number>()
   if (!secids.length) return out
   const data = await httpGet('https://push2.eastmoney.com/api/qt/ulist.np/get', {
@@ -914,6 +980,7 @@ async function fetchStockPctChanges(secids: string[]): Promise<Map<string, numbe
     if (row?.f13 != null && row?.f12) out.set(`${row.f13}.${row.f12}`, pct)
     if (row?.f12) out.set(String(row.f12), pct)
   }
+  STOCK_PCT_CACHE.set(cacheKey, out)
   return out
 }
 
@@ -953,13 +1020,12 @@ function calcFundEstimateChange(
  *  官方净值披露后由 FundMNFInfo 返回 hasReplace=true 触发，上层不再调用本函数，
  *  因此缓存不会导致过期估值覆盖确认净值。
  *  返回 null 时不缓存，便于下次重试。 */
-const CALC_GSZZL_CACHE = new Map<string, {value: number; expiresAt: number}>()
-const CALC_GSZZL_TTL = 5 * 60 * 1000
+const CALC_GSZZL_CACHE = new TtlCache<number>(200, 5 * 60 * 1000)
 
 export async function getCalcGszzl(code: string): Promise<number | null> {
   const padded = String(code).padStart(6, '0')
   const cached = CALC_GSZZL_CACHE.get(padded)
-  if (cached && Date.now() < cached.expiresAt) return cached.value
+  if (cached != null) return cached
   try {
     const stocks = await fetchFundTopHoldings(padded)
     if (!stocks.length) return null
@@ -970,7 +1036,7 @@ export async function getCalcGszzl(code: string): Promise<number | null> {
     const quoteMap = await fetchStockPctChanges(secids)
     const value = calcFundEstimateChange(stocks, quoteMap)
     if (value != null) {
-      CALC_GSZZL_CACHE.set(padded, {value, expiresAt: Date.now() + CALC_GSZZL_TTL})
+      CALC_GSZZL_CACHE.set(padded, value)
     }
     return value
   } catch (e) {

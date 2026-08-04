@@ -318,69 +318,78 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 })
 
-chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
-  ;(async () => {
-    try {
-      switch (msg.type) {
-        case 'REFRESH': {
-          await refreshAll(true)
-          sendResponse({ok: true})
-          return
-        }
-        case 'FETCH_QUOTES': {
-          const cfg = await getSessionConfig()
-          const qSource =
-            cfg?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
-          const quotes = await getFundsQuotes(msg.funds, qSource)
-          sendResponse({ok: true, data: quotes})
-          return
-        }
-        case 'FETCH_FUND_HISTORY': {
-          const data = await getFundHistory(msg.code, msg.range as any)
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'FETCH_INDEX_HISTORY': {
-          const data = await getIndexHistory(msg.code, msg.range as any)
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'FETCH_INDICES': {
-          const data = await getIndices()
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'FETCH_MARKET': {
-          const data = await getMarketOverview()
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'FETCH_GOLD': {
-          const data = await getGoldRealtime({holding: msg.holding, avgPrice: msg.avgPrice})
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'RESOLVE_FUND': {
-          const data = await resolveFund({
-            code: msg.code,
-            type: msg.fundType,
-            name: msg.name,
-            sectors: msg.sectors,
-          })
-          sendResponse({ok: true, data})
-          return
-        }
-        case 'FETCH_FUND_INTRADAY': {
-          const data = await fetchFundIntradayForDialog(msg.code, msg.fundKey, msg.name)
-          sendResponse({ok: true, data})
-          return
-        }
-        default:
-          sendResponse({ok: false, error: 'unknown message type'})
-      }
-    } catch (e: any) {
-      sendResponse({ok: false, error: e?.message || String(e)})
+chrome.runtime.onMessage.addListener(
+  (msg: Message, sender, sendResponse) => {
+    // 只接受本扩展页面消息：sender.url 必须是本扩展的 chrome-extension:// 页面，
+    // 拒绝外部网页 / 注入脚本借道触发网络请求（RESOLVE_FUND / FETCH_* 等）
+    const selfPrefix = `chrome-extension://${chrome.runtime.id}/`
+    if (!sender.url || !sender.url.startsWith(selfPrefix)) {
+      sendResponse({ok: false, error: 'forbidden sender'})
+      return
     }
-  })()
-  return true
-})
+    ;(async () => {
+      try {
+        switch (msg.type) {
+          case 'REFRESH': {
+            await refreshAll(true)
+            sendResponse({ok: true})
+            return
+          }
+          case 'FETCH_QUOTES': {
+            const cfg = await getSessionConfig()
+            const qSource =
+              cfg?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
+            const quotes = await getFundsQuotes(msg.funds, qSource)
+            sendResponse({ok: true, data: quotes})
+            return
+          }
+          case 'FETCH_FUND_HISTORY': {
+            const data = await getFundHistory(msg.code, msg.range as any)
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'FETCH_INDEX_HISTORY': {
+            const data = await getIndexHistory(msg.code, msg.range as any)
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'FETCH_INDICES': {
+            const data = await getIndices()
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'FETCH_MARKET': {
+            const data = await getMarketOverview()
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'FETCH_GOLD': {
+            const data = await getGoldRealtime({holding: msg.holding, avgPrice: msg.avgPrice})
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'RESOLVE_FUND': {
+            const data = await resolveFund({
+              code: msg.code,
+              type: msg.fundType,
+              name: msg.name,
+              sectors: msg.sectors,
+            })
+            sendResponse({ok: true, data})
+            return
+          }
+          case 'FETCH_FUND_INTRADAY': {
+            const data = await fetchFundIntradayForDialog(msg.code, msg.fundKey, msg.name)
+            sendResponse({ok: true, data})
+            return
+          }
+          default:
+            sendResponse({ok: false, error: 'unknown message type'})
+        }
+      } catch (e: any) {
+        sendResponse({ok: false, error: e?.message || String(e)})
+      }
+    })()
+    return true
+  },
+)
