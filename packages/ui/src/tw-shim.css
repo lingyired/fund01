@@ -141,6 +141,7 @@
 .max-h-40{max-height:160px}
 .max-w-2xl{max-width:42rem}
 .max-w-3xl{max-width:48rem}
+.max-w-5xl{max-width:64rem}
 .max-w-full{max-width:100%}
 .max-w-lg{max-width:32rem}
 .mb-1{margin-bottom:4px}
@@ -302,6 +303,7 @@
 .w-60{width:15rem}
 .w-\[10\%\]{width:10%}
 .w-\[124px\]{width:124px}
+.w-\[140px\]{width:140px}
 .w-\[150px\]{width:150px}
 .w-\[22\%\]{width:22%}
 .w-\[40\%\]{width:40%}

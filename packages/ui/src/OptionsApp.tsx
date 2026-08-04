@@ -90,7 +90,7 @@ export function OptionsApp() {
       >
         {/* 顶部：品牌 + 一级 Tab 导航（激活态颜色由 Radix 主题变量驱动，暗色模式自动正确） */}
         <header className="shrink-0 border-b border-line/70 bg-panel/85">
-          <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
             <div className="flex items-center gap-2">
               <span className="font-display text-lg font-extrabold tracking-tight">
                 Fund01
@@ -99,7 +99,7 @@ export function OptionsApp() {
             </div>
             <span className="text-[11px] text-muted">修改即时保存到本机浏览器。</span>
           </div>
-          <div className="mx-auto max-w-3xl px-6">
+          <div className="mx-auto max-w-5xl px-6">
             <Tabs.List>
               {TABS.map((t) => {
                 const Icon = t.icon
@@ -115,7 +115,7 @@ export function OptionsApp() {
         </header>
 
         {/* 内容区：每个 tab 只渲染自己的内容 */}
-        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-6">
+        <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
           <Tabs.Content value="general">
             <GeneralSection onNavigate={setTab} />
           </Tabs.Content>
@@ -779,6 +779,48 @@ function EditHoldingsSection({
     setRows((cur) => cur.filter((_, i) => i !== index))
   }
 
+  /** 修改某行份额所属分组；目标分组已有同一基金时先确认再合并累加 */
+  function handleGroupChange(index: number, next: string) {
+    const cur = rows[index]
+    if (next === cur.group) return
+    const targetIdx = rows.findIndex(
+      (r, i) => i !== index && r.code === cur.code && r.group === next,
+    )
+    if (targetIdx !== -1) {
+      const target = rows[targetIdx]
+      const label = next || '未分组'
+      const msg = `「${cur.name}」在分组「${label}」已有份额 ${target.shares || 0}，确定合并累加吗？\n合并后：份额相加，成本单价按份额加权平均。`
+      if (!confirm(msg)) return
+      const s1 = Number(cur.shares) || 0
+      const s2 = Number(target.shares) || 0
+      const c1 = Number(cur.cost) || 0
+      const c2 = Number(target.cost) || 0
+      const mergedShares = s1 + s2
+      let mergedCost = ''
+      if (mergedShares > 0 && c1 > 0 && c2 > 0) {
+        // 份额加权平均成本单价
+        mergedCost = String(Math.round(((s1 * c1 + s2 * c2) / mergedShares) * 1e6) / 1e6)
+      } else if (c1 > 0) {
+        mergedCost = cur.cost
+      } else if (c2 > 0) {
+        mergedCost = target.cost
+      }
+      setRows((curRows) =>
+        curRows
+          .map((r, i) =>
+            i === targetIdx
+              ? {...r, shares: String(mergedShares), cost: mergedCost}
+              : r,
+          )
+          .filter((_, i) => i !== index),
+      )
+      setMessage(`已合并到「${label}」，保存后生效`)
+    } else {
+      updateRow(index, {group: next})
+      setMessage(`已移到「${next || '未分组'}」，保存后生效`)
+    }
+  }
+
   async function deleteGroup(group: string) {
     const label = group || '未分组'
     if (!confirm(`删除分组「${label}」及其内所有基金？此操作不可撤销。`)) return
@@ -804,10 +846,42 @@ function EditHoldingsSection({
     setError('')
     setMessage('')
     try {
+      // 以「编辑后的行集合」为准重建每个基金的分组份额：
+      // 1) 逐行写入当前 group 的份额/成本；2) 原 config 中存在但行集合不再覆盖的分组 → 清掉
+      // （覆盖「移动/删除行」后旧分组份额残留的问题）
+      const rowsByCode = new Map<string, EditRow[]>()
       for (const r of rows) {
-        const shares = Number(r.shares) || 0
-        const cost = r.cost.trim() === '' ? undefined : Number(r.cost) || 0
-        await setFundAllocation(ports, r.code, r.group, shares, cost)
+        const list = rowsByCode.get(r.code) || []
+        list.push(r)
+        rowsByCode.set(r.code, list)
+      }
+      const funds = ports.config.getConfig().holdings
+      for (const code of Object.keys(funds)) {
+        const key = code.padStart(6, '0')
+        const list = rowsByCode.get(key)
+        if (!list) {
+          // 该基金所有行都被删除 → 清空其全部分组（allocations 清空后自动删除基金）。
+          // setFundAllocation 删空 allocations 会连带删除基金，之后再删会抛「基金不存在」，需逐次容错
+          const prevGroups = Object.keys(funds[key]?.allocations || {})
+          for (const g of prevGroups) {
+            if (!ports.config.getConfig().holdings[key]) break
+            await setFundAllocation(ports, key, g, 0)
+          }
+          continue
+        }
+        const rowGroups = new Set(list.map((r) => r.group))
+        for (const r of list) {
+          const shares = Number(r.shares) || 0
+          const cost = r.cost.trim() === '' ? undefined : Number(r.cost) || 0
+          await setFundAllocation(ports, key, r.group, shares, cost)
+        }
+        const prevGroups = Object.keys(funds[key]?.allocations || {})
+        for (const g of prevGroups) {
+          if (!rowGroups.has(g)) {
+            if (!ports.config.getConfig().holdings[key]) break
+            await setFundAllocation(ports, key, g, 0)
+          }
+        }
       }
       for (const g of groups) {
         const codes = rows.filter((r) => r.group === g).map((r) => r.code)
@@ -912,6 +986,7 @@ function EditHoldingsSection({
                       <col className="w-[150px]" />
                       <col className="w-[150px]" />
                       <col className="w-[150px]" />
+                      <col className="w-[140px]" />
                       <col className="w-[44px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-panel text-muted">
@@ -920,6 +995,7 @@ function EditHoldingsSection({
                         <th className="px-2 py-1.5 text-right font-medium">持仓金额</th>
                         <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
                         <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
+                        <th className="px-2 py-1.5 text-center font-medium">分组</th>
                         <th className="px-1 py-1.5 text-center font-medium">删</th>
                       </tr>
                     </thead>
@@ -975,6 +1051,28 @@ function EditHoldingsSection({
                                 className="h-8 text-right font-mono text-xs"
                                 placeholder="留空"
                               />
+                            </td>
+                            <td className="px-2 py-1.5 align-middle">
+                              <Select.Root
+                                value={r.group || UNGROUPED_VALUE}
+                                onValueChange={(v) =>
+                                  handleGroupChange(i, v === UNGROUPED_VALUE ? '' : v)
+                                }
+                                disabled={saving}
+                                size="1"
+                              >
+                                <Select.Trigger className="w-full" placeholder="未分组" />
+                                <Select.Content position="popper">
+                                  <Select.Item value={UNGROUPED_VALUE}>未分组</Select.Item>
+                                  {groups
+                                    .filter((g) => g !== '')
+                                    .map((g) => (
+                                      <Select.Item key={g} value={g}>
+                                        {g}
+                                      </Select.Item>
+                                    ))}
+                                </Select.Content>
+                              </Select.Root>
                             </td>
                             <td className="px-1 py-1.5 align-middle">
                               <div className="flex justify-center">
