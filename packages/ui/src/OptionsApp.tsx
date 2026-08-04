@@ -78,8 +78,15 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
   {value: 'hidden', label: '隐藏'},
 ]
 
-export function OptionsApp() {
-  const [tab, setTab] = useState<TabId>('general')
+export function OptionsApp({
+  initialTab,
+  version,
+}: {
+  initialTab?: TabId
+  /** 扩展版本号，渲染在品牌名右侧（vX.Y.Z） */
+  version?: string
+}) {
+  const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
   // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
@@ -99,6 +106,11 @@ export function OptionsApp() {
               <span className="font-display text-lg font-extrabold tracking-tight">
                 Fund01
               </span>
+              {version ? (
+                <span className="font-mono text-[11px] text-muted">
+                  v{version}
+                </span>
+              ) : null}
               <span className="font-mono text-[11px] text-muted">设置</span>
             </div>
             <span className="text-[11px] text-muted">修改即时保存到本机浏览器。</span>

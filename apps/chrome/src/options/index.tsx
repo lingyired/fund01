@@ -11,6 +11,14 @@ import { ChromeEventPort } from '../ports/chromeEventPort'
 // 亮色绘制一帧，每次打开设置页都白闪。
 initTheme()
 
+// 支持从 popup footer「修改持仓」按钮以 options.html?tab=holdings 打开，直达「持仓」tab；
+// 非法/缺失参数一律回落「通用」。
+const urlTab = new URLSearchParams(location.search).get('tab')
+const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
+
+// 读取版本号注入 OptionsApp（品牌名右侧显示）
+const version = chrome.runtime.getManifest().version
+
 // 注入三个 Port 实现，UI 通过 PortsContext 拿到运行时能力
 const ports: Ports = {
   data: new ChromeDataPort(),
@@ -22,7 +30,7 @@ const ports: Ports = {
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
-      <OptionsApp />
+      <OptionsApp initialTab={initialTab} version={version} />
     </PortsContext.Provider>
   </React.StrictMode>,
 )

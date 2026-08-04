@@ -61,6 +61,13 @@ function openAsTab() {
   window.open(chrome.runtime.getURL('popup.html?tab=1'), '_blank')
 }
 
+// 点击 footer「修改持仓」：打开设置页并直接定位到「持仓」tab。
+// openOptionsPage 无法带参数，所以用 tabs.create 显式携带 ?tab=holdings，
+// options 页入口读到该参数后以「持仓」tab 初始化（tabs.create 无需 tabs 权限）。
+function openOptionsAtHoldings() {
+  chrome.tabs.create({url: chrome.runtime.getURL('options.html?tab=holdings')})
+}
+
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
@@ -68,6 +75,7 @@ createRoot(document.getElementById('root')!).render(
         version={version}
         openAsTab={openAsTab}
         onOpenSettings={() => chrome.runtime.openOptionsPage()}
+        onEditHoldings={openOptionsAtHoldings}
       />
     </PortsContext.Provider>
   </React.StrictMode>,

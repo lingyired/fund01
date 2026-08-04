@@ -23,11 +23,14 @@ export function App({
   version,
   openAsTab,
   onOpenSettings,
+  onEditHoldings,
 }: {
   version?: string
   openAsTab?: () => void
   /** 打开设置页（popup 中齿轮按钮触发；Chrome 端走 chrome.runtime.openOptionsPage，Tauri 端打开设置窗口） */
   onOpenSettings?: () => void
+  /** 打开设置页并定位到「持仓」tab（footer「修改持仓」按钮触发） */
+  onEditHoldings?: () => void
 }) {
   const ports = usePorts()
   const {config} = ports
@@ -160,7 +163,7 @@ export function App({
 
       <IndexBar indices={indices} selected={selectedIndices} loading={loading} />
 
-      <PopupLayout data={holdings} loading={loading} />
+      <PopupLayout data={holdings} loading={loading} onEditHoldings={onEditHoldings} />
       </div>
     </Theme>
   )

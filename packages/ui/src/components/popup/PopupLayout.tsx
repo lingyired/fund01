@@ -16,9 +16,12 @@ import {FooterBar} from './FooterBar'
 export function PopupLayout({
   data,
   loading,
+  onEditHoldings,
 }: {
   data: HoldingsPayload | null
   loading?: boolean
+  /** 打开设置页「持仓」tab（footer「修改持仓」按钮触发） */
+  onEditHoldings?: () => void
 }) {
   const ports = usePorts()
   const list = data?.list || []
@@ -87,6 +90,7 @@ export function PopupLayout({
         pnlPercent={footer.pnlPercent}
         up={footer.up}
         down={footer.down}
+        onEditHoldings={onEditHoldings}
       />
     </div>
   )
