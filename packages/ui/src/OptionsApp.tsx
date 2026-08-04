@@ -1145,7 +1145,7 @@ function ImportSection({
 
   // 挂载/换 ports 时重置表单（不清 groups）
   useEffect(() => {
-    setMode('file')
+    setMode('paste')
     setText('')
     setEntries([])
     setError('')
