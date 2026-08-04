@@ -28,7 +28,7 @@ use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_multiline_menubar::init())
         .manage(AppState::new(portfolio::default_config()))
@@ -82,8 +82,19 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running fund01 tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building fund01 tauri application");
+
+    // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，menubar 实例不随浮窗销毁。
+    // 显式退出（右键菜单「退出 fund01」→ 插件 app.exit(0)）code.is_some() → 放行。
+    app.run(|_app, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+            if code.is_none() {
+                eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
+                api.prevent_exit();
+            }
+        }
+    });
 }
 
 /// 从 tauri-plugin-store 加载配置；存在则归一化并替换默认值
