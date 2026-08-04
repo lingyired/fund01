@@ -1279,21 +1279,21 @@ function ImportSection({
           <Sparkles className="h-3.5 w-3.5 text-gold" />
           <span className="font-medium text-ink-soft">用 AI 助手生成 JSON（推荐）</span>
         </div>
-        <ol className="space-y-1.5 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
-          <li>
+        <div className="space-y-1.5 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
+          <div>
             <b className="mr-1 text-gold">1.</b>
             在基金 App 里用<b>手机长截图</b>截取完整的持仓列表（包含每只基金的金额、收益、净值日期等）。
-          </li>
-          <li>
+          </div>
+          <div>
             <b className="mr-1 text-gold">2.</b>
             把截图和下方提示词一起交给<b>豆包、千问</b>等支持读取图片的 AI 助手，
             <b>尽量选择专家模式</b>，识别更准。
-          </li>
-          <li>
+          </div>
+          <div>
             <b className="mr-1 text-gold">3.</b>
             把 AI 返回的 JSON 粘贴到上方输入框（或存成文件走「选择文件」导入）。
-          </li>
-        </ol>
+          </div>
+        </div>
         <div className="px-3 pb-2">
           <ScrollArea
             type="auto"
