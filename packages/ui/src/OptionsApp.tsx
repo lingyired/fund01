@@ -1329,20 +1329,20 @@ function ImportSection({
         <Button
           type="button"
           size="1"
-          variant={mode === 'file' ? 'solid' : 'outline'}
-          onClick={() => setMode('file')}
-          disabled={running}
-        >
-          选择文件
-        </Button>
-        <Button
-          type="button"
-          size="1"
           variant={mode === 'paste' ? 'solid' : 'outline'}
           onClick={() => setMode('paste')}
           disabled={running}
         >
           粘贴 JSON
+        </Button>
+        <Button
+          type="button"
+          size="1"
+          variant={mode === 'file' ? 'solid' : 'outline'}
+          onClick={() => setMode('file')}
+          disabled={running}
+        >
+          选择文件
         </Button>
       </div>
 
