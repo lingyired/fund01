@@ -26,11 +26,18 @@
 .radix-themes {
   /* 注意：Radix Themes 并没有 --color-text / --color-text-secondary / --color-border
      这几个变量（它只提供 --color-background / --color-surface / --color-panel* /
-     --color-overlay 以及 --gray-*、--accent-* 色阶），必须映射到真实存在的变量。 */
+     --color-overlay 以及 --gray-*、--accent-* 色阶），必须映射到真实存在的变量。
+     语义分层（默认跟随 Radix，暗色模式保持原观感）：
+       --app-bg          页面底色（最底层，亮色特化为浅灰）
+       --app-paper       卡片/内容表面（浮起层，亮色特化为纯白）
+       --app-paper-deep  次级面/hover（比表面略深一档，亮色特化为中灰）
+       --app-panel       面板（header/footer/菜单等，亮色特化为纯白）
+       --app-line        分隔线/边框 */
   --app-ink: var(--gray-12);
   --app-ink-soft: var(--gray-11);
-  --app-paper: var(--color-background);
-  --app-paper-deep: var(--color-surface);
+  --app-bg: var(--color-background);
+  --app-paper: var(--color-panel-solid);
+  --app-paper-deep: var(--gray-3);
   --app-line: var(--gray-a6);
   --app-panel: var(--color-panel-solid);
   --app-rise: #e5484d;
@@ -49,6 +56,25 @@
   选择器特异性高于 Radix 的 :where([data-is-root-theme='true']) 规则，可覆盖 100vh。 */
   height: 100%;
   min-height: 0;
+}
+
+/* ── 亮色模式背景分层（light 专属）────────────────────────────
+   默认的 Radix gray 色阶明度差太小（gray-1/gray-2 几乎同白），
+   导致整棵树看起来"全白、没有层次"。
+   这里在亮色下重建三级背景层次：
+     页面底色浅灰 → 面板/卡片纯白浮起 → hover/次级面中灰
+   暗色模式不在此覆盖，保持 Radix 原生深色观感。
+   选择器挂 <html data-theme="light">：popup/options 入口都在
+   React 挂载前同步写过该属性（initTheme），任何时刻都可靠。 */
+html[data-theme='light'] .radix-themes {
+  --app-bg: #f3f4f6;
+  --app-paper: #ffffff;
+  --app-paper-deep: #e9ebef;
+  --app-panel: #ffffff;
+  --app-line: rgba(16, 24, 40, 0.12);
+  --app-panel-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 4px 14px rgba(16, 24, 40, 0.06);
 }
 
 @layer base {
@@ -70,8 +96,9 @@
     overflow-x: clip;
     font-family: var(--font-sans);
     /* body 在 .radix-themes 之外，取不到 Radix 变量，按 <html data-theme> 手写兜底。
-       实际可视区几乎都被 .radix-themes 铺满，这里只是防止边缘露出异色。 */
-    background: #fff;
+       实际可视区几乎都被 .radix-themes 铺满，这里只是防止边缘露出异色。
+       亮色用页面底色浅灰（与 --app-bg 的亮色特化一致），避免边缘露白。 */
+    background: #f3f4f6;
   }
 
   html[data-theme='dark'] body {
@@ -180,8 +207,9 @@
   top: 0;
   z-index: 2;
   /* 用不透明 panel 色而非半透明 surface：surface 在暗色模式带 alpha，滚动时数据行
-     会透过来叠加成脏色；panel-solid 是完全不透明色，吸顶时干净利落。 */
-  background: var(--color-panel-solid);
+     会透过来叠加成脏色；panel-solid 是完全不透明色，吸顶时干净利落。
+     跟随 --app-paper（亮色纯白），保证吸顶时与表格白卡片融为一体、只靠分隔线区分。 */
+  background: var(--app-paper);
   /* 列宽较窄（84/76px），缩小表头字号并禁止换行，避免「当日收益/持有收益」折成两行；
      压缩上下内边距让表头更紧凑 */
   font-size: 12px;

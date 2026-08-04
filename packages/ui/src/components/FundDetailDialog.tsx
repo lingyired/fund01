@@ -110,13 +110,13 @@ export function FundDetailDialog({
 
         {/* 占比 / 板块（暂隐藏）
         <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="rounded-lg border border-line/60 bg-paper/50 px-3 py-2">
+          <div className="rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
             <div className="text-[11px] text-muted">占比</div>
             <div className="mt-0.5 font-mono tabular-nums text-ink-soft">
               {formatPct(proportion, 1).replace('+', '')}
             </div>
           </div>
-          <div className="rounded-lg border border-line/60 bg-paper/50 px-3 py-2">
+          <div className="rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
             <div className="text-[11px] text-muted">板块</div>
             <div className="mt-0.5">
               <SectorTags sectors={row.sectors} />
@@ -156,7 +156,7 @@ function DetailStat({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-line/60 bg-paper/50 px-3 py-2">
+    <div className="rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
       <div className="text-[11px] text-muted" title={hint}>
         {label}
         {hint ? <span className="ml-0.5 text-muted/80">ⓘ</span> : null}
