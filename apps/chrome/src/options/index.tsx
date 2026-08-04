@@ -5,6 +5,7 @@ import type { Ports } from '@fund01/core'
 import { ChromeDataPort } from '../ports/chromeDataPort'
 import { ChromeConfigPort } from '../ports/chromeConfigPort'
 import { ChromeEventPort } from '../ports/chromeEventPort'
+import { ChromeWindowPort } from '../ports/chromeWindowPort'
 
 // 主题必须在 createRoot().render() 之前同步应用：Radix Themes 依赖 <html> 上的
 // light/dark class 决定色阶，若等到 React 的 useEffect 才写入，暗色偏好下会先按
@@ -16,15 +17,16 @@ initTheme()
 const urlTab = new URLSearchParams(location.search).get('tab')
 const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
 
-// 读取版本号注入 OptionsApp（品牌名右侧显示）
-const version = chrome.runtime.getManifest().version
-
-// 注入三个 Port 实现，UI 通过 PortsContext 拿到运行时能力
+// 注入四个 Port 实现，UI 通过 PortsContext 拿到运行时能力（含窗口/导航操作）
 const ports: Ports = {
   data: new ChromeDataPort(),
   config: new ChromeConfigPort(),
   event: new ChromeEventPort(),
+  window: new ChromeWindowPort(),
 }
+
+// 版本号（品牌名右侧显示）统一走 WindowPort，不直接读 chrome API
+const version = ports.window.getVersion()
 
 // OptionsApp 自身已用 <Theme> 包裹（Radix 组件需要 ThemeContext），这里只负责注入 Port。
 createRoot(document.getElementById('root')!).render(

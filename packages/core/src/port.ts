@@ -53,9 +53,20 @@ export interface EventPort {
   onConfigChange(cb: (config: AppConfig) => void): () => void
 }
 
+/** 窗口 / 导航操作抽象 —— 各 app 必须提供实现（Chrome 扩展 API / Tauri 窗口 API） */
+export interface WindowPort {
+  /** 打开设置页；tab 省略 = 通用页，可指定直达 tab（Chrome: openOptionsPage / tabs.create；Tauri: 打开设置窗口） */
+  openSettings(tab?: 'general' | 'holdings' | 'data'): Promise<void>
+  /** 新窗口 / 新标签页打开主视图（Chrome: window.open(popup.html?tab=1)；Tauri 无此概念可不实现，UI 自动隐藏按钮） */
+  openInNewWindow?(): Promise<void>
+  /** 应用版本号（Chrome: getManifest().version；Tauri: invoke 或构建注入） */
+  getVersion(): string
+}
+
 /** UI 与具体 app 之间注入的 Port 集合 */
 export interface Ports {
   data: DataPort
   config: ConfigPort
   event: EventPort
+  window: WindowPort
 }

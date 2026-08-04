@@ -5,6 +5,7 @@ import type { Ports } from '@fund01/core'
 import { ChromeDataPort } from '../ports/chromeDataPort'
 import { ChromeConfigPort } from '../ports/chromeConfigPort'
 import { ChromeEventPort } from '../ports/chromeEventPort'
+import { ChromeWindowPort } from '../ports/chromeWindowPort'
 
 // popup 视口适配：popup.html 内联 <style> 给 popup 模式设了保守默认高度（680x600）。
 // 当 popup.html 作为普通标签页打开（URL 带 ?tab=1）时，高度直接等于浏览器窗口高度
@@ -45,38 +46,18 @@ import { ChromeEventPort } from '../ports/chromeEventPort'
 // 亮色绘制一帧，每次打开 popup 都白闪。
 initTheme()
 
-// 注入三个 Port 实现，UI 通过 PortsContext 拿到运行时能力
+// 注入四个 Port 实现，UI 通过 PortsContext 拿到运行时能力（含窗口/导航操作）
 const ports: Ports = {
   data: new ChromeDataPort(),
   config: new ChromeConfigPort(),
   event: new ChromeEventPort(),
-}
-
-// 读取版本号注入 App
-const version = chrome.runtime.getManifest().version
-
-// 点击「新标签页」按钮时，把 popup.html 作为普通网页在新标签页打开，
-// URL 带 ?tab=1 让 popup.js 进入「标签页模式」（高度等于窗口高度、铺满视口）。
-function openAsTab() {
-  window.open(chrome.runtime.getURL('popup.html?tab=1'), '_blank')
-}
-
-// 点击 footer「修改持仓」：打开设置页并直接定位到「持仓」tab。
-// openOptionsPage 无法带参数，所以用 tabs.create 显式携带 ?tab=holdings，
-// options 页入口读到该参数后以「持仓」tab 初始化（tabs.create 无需 tabs 权限）。
-function openOptionsAtHoldings() {
-  chrome.tabs.create({url: chrome.runtime.getURL('options.html?tab=holdings')})
+  window: new ChromeWindowPort(),
 }
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
-      <App
-        version={version}
-        openAsTab={openAsTab}
-        onOpenSettings={() => chrome.runtime.openOptionsPage()}
-        onEditHoldings={openOptionsAtHoldings}
-      />
+      <App />
     </PortsContext.Provider>
   </React.StrictMode>,
 )

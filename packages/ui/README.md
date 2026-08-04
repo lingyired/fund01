@@ -1,6 +1,6 @@
 # @fund01/ui
 
-React 组件库，无运行时耦合。通过 `PortsContext` 接受 `DataPort` / `ConfigPort` / `EventPort` 三个 Port 实现，不直接调用 `chrome.*` 或 `@tauri-apps/api`。
+React 组件库，无运行时耦合。通过 `PortsContext` 接受 `DataPort` / `ConfigPort` / `EventPort` / `WindowPort` 四个 Port 实现，不直接调用 `chrome.*` 或 `@tauri-apps/api`。
 
 ## 职责
 
@@ -31,19 +31,19 @@ import type { Ports } from '@fund01/core'
 import { ChromeDataPort } from './ports/chromeDataPort'
 import { ChromeConfigPort } from './ports/chromeConfigPort'
 import { ChromeEventPort } from './ports/chromeEventPort'
+import { ChromeWindowPort } from './ports/chromeWindowPort'
 
 const ports: Ports = {
   data: new ChromeDataPort(),
   config: new ChromeConfigPort(),
   event: new ChromeEventPort(),
+  window: new ChromeWindowPort(),
 }
-
-const version = chrome.runtime.getManifest().version
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
-      <App version={version} />
+      <App />
     </PortsContext.Provider>
   </React.StrictMode>,
 )

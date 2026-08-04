@@ -19,21 +19,9 @@ import {IconButton, Theme} from '@radix-ui/themes'
 // 以便和 Tailwind 建立正确的 CSS 层级顺序（详见 index.css 顶部注释）。
 import './index.css'
 
-export function App({
-  version,
-  openAsTab,
-  onOpenSettings,
-  onEditHoldings,
-}: {
-  version?: string
-  openAsTab?: () => void
-  /** 打开设置页（popup 中齿轮按钮触发；Chrome 端走 chrome.runtime.openOptionsPage，Tauri 端打开设置窗口） */
-  onOpenSettings?: () => void
-  /** 打开设置页并定位到「持仓」tab（footer「修改持仓」按钮触发） */
-  onEditHoldings?: () => void
-}) {
+export function App() {
   const ports = usePorts()
-  const {config} = ports
+  const {config, window: windowPort} = ports
   const {holdings, indices, lastUpdate, loading, refresh} = useMarketData()
   const [refreshing, setRefreshing] = useState(false)
   const [cfgTick, setCfgTick] = useState(0)
@@ -70,6 +58,11 @@ export function App({
   useEffect(() => {
     void refresh().catch(() => undefined)
   }, [refresh])
+
+  // 版本号（header 品牌名右侧）统一走 WindowPort，跨端一致
+  const version = windowPort.getVersion()
+  // 新标签页能力为可选：Tauri 无此概念时不实现，按钮自动隐藏
+  const openInNewWindow = windowPort.openInNewWindow
 
   const settings = config.getConfig().settings
   const selectedIndices =
@@ -142,10 +135,10 @@ export function App({
               <Sun className="h-4 w-4" />
             )}
           </IconButton>
-          {openAsTab ? (
+          {openInNewWindow ? (
             <IconButton
               variant="outline"
-              onClick={openAsTab}
+              onClick={() => void openInNewWindow()}
               title="在新标签页中打开"
             >
               <ExternalLink className="h-4 w-4" />
@@ -153,7 +146,7 @@ export function App({
           ) : null}
           <IconButton
             variant="outline"
-            onClick={() => onOpenSettings?.()}
+            onClick={() => void windowPort.openSettings()}
             title="设置"
           >
             <Settings2 className="h-4 w-4" />
@@ -163,7 +156,11 @@ export function App({
 
       <IndexBar indices={indices} selected={selectedIndices} loading={loading} />
 
-      <PopupLayout data={holdings} loading={loading} onEditHoldings={onEditHoldings} />
+      <PopupLayout
+        data={holdings}
+        loading={loading}
+        onEditHoldings={() => void windowPort.openSettings('holdings')}
+      />
       </div>
     </Theme>
   )
