@@ -1345,18 +1345,21 @@ function ImportSection({
       ) : null}
 
       {progress.failed.length > 0 ? (
-        <div className="max-h-24 overflow-y-auto rounded-lg border border-rise/30 bg-rise/5 p-2 text-xs text-rise">
+        <div className="rounded-lg border border-rise/30 bg-rise/5 p-2 text-xs text-rise">
+          <div className="mb-1 font-medium">导入失败 {progress.failed.length} 条</div>
           {progress.failed.map((f, i) => (
-            <div key={i}>{f}</div>
+            <div key={i} className="mt-0.5 break-words">
+              {f}
+            </div>
           ))}
         </div>
       ) : null}
 
       {warnings.length > 0 ? (
-        <div className="max-h-32 overflow-y-auto rounded-lg border border-gold/20 bg-gold/10 p-2 text-xs text-gold">
+        <div className="rounded-lg border border-gold/20 bg-gold/10 p-2 text-xs text-gold">
           <div className="mb-1 font-medium">数据校验提醒（已导入，但建议核对）</div>
           {warnings.map((w, i) => (
-            <div key={i} className="mt-0.5">
+            <div key={i} className="mt-0.5 break-words">
               {w}
             </div>
           ))}

@@ -52,6 +52,7 @@
 .border-rise\/30{border-color:color-mix(in oklab, var(--app-rise) 30%, transparent)}
 .border-t{border-top-width:1px;border-top-style:solid}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
+.break-words{overflow-wrap:break-word;word-break:break-word}
 .cursor-not-allowed{cursor:not-allowed}
 .cursor-pointer{cursor:pointer}
 .cursor-zoom-in{cursor:zoom-in}
