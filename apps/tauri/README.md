@@ -1,8 +1,18 @@
 # apps/tauri
 
-> **状态：占位文档，未实现。** 本目录目前仅含此 README，无任何 Rust / JS 源码。
+> **状态：✅ 已实现（2026-08-04）**。macOS menubar 常驻应用，Rust 重写数据层与合并计算（路径 A，见 §10）。
 >
-> 本文档基于 Tauri 2.x 编写。真正动手实现时需验证 API 是否有变化。
+> 本文档为设计蓝本，以下部分标注「已实现」的章节与实际代码一致，未标注的为设计参考（实现时以 `src-tauri/src/` 为准）。
+
+## 0. 已落地的实现（2026-08-04）
+
+- **形态**：menubar 常驻（`ActivationPolicy::Accessory` 不占 Dock）；**多实例** = 总览 + 每个持仓分组一个 NSStatusItem（上行分组名 / 下行涨跌%，`tauri-plugin-multiline-menubar` 的 `set_colors` 原生 hex 着色，涨 #e5484d / 跌 #46a758 / 平灰）
+- **架构**：Rust 重写全部数据与计算（`src-tauri/src/{providers,market,gold,history,calc,calendar,portfolio,theme,fundname,format,badge}`），TS 只留 `packages/ui`；4 个 Tauri Port 已实现（`src/ports/`）
+- **数据源**：fund123（CSRF + `reqwest` cookie_store）+ fundmnfinfo（桌面 UA 批量 200/批）双全，`quoteSource` 切换
+- **刷新**：`refresh.rs` tokio 循环，按 `tradingCalendar` 分档（交易 60s / 非交易 600s）；完成后 `emit('quote-update')` + 更新 menubar
+- **浮窗**：680×600 无装饰窗口（`window.rs`），失焦 hide + 闲置 5min 销毁（`POPUP_DESTROY_DELAY_SECS`），点击重建；`?tab=` 设置窗口 1200×800
+- **存储**：`tauri-plugin-store`（config.json）+ `AppState` 内存镜像；`save_config` 归一化落盘 + 广播 `config-change`
+- **插件**：`tauri-plugin-multiline-menubar` 1.0.0 已内置 `set_colors`（Rust API + command），本地 path 依赖 `../../../../tauri-plugin-multiline-menubar`，无需改动
 
 未来基于同一份 `packages/ui` + `packages/core` 实现 macOS menubar app（也可扩展 Windows / Linux）。本文档说明实现路径、关键架构点、Rust 后端需要实现的命令与事件清单。
 
@@ -342,6 +352,45 @@ export class TauriDataPort implements DataPort {
 }
 ```
 
+### WindowPort 对应命令（打开设置页 / 读版本号）
+
+`packages/core` 的 `WindowPort` 是第 4 个 Port（`Ports.window` **必填**），Tauri 端必须实现，漏实现编译报错。对应两个 Rust command：
+
+```rust
+#[tauri::command]
+async fn open_settings_window(app: AppHandle, tab: Option<String>) -> Result<(), String> {
+    // tab: None → 打开 settings 窗口（或复用/聚焦已有 settings 窗口）
+    // tab: Some("holdings" | "data") → 创建/聚焦时 URL 带 ?tab=，前端 OptionsApp initialTab 直达
+    //   注：WebviewWindowBuilder 创建时无法直接拼 query，可先 WebviewUrl::App("options.html"),
+    //   再 webview.eval() 修改 location，或由前端读前端可访问的共享状态；简化方案见下方「URL 参数替代」
+    Ok(())
+}
+
+#[tauri::command]
+fn get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+```
+
+前端 Port 实现（`apps/tauri/src/ports/tauriWindowPort.ts`）：
+
+```typescript
+import { invoke } from '@tauri-apps/api/core'
+import type { WindowPort } from '@fund01/core'
+
+export class TauriWindowPort implements WindowPort {
+  async openSettings(tab?: 'general' | 'holdings' | 'data') {
+    await invoke('open_settings_window', { tab: tab ?? null })
+  }
+  // openInNewWindow 不实现 → UI 自动隐藏「新标签页」按钮（可选方法）
+  getVersion(): string {
+    return APP_VERSION // 构建注入，或 invoke('get_version')
+  }
+}
+```
+
+**URL 参数替代方案**（推荐，复用现有 `?tab=` 机制）：Tauri 创建 settings 窗口时用 `WebviewUrl::App("options.html")` 加载同一入口，前端通过 `window.location.search` 解析 `?tab=`。若 `WebviewWindowBuilder` 不便拼 query，可用两个静态入口（`options.html` / `options-holdings.html` 同一 bundle）或由 `open_settings_window` 用 `window.eval` 改写 location 后 reload。无论哪种，**保持 `options.html?tab=` 约定不变**，`OptionsApp` 的 `initialTab` 解析无需改动。
+
 ## 7. 事件清单（对应 EventPort）
 
 | 事件名 | Payload | 触发时机 |
@@ -438,7 +487,7 @@ export class TauriConfigPort implements ConfigPort {
 
 Tauri 一个 app 可有多个 `WebviewWindow`，用 label 区分：
 
-- `main` — 可选的主窗口（设置页 / 详细页 / 全屏看盘）
+- `main` / `settings` — 可选的主窗口（设置页 / 详细页 / 全屏看盘）；设置页由 `WindowPort.openSettings` 打开（见 9.1）
 - `menubar` — 点击托盘弹出的浮窗
 
 两者订阅同一套后端事件（`quote-update` / `config-change`），渲染同一份 `packages/ui`。差异仅在窗口尺寸与生命周期：
@@ -446,48 +495,79 @@ Tauri 一个 app 可有多个 `WebviewWindow`，用 label 区分：
 | 窗口 | 尺寸 | 生命周期 |
 |---|---|---|
 | `menubar` | 400×600，`decorations: false`、`skip_taskbar: true`、`always_on_top: true` | 点击托盘 show / 失焦 hide |
-| `main` | 1200×800，正常窗口 | 用户主动开关 |
+| `main` / `settings` | 1200×800，正常窗口 | 用户主动开关 |
 
 两个窗口共享 `PortsContext.Provider`（注入同样的 Port 实现）。
 
-## 10. 未来实现路径决策（Rust 重写 vs JS sidecar）
+### 9.1 打开设置页（WindowPort.openSettings）
 
-实现 Tauri 时需在以下两条路径中二选一：
+- popup 齿轮按钮 / footer「修改持仓」在 UI 层只调 `windowPort.openSettings(tab?)`，不感知平台差异
+- **设置界面 = 普通页面窗口，不做浮窗**：`settings` 窗口是带标题栏的正常窗口（1200×800，默认装饰、可出现在任务栏 / Dock），等价于浏览器里打开一个 options 标签页；与 `menubar` 浮窗（`decorations: false`、`skip_taskbar: true`、`always_on_top: true`）形态完全相反
+- Tauri 实现 = 创建（或聚焦已存在的）`settings` 窗口：`WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("options.html"))`；已存在则 `get_webview_window("settings").show()` + `set_focus()`，避免重复开窗
+- 带 tab 定位（footer「修改持仓」→ `openSettings('holdings')`）：沿用 `options.html?tab=holdings` URL 参数约定（见 6.5），`OptionsApp.initialTab` 解析零改动
+- Chrome 对照：无 tab 走 `openOptionsPage()`（复用已开标签），带 tab 走 `tabs.create(?tab=)`
 
-### 路径 A：Rust 重写 services + holdingsCalc
+settings 窗口的前端入口（`apps/tauri/src/options.tsx`，与 Chrome 的 options 入口同构）：
 
-- **范围**：用 `reqwest` 重写 `packages/services` 的 fund.ts / gold.ts / market.ts；用 Rust 重写 `packages/core` 的 holdingsCalc.ts / tradingCalendar.ts / portfolioLogic.ts
+```tsx
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { OptionsApp, PortsContext, initTheme } from '@fund01/ui'
+import type { Ports } from '@fund01/core'
+import { TauriDataPort } from '../ports/tauriDataPort'
+import { TauriConfigPort } from '../ports/tauriConfigPort'
+import { TauriEventPort } from '../ports/tauriEventPort'
+import { TauriWindowPort } from '../ports/tauriWindowPort'
+
+initTheme()
+
+// 与 Chrome 端一致的 ?tab= 解析（Tauri webview 的 window.location.search 同样可用）
+const urlTab = new URLSearchParams(window.location.search).get('tab')
+const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
+
+const ports: Ports = {
+  data: new TauriDataPort(),
+  config: new TauriConfigPort(),
+  event: new TauriEventPort(),
+  window: new TauriWindowPort(),
+}
+
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <PortsContext.Provider value={ports}>
+      <OptionsApp initialTab={initialTab} version={ports.window.getVersion()} />
+    </PortsContext.Provider>
+  </React.StrictMode>,
+)
+```
+
+注意：`menubar` 浮窗加载 `index.html`（App.tsx），`settings` 窗口加载 `options.html`（OptionsApp.tsx），两者是不同的前端入口、同一套 Ports 注入与后端事件。
+
+## 10. 实现路径决策（✅ 已拍板：路径 A，2026-08-04）
+
+实现 Tauri 时有以下两条路径，2026-08-04 已拍板 **路径 A（Rust 重写）** 并落地：
+
+### 路径 A：Rust 重写 services + holdingsCalc ✅
+
+- **范围**：用 `reqwest` 重写 `packages/services` 的 fund.ts / gold.ts / market.ts；用 Rust 重写 `packages/core` 的 holdingsCalc.ts / tradingCalendar.ts / portfolioLogic.ts / format.ts / fundName.ts / badge.ts
 - **优点**：
   - 性能好（原生 HTTP、无 JS 运行时开销）
   - 单二进制分发，无 JS 运行时依赖
   - CSRF token、内存缓存常驻，无 SW 重启问题
 - **缺点**：
   - 要重写约 1500 行业务逻辑
-  - `tradingCalendar.ts` 的 A 股 / 美股 / 黄金交易日规则、节假日表维护成本高
-  - 板块推断正则（SECTOR_RULES）需迁移
   - 双份逻辑（TS + Rust）长期维护负担
-- **适用**：追求极致性能与分发体积，逻辑稳定不频繁迭代
+- **落地情况**：`src-tauri/src/` 下 `providers/*`（fund123/fundmnfinfo）、`market.rs`、`gold.rs`、`history.rs`、`calc.rs`、`calendar.rs`、`portfolio.rs`、`theme.rs`（板块正则迁移）、`fundname.rs`、`format.rs` 已全部实现并通过编译与单测
 
-### 路径 B：JS sidecar（Bun / Node）跑 TS services + core
+### 路径 B：JS sidecar（Bun / Node）跑 TS services + core（未采用）
 
-- **范围**：用 Bun compile 打包 `packages/services` + `packages/core` 为 sidecar 二进制；Rust 后端通过 `Command::sidecar` 启动并通过 stdio / IPC 通信
-- **优点**：
-  - 复用现有 TS 代码，维护一份逻辑
-  - 迭代快（改 TS 即生效）
-- **缺点**：
-  - 分发体积大（Bun runtime + sidecar 二进制 ~50MB）
-  - Tauri 与 sidecar 的 IPC 增加复杂度
-  - 启动时需先拉起 sidecar
-- **适用**：快速验证，逻辑迭代频繁
+- 复用现有 TS 代码，但分发体积大、IPC 复杂，最终未选
 
-### 路径 C（推荐）：混合——Rust 做调度 + TS sidecar 做业务
+### 路径 C：混合（Rust 调度 + TS sidecar 业务）
 
-- Rust 后端只做：定时调度、`reqwest` 拉数据、推送事件、托盘徽章
-- TS sidecar 做：合并计算（`calcHoldings` / `mergeWatchlist`）、配置归一化
-- Rust 把原始行情丢给 sidecar 计算，sidecar 返回结果后 Rust 推事件
-- 平衡性能与维护成本
+- 早期设想（Rust 拉原始数据 + sidecar 计算），随路径 A 拍板而弃用
 
-**当前决策**：抽象接口（Port）不依赖该决策，延后到真正动手实现 Tauri 时再选。本目录仅为占位，不预设路径。
+**决策理由**：menubar 常驻 + 托盘实时显示需要后端独立持有数据；UI 层经 4 Port 契约零改动复用（monorepo 重构的核心收益）。
 
 ## 11. 与 Chrome 实现的对照
 
@@ -503,6 +583,8 @@ Tauri 一个 app 可有多个 `WebviewWindow`，用 label 区分：
 | 托盘徽章 | `chrome.action.setBadgeText` | 动态 PNG 或 `tray.set_title`（仅 macOS） |
 | popup 生命周期 | 关闭即销毁 | hide / show（窗口常驻，状态保留） |
 | 多窗口 | popup 一般单实例 | `main` + `menubar` 多 WebviewWindow |
+| 打开设置页 | `openOptionsPage()` / `tabs.create(?tab=)` | `open_settings_window`（`settings` 窗口，沿用 `?tab=` 约定） |
+| 版本号 | `getManifest().version` | `get_version`（`CARGO_PKG_VERSION`）或构建注入 |
 | UI 复用 | `packages/ui` | 同一份 `packages/ui` |
 
 ## 12. 启动检查清单（未来实现时）
@@ -514,15 +596,17 @@ Tauri 一个 app 可有多个 `WebviewWindow`，用 label 区分：
 3. [ ] Rust 端实现 `TrayIconBuilder` + `WebviewWindowBuilder`（menubar 模式）
 4. [ ] Rust 端实现 `tokio::time::interval` 定时刷新循环
 5. [ ] Rust 端实现 10 个 `#[tauri::command]`（对应 DataPort）
-6. [ ] Rust 端实现 `app.emit('quote-update', ...)` / `app.emit('config-change', ...)`
-7. [ ] Rust 端实现托盘徽章（动态 PNG 或 `set_title`）
-8. [ ] 前端实现 `apps/tauri/src/ports/tauriDataPort.ts` / `tauriConfigPort.ts` / `tauriEventPort.ts`
-9. [ ] 前端入口 `apps/tauri/src/menubar.tsx` 挂载 `@fund01/ui` 的 App + 注入 Tauri Ports
-10. [ ] 验证 macOS 上 `set_activation_policy(Accessory)` 不出现在 Dock
-11. [ ] 验证点击窗口外部自动 hide
-12. [ ] 验证 `packages/ui` 无需修改即可在 Tauri webview 中渲染
-13. [ ] 决定路径 A / B / C，实现数据请求与合并计算
-14. [ ] 打包 `dmg` 测试分发
+6. [ ] Rust 端实现 `open_settings_window`（创建/聚焦 settings 窗口，支持 `?tab=`）+ `get_version`（对应 WindowPort）
+7. [ ] Rust 端实现 `app.emit('quote-update', ...)` / `app.emit('config-change', ...)`
+8. [ ] Rust 端实现托盘徽章（动态 PNG 或 `set_title`）
+9. [ ] 前端实现 `apps/tauri/src/ports/tauriDataPort.ts` / `tauriConfigPort.ts` / `tauriEventPort.ts` / `tauriWindowPort.ts`
+10. [ ] 前端入口 `apps/tauri/src/menubar.tsx` 挂载 `@fund01/ui` 的 App + 注入 Tauri Ports（含 `window`，否则编译报错）
+11. [ ] 前端入口 `apps/tauri/src/options.tsx` 挂载 `OptionsApp`（settings 普通窗口页面，`?tab=` 解析见 9.1）
+12. [ ] 验证 macOS 上 `set_activation_policy(Accessory)` 不出现在 Dock
+13. [ ] 验证点击窗口外部自动 hide
+14. [ ] 验证 `packages/ui` 无需修改即可在 Tauri webview 中渲染
+15. [ ] 决定路径 A / B / C，实现数据请求与合并计算
+16. [ ] 打包 `dmg` 测试分发
 
 ## 13. 注意事项
 

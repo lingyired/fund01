@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fund01 · 基金盯盘</title>
+    <!-- Google Fonts 用 <link> 并行加载，避免 CSS @import 阻塞渲染导致白屏 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" />
+    <style>
+      /* 与 Chrome popup 同尺寸 680x600，packages/ui 布局零改动 */
+      html, body {
+        width: 680px !important;
+        height: 600px !important;
+        min-height: 0 !important;
+        max-width: 680px !important;
+        max-height: 600px !important;
+        overflow: hidden !important;
+      }
+      #root {
+        width: 680px !important;
+        height: 600px !important;
+        min-height: 0 !important;
+        max-height: 600px !important;
+        overflow: hidden !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

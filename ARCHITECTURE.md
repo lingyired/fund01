@@ -9,7 +9,7 @@
 │  packages/core (纯逻辑 + 接口契约)                       │
 │  - types / holdingsCalc / tradingCalendar / utils        │
 │  - portfolioLogic（normalizeConfig 等纯函数）             │
-│  - DataPort / ConfigPort / EventPort 接口                │
+│  - DataPort / ConfigPort / EventPort / WindowPort 接口                │
 └─────────────────────────────────────────────────────────┘
                             ▲
               ┌─────────────┼─────────────┐
@@ -29,9 +29,9 @@
 - `apps/chrome` 依赖三者，提供 Port 实现 + SW 后端
 - `apps/tauri` 未来同上
 
-## 2. 三个 Port 接口的设计动机
+## 2. 四个 Port 接口的设计动机
 
-UI 与具体运行时（Chrome / Tauri）之间通过三个接口解耦。接口定义在 `packages/core/src/port.ts`，是整个架构的核心契约。
+UI 与具体运行时（Chrome / Tauri）之间通过四个接口解耦。接口定义在 `packages/core/src/port.ts`，是整个架构的核心契约。
 
 ### 2.1 DataPort（异步数据访问）
 
@@ -88,6 +88,22 @@ export interface EventPort {
 - 后端刷新完成后推送 `QuoteUpdate`（含 holdings / watchlist / indices / market / gold / time），UI 增量更新 state
 - Chrome 实现：监听 `chrome.storage.onChanged` 的 `cache-time` 变化，触发时一次性读所有 `cache-*` 组装 `QuoteUpdate`
 - Tauri 实现（未来）：`listen('quote-update', ...)`
+
+### 2.4 WindowPort（窗口 / 导航操作）
+
+```typescript
+export interface WindowPort {
+  openSettings(tab?: 'general' | 'holdings' | 'data'): Promise<void>
+  openInNewWindow?(): Promise<void>
+  getVersion(): string
+}
+```
+
+**设计动机**：
+
+- 「打开设置页」「新标签页打开主视图」「读版本号」是 app 级平台能力。早期是 popup 入口用三个零散 props 注入回调（`onOpenSettings` / `onEditHoldings` / `openAsTab`）+ 直接调 `chrome.runtime.getManifest().version`，Tauri 端漏实现不报错、版本号无对应物
+- 收敛为第 4 个 Port（`Ports.window` **必填**）后：Tauri 端漏实现直接编译报错（待实现清单固化在类型里）；`openInNewWindow?` 可选，Tauri 无此概念时不实现、UI 自动隐藏按钮；版本号统一走 `getVersion()`，两端一致
+- Chrome 实现：`openSettings()` 无 tab 走 `chrome.runtime.openOptionsPage()`（复用已开 options 标签页），带 tab 走 `chrome.tabs.create({url: options.html?tab=})`（openOptionsPage 无法带参数；tabs.create 无需 "tabs" 权限）；Tauri 实现（未来）：`WebviewWindowBuilder` 打开 settings 窗口，同样支持 `?tab=` URL 参数直达（与 options 入口的 `initialTab` 解析天然兼容）
 
 ## 3. 数据流图
 
@@ -222,23 +238,24 @@ fundOps.updateSettings(ports, patch)   [packages/ui/src/lib/fundOps.ts]
 - **抽象无复用价值**：两个实现完全不同，抽象后只是把 `setBadge(text)` 转发到不同机制，没有逻辑复用
 - **badge 是 app 级关注点**：badge 显示什么、何时更新，由 app 决定（Chrome SW 在 `refreshAll` 末尾更新），不属于 core 业务逻辑
 
-## 8. 未来 Tauri 实现路径（延后决策）
+## 8. Tauri 实现路径（已拍板：Rust 重写，2026-08-04）
 
-实现 Tauri 时二选一：
+> 曾有两种备选（sidecar 复用 TS / Rust 重写），2026-08-04 已拍板并落地：
 
-### 路径 A：Rust 重写 services + holdingsCalc
+### ✅ 已拍板：路径 A —— Rust 重写 services + holdingsCalc
 
-- **优点**：性能好，单二进制分发，无 JS 运行时依赖
-- **缺点**：要重写约 1500 行业务逻辑（fund.ts / gold.ts / market.ts / holdingsCalc.ts / tradingCalendar.ts / portfolioLogic.ts），其中 tradingCalendar 的节假日规则、板块推断正则等维护成本高
-- **适用**：追求极致性能与分发体积
+- **范围**：`packages/services`（fund/market/gold/http/circuit/theme 推断）+ `packages/core`（holdingsCalc/tradingCalendar/portfolioLogic/badge/format/fundName）全部用 Rust 重写（`apps/tauri/src-tauri/src/`）
+- **优点**：单二进制分发、无 JS 运行时、后台常驻刷新与托盘显示不依赖 WebView
+- **缺点**：双份逻辑维护；`tradingCalendar` 无节假日表（A 股仅跳周末）、板块正则约 100 行（`theme.rs` 迁移）
+- **关键**：UI 层零改动（同一份 `packages/ui` + 4 个 Port 契约），Rust 端实现对应 command
 
-### 路径 B：JS sidecar（Bun / Node）跑 TS services + core
-
-- **优点**：复用现有 TS 代码，维护一份逻辑
-- **缺点**：需打包 sidecar 二进制（Bun compile 或 Node SEA），分发体积大；Tauri 与 sidecar 的 IPC 增加复杂度
-- **适用**：快速验证，逻辑迭代频繁
-
-**当前决策**：抽象接口（Port）不依赖该决策，延后到真正动手实现 Tauri 时再选。`apps/tauri/README.md` 详细记录了两种路径的实现要点。
+**架构要点**（详见 `apps/tauri/README.md`）：
+- macOS menubar 常驻（`ActivationPolicy::Accessory`），多实例 = 每持仓分组一个 NSStatusItem（两行：分组名 + 涨跌%，涨红跌绿着色）
+- 菜单栏插件：`tauri-plugin-multiline-menubar`（用户自研，crates.io 1.0.0，本地 path 依赖；`set_colors` 原生支持 hex 着色）
+- 定时刷新：`tokio` 循环按交易日历分档间隔（交易 60s / 非交易 600s）；刷新后 `emit('quote-update')` + 更新 menubar 文字
+- 浮窗：680×600 无装饰窗口（与 Chrome popup 同尺寸，UI 零改动），失焦 hide + 闲置 5min 销毁（可配置），点击重建
+- 数据源双全：fund123（CSRF + cookie_store）+ fundmnfinfo（桌面 UA 批量），quoteSource 切换
+- 存储：`tauri-plugin-store`（config.json）+ Rust 内存镜像（`AppState`），`save_config` 归一化后落盘并广播 `config-change`
 
 ## 9. 实际实现中的架构决策
 

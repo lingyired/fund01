@@ -1,0 +1,130 @@
+//! Tauri command 层 —— 对应前端 DataPort/ConfigPort/WindowPort。
+
+use tauri::{AppHandle, Emitter, State};
+
+use crate::model::*;
+use crate::state::AppState;
+
+/// 持久化配置：store 写入 + 广播 config-change
+pub fn persist_config(app: &AppHandle, config: &AppConfig) {
+    use tauri_plugin_store::StoreExt;
+    if let Ok(store) = app.store("config.json") {
+        if let Ok(v) = serde_json::to_value(config) {
+            let _ = store.set("config", v);
+        }
+        let _ = store.save();
+    }
+    let _ = app.emit("config-change", config);
+}
+
+// ------------------------- DataPort -------------------------
+
+#[tauri::command]
+pub async fn trigger_refresh(app: AppHandle) {
+    crate::refresh::trigger_refresh(app);
+}
+
+#[tauri::command]
+pub fn fetch_holdings(state: State<AppState>) -> Option<HoldingsPayload> {
+    state.quote.read().unwrap().as_ref().and_then(|q| q.holdings.clone())
+}
+
+#[tauri::command]
+pub fn fetch_watchlist(state: State<AppState>) -> Option<Vec<FundQuoteRow>> {
+    state.quote.read().unwrap().as_ref().and_then(|q| q.watchlist.clone())
+}
+
+#[tauri::command]
+pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
+    state.quote.read().unwrap().as_ref().and_then(|q| q.indices.clone()).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn fetch_market_overview(state: State<AppState>) -> Option<MarketOverview> {
+    state.quote.read().unwrap().as_ref().and_then(|q| q.market.clone())
+}
+
+#[tauri::command]
+pub fn fetch_gold(state: State<AppState>) -> Option<GoldPayload> {
+    state.quote.read().unwrap().as_ref().and_then(|q| q.gold.clone())
+}
+
+#[tauri::command]
+pub async fn fetch_fund_history(
+    state: State<'_, AppState>,
+    code: String,
+    range: Option<String>,
+) -> Result<FundHistoryPayload, String> {
+    let _ = state;
+    crate::history::get_fund_history(&code, range.as_deref().unwrap_or("3m")).await
+}
+
+#[tauri::command]
+pub async fn fetch_index_history(
+    state: State<'_, AppState>,
+    code: String,
+    range: Option<String>,
+) -> Result<IndexHistoryPayload, String> {
+    let _ = state;
+    crate::market::get_index_history(&code, range.as_deref().unwrap_or("1m")).await
+}
+
+#[tauri::command]
+pub async fn fetch_fund_intraday(
+    state: State<'_, AppState>,
+    req: FundIntradayRequest,
+) -> Result<FundIntradayPayload, String> {
+    let _ = state;
+    crate::providers::fund123::fetch_intraday_for_dialog(
+        &req.code,
+        req.fund_key.as_deref(),
+        req.name.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn resolve_fund(
+    state: State<'_, AppState>,
+    req: ResolveFundRequest,
+) -> Result<ResolveFundPayload, String> {
+    let _ = state;
+    crate::history::resolve_fund(&req).await
+}
+
+// ------------------------- ConfigPort -------------------------
+
+#[tauri::command]
+pub fn get_config(state: State<AppState>) -> AppConfig {
+    state.config.read().unwrap().clone()
+}
+
+#[tauri::command]
+pub async fn save_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    config: AppConfig,
+) -> Result<AppConfig, String> {
+    let raw = serde_json::to_value(&config).map_err(|e| e.to_string())?;
+    let normalized = crate::portfolio::normalize_config(&raw);
+    *state.config.write().unwrap() = normalized.clone();
+    persist_config(&app, &normalized);
+    // 分组/持仓变化 → 重建 menubar 实例
+    let quote = state.quote.read().unwrap().clone();
+    crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());
+    // 立即按新配置刷新
+    crate::refresh::trigger_refresh(app);
+    Ok(normalized)
+}
+
+// ------------------------- WindowPort -------------------------
+
+#[tauri::command]
+pub async fn open_settings_window(app: AppHandle, tab: Option<String>) {
+    crate::window::open_settings_window(&app, tab.as_deref());
+}
+
+#[tauri::command]
+pub fn get_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}

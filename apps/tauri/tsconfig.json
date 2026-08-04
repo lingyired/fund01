@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "paths": {
+      "@fund01/core": ["../../packages/core/src"],
+      "@fund01/ui": ["../../packages/ui/src"]
+    }
+  },
+  "include": ["src", "../../packages/ui/src/env.d.ts"]
+}

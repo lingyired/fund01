@@ -1,0 +1,28 @@
+{
+  "name": "@fund01/tauri",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fund01/core": "workspace:*",
+    "@fund01/ui": "workspace:*",
+    "@tauri-apps/api": "^2.9.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2.1.7",
+    "@rsbuild/plugin-react": "^2.1.0",
+    "@tauri-apps/cli": "^2.9.0",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  }
+}
