@@ -20,16 +20,17 @@
 .bg-fall{background-color:var(--app-fall)}
 .bg-gold\/10{background-color:color-mix(in oklab, var(--app-gold) 10%, transparent)}
 .bg-gradient-to-br{--tw-gradient-position:to bottom right;background-image:linear-gradient(var(--tw-gradient-position),var(--tw-gradient-stops))}
-.bg-panel{background-color:var(--color-panel)}
-.bg-panel\/60{background-color:color-mix(in oklab, var(--color-panel) 60%, transparent)}
-.bg-panel\/85{background-color:color-mix(in oklab, var(--color-panel) 85%, transparent)}
-.bg-panel\/90{background-color:color-mix(in oklab, var(--color-panel) 90%, transparent)}
-.bg-paper{background-color:var(--color-background)}
-.bg-paper-deep{background-color:var(--color-surface)}
-.bg-paper-deep\/80{background-color:color-mix(in oklab, var(--color-surface) 80%, transparent)}
-.bg-paper\/30{background-color:color-mix(in oklab, var(--color-background) 30%, transparent)}
-.bg-paper\/40{background-color:color-mix(in oklab, var(--color-background) 40%, transparent)}
-.bg-paper\/50{background-color:color-mix(in oklab, var(--color-background) 50%, transparent)}
+.bg-app{background-color:var(--app-bg)}
+.bg-panel{background-color:var(--app-panel)}
+.bg-panel\/60{background-color:color-mix(in oklab, var(--app-panel) 60%, transparent)}
+.bg-panel\/85{background-color:color-mix(in oklab, var(--app-panel) 85%, transparent)}
+.bg-panel\/90{background-color:color-mix(in oklab, var(--app-panel) 90%, transparent)}
+.bg-paper{background-color:var(--app-paper)}
+.bg-paper-deep{background-color:var(--app-paper-deep)}
+.bg-paper-deep\/80{background-color:color-mix(in oklab, var(--app-paper-deep) 80%, transparent)}
+.bg-paper\/30{background-color:color-mix(in oklab, var(--app-paper) 30%, transparent)}
+.bg-paper\/40{background-color:color-mix(in oklab, var(--app-paper) 40%, transparent)}
+.bg-paper\/50{background-color:color-mix(in oklab, var(--app-paper) 50%, transparent)}
 .bg-rise{background-color:var(--app-rise)}
 .bg-rise\/5{background-color:color-mix(in oklab, var(--app-rise) 5%, transparent)}
 .block{display:block}
@@ -43,12 +44,12 @@
 .border-gold\/35{border-color:color-mix(in oklab, var(--app-gold) 35%, transparent)}
 .border-ink\/40{border-color:color-mix(in oklab, var(--gray-12) 40%, transparent)}
 .border-l{border-left-width:1px;border-left-style:solid}
-.border-line{border-color:var(--gray-a6)}
-.border-line\/30{border-color:color-mix(in oklab, var(--gray-a6) 30%, transparent)}
-.border-line\/40{border-color:color-mix(in oklab, var(--gray-a6) 40%, transparent)}
-.border-line\/50{border-color:color-mix(in oklab, var(--gray-a6) 50%, transparent)}
-.border-line\/60{border-color:color-mix(in oklab, var(--gray-a6) 60%, transparent)}
-.border-line\/70{border-color:color-mix(in oklab, var(--gray-a6) 70%, transparent)}
+.border-line{border-color:var(--app-line)}
+.border-line\/30{border-color:color-mix(in oklab, var(--app-line) 30%, transparent)}
+.border-line\/40{border-color:color-mix(in oklab, var(--app-line) 40%, transparent)}
+.border-line\/50{border-color:color-mix(in oklab, var(--app-line) 50%, transparent)}
+.border-line\/60{border-color:color-mix(in oklab, var(--app-line) 60%, transparent)}
+.border-line\/70{border-color:color-mix(in oklab, var(--app-line) 70%, transparent)}
 .border-rise\/30{border-color:color-mix(in oklab, var(--app-rise) 30%, transparent)}
 .border-t{border-top-width:1px;border-top-style:solid}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
@@ -216,6 +217,7 @@
 .rounded-md{border-radius:6px}
 .rounded-xl{border-radius:12px}
 .shadow-\[inset_0_0_0_1px_var\(--app-ink\)\]{box-shadow:inset 0 0 0 1px var(--app-ink)}
+.shadow-card{box-shadow:var(--app-panel-shadow)}
 .shadow-sm{box-shadow:0 1px 2px 0 rgb(0 0 0 / .05)}
 .shrink-0{flex-shrink:0}
 @media (min-width:640px){.sm\:flex-wrap{flex-wrap:wrap}}

@@ -174,6 +174,7 @@ export function FundList({
   }
 
   return (
+    <div className="overflow-hidden rounded-xl border border-line/70 bg-paper shadow-card">
     <Table.Root
       variant="surface"
       className="rt-fund-table w-full"
@@ -346,7 +347,7 @@ export function FundList({
               {canExpand && expandedRow ? (
                 <Table.Row>
                   <Table.Cell colSpan={4}>
-                    <div className="border-t border-line/30 bg-paper/30 px-3 py-2">
+                    <div className="border-t border-line/30 bg-paper-deep/40 px-3 py-2">
                       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                         {allocKeys.map((g) => (
                           <div
@@ -384,5 +385,6 @@ export function FundList({
         stats={detail?.stats ?? null}
       />
     </Table.Root>
+    </div>
   )
 }

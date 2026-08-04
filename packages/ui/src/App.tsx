@@ -103,7 +103,7 @@ export function App({
     <Theme accentColor="blue" grayColor="gray" radius="small">
       <div
         className="flex h-full min-h-0 flex-col overflow-hidden"
-        style={{background: 'var(--color-background)'}}
+        style={{background: 'var(--app-bg)'}}
       >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 bg-panel/85 px-3 py-2.5 backdrop-blur-md">
         <div className="flex min-w-0 items-baseline gap-2">

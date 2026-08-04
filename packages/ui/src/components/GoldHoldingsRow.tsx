@@ -199,7 +199,7 @@ export function GoldPanel({
             </div>
           </div>
 
-          <div className="rounded-xl border border-line/60 bg-paper/50 px-4 py-3.5">
+          <div className="rounded-xl border border-line/60 bg-paper-deep/50 px-4 py-3.5">
             <div className="grid grid-cols-3 gap-3">
               <div className="min-w-0">
                 <div className="text-[11px] text-muted">克数</div>
@@ -224,7 +224,7 @@ export function GoldPanel({
         </div>
 
         {/* 右侧走势 */}
-        <div className="flex min-h-[180px] flex-col rounded-xl border border-gold/20 bg-paper/30 px-2 py-2 sm:px-3 sm:py-3">
+        <div className="flex min-h-[180px] flex-col rounded-xl border border-gold/20 bg-paper-deep/30 px-2 py-2 sm:px-3 sm:py-3">
           <div className="mb-1 px-1 text-[11px] text-muted">分时金价</div>
           <div className="min-h-0 flex-1">
             <SparkTrend

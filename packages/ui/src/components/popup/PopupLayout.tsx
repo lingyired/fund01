@@ -73,7 +73,7 @@ export function PopupLayout({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <GroupTabs tabs={tabs} activeTab={validTab} onChange={setActiveTab} />
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-3 scrollbar-thin">
         <FundList
           rows={displayRows}
           activeTab={validTab}
