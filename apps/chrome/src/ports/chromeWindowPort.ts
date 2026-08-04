@@ -1,4 +1,4 @@
-import type { WindowPort } from '@fund01/core'
+import type { SettingsTabId, WindowPort } from '@fund01/core'
 
 /**
  * Chrome 扩展窗口 Port 实现。
@@ -7,9 +7,10 @@ import type { WindowPort } from '@fund01/core'
  *   （openOptionsPage 无法带参数；tabs.create 无需 "tabs" 权限）
  * - openInNewWindow()：把 popup.html 作为普通网页在新标签页打开（?tab=1 进入「标签页模式」铺满视口）
  * - getVersion()：读 manifest 版本号
+ * - 不实现 supportsMenubar()（菜单栏是 tauri/macOS 能力，chrome 设置页不显示「菜单栏」tab）
  */
 export class ChromeWindowPort implements WindowPort {
-  async openSettings(tab?: 'general' | 'holdings' | 'data'): Promise<void> {
+  async openSettings(tab?: SettingsTabId): Promise<void> {
     if (tab) {
       await chrome.tabs.create({
         url: chrome.runtime.getURL(`options.html?tab=${tab}`),

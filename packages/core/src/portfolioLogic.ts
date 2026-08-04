@@ -17,6 +17,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     holdingGroups: [],
     theme: 'system',
     selectedIndices: [...DEFAULT_SELECTED_INDICES],
+    menubarHiddenGroups: [],
+    menubarLayout: 0,
+    menubarTopFontSize: 7,
+    menubarBottomFontSize: 12,
   },
   holdings: {},
   watchlist: {},
@@ -129,6 +133,39 @@ export function normalizeFundMap(
 /** 兼容旧版含 funds 字段的配置（导入旧导出文件时使用） */
 export type LegacyAppConfig = Partial<AppConfig> & {funds?: Record<string, FundRecord>}
 
+/** 菜单栏布局默认字号（pt，位置语义）：0=上7/下12，1=上12/下7，2=等大9/9（与插件原生默认一致） */
+const DEFAULT_MENUBAR_FONT: Record<0 | 1 | 2, readonly [number, number]> = {
+  0: [7, 12],
+  1: [12, 7],
+  2: [9, 9],
+}
+
+/** 归一化菜单栏布局模式：非法值回落 0 */
+export function normalizeMenubarLayout(v: unknown): 0 | 1 | 2 {
+  return v === 1 || v === 2 ? v : 0
+}
+
+/** 归一化菜单栏字号：clamp 5-16，非法值回落 fallback */
+export function normalizeMenubarFontSize(v: unknown, fallback: number): number {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? Math.min(16, Math.max(5, n)) : fallback
+}
+
+/** 归一化菜单栏隐藏分组：去重保序，仅保留 ''(未分组) 或存在于 holdingGroups 的名字 */
+export function normalizeMenubarHiddenGroups(
+  v: unknown,
+  groups: string[],
+): string[] {
+  if (!Array.isArray(v)) return []
+  const valid = new Set(groups)
+  const next: string[] = []
+  for (const g of v) {
+    const key = String(g ?? '').trim()
+    if ((key === '' || valid.has(key)) && !next.includes(key)) next.push(key)
+  }
+  return next
+}
+
 export function normalizeConfig(payload: LegacyAppConfig | null | undefined): AppConfig {
   // 兼容旧格式：单一 funds map（按 type 字段拆分到 holdings / watchlist）
   const holdings: FundMap = {}
@@ -209,6 +246,19 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
               ),
             ).slice(0, MAX_SELECTED_INDICES)
           : [...DEFAULT_CONFIG.settings.selectedIndices!],
+      menubarHiddenGroups: normalizeMenubarHiddenGroups(
+        payload?.settings?.menubarHiddenGroups,
+        holdingGroups,
+      ),
+      menubarLayout: normalizeMenubarLayout(payload?.settings?.menubarLayout),
+      menubarTopFontSize: normalizeMenubarFontSize(
+        payload?.settings?.menubarTopFontSize,
+        DEFAULT_MENUBAR_FONT[normalizeMenubarLayout(payload?.settings?.menubarLayout)][0],
+      ),
+      menubarBottomFontSize: normalizeMenubarFontSize(
+        payload?.settings?.menubarBottomFontSize,
+        DEFAULT_MENUBAR_FONT[normalizeMenubarLayout(payload?.settings?.menubarLayout)][1],
+      ),
     },
     holdings,
     watchlist,

@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   FolderTree,
+  Menu,
   Plus,
   Settings2,
   Sparkles,
@@ -18,6 +19,8 @@ import {
   ScrollArea,
   SegmentedControl,
   Select,
+  Slider,
+  Switch,
   Tabs,
   TextArea,
   TextField,
@@ -27,6 +30,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  SettingsTabId,
 } from '@fund01/core'
 import {
   AVAILABLE_INDICES,
@@ -58,12 +62,13 @@ import importPromptMd from '../../../docs/import-prompt.md?raw'
 import './index.css'
 
 /* ── Tab 定义 ─────────────────────────────────────────────── */
-type TabId = 'general' | 'holdings' | 'data'
+type TabId = SettingsTabId
 
 const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
   {id: 'general', label: '通用', icon: Settings2},
   {id: 'holdings', label: '持仓', icon: FolderTree},
   {id: 'data', label: '数据', icon: Database},
+  {id: 'menubar', label: '菜单栏', icon: Menu},
 ]
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
@@ -86,7 +91,18 @@ export function OptionsApp({
   /** 扩展版本号，渲染在品牌名右侧（vX.Y.Z） */
   version?: string
 }) {
-  const [tab, setTab] = useState<TabId>(initialTab ?? 'general')
+  const ports = usePorts()
+  const [tab, setTab] = useState<TabId>(() => {
+    const t = initialTab ?? 'general'
+    // 平台能力防御：不支持菜单栏的端（chrome）即使被 ?tab=menubar 直达也回落通用页
+    if (t === 'menubar' && !ports.window.supportsMenubar?.()) return 'general'
+    return t
+  })
+  // 仅保留当前平台可用的 tab（menubar 只在 tauri 显示）
+  const visibleTabs = useMemo(
+    () => TABS.filter((t) => t.id !== 'menubar' || !!ports.window.supportsMenubar?.()),
+    [ports],
+  )
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
   // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
@@ -117,7 +133,7 @@ export function OptionsApp({
           </div>
           <div className="mx-auto max-w-5xl px-6">
             <Tabs.List>
-              {TABS.map((t) => {
+              {visibleTabs.map((t) => {
                 const Icon = t.icon
                 return (
                   <Tabs.Trigger key={t.id} value={t.id} className="gap-1.5">
@@ -158,6 +174,10 @@ export function OptionsApp({
 
           <Tabs.Content value="data">
             <DataBackupSection />
+          </Tabs.Content>
+
+          <Tabs.Content value="menubar">
+            <MenubarSection />
           </Tabs.Content>
         </main>
       </Tabs.Root>
@@ -1603,6 +1623,244 @@ function DataBackupSection() {
       </div>
       {message ? <p className="text-sm text-fall">{message}</p> : null}
       {error ? <p className="text-sm text-rise">{error}</p> : null}
+    </SectionCard>
+  )
+}
+
+/* ── 菜单栏（仅 tauri 显示） ───────────────────────────────── */
+const MENUBAR_LAYOUTS: {value: string; label: string}[] = [
+  {value: '0', label: '上小下大'},
+  {value: '1', label: '上大下小'},
+  {value: '2', label: '等大'},
+]
+
+// 位置语义字号范围（pt）：0: 上5-11/下8-16；1: 上8-16/下5-11；2: 5-11 联动（与插件 role 范围一致）
+const MENUBAR_FONT_RANGES: Record<
+  0 | 1 | 2,
+  {top: readonly [number, number]; bottom: readonly [number, number]}
+> = {
+  0: {top: [5, 11], bottom: [8, 16]},
+  1: {top: [8, 16], bottom: [5, 11]},
+  2: {top: [5, 11], bottom: [5, 11]},
+}
+
+function clampMenubarFont(v: number | undefined, fallback: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback
+  return Math.min(16, Math.max(5, v))
+}
+
+function MenubarSection() {
+  const ports = usePorts()
+  const [groups, setGroups] = useState<string[]>([])
+  const [hidden, setHidden] = useState<string[]>([])
+  const [layout, setLayout] = useState<0 | 1 | 2>(0)
+  const [top, setTop] = useState(7)
+  const [bottom, setBottom] = useState(12)
+  const [hasUngrouped, setHasUngrouped] = useState(false)
+
+  // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
+  useEffect(() => {
+    const s = fetchSettings(ports)
+    const l: 0 | 1 | 2 = s.menubarLayout === 1 || s.menubarLayout === 2 ? s.menubarLayout : 0
+    setLayout(l)
+    setHidden(s.menubarHiddenGroups ?? [])
+    setTop(clampMenubarFont(s.menubarTopFontSize, l === 1 ? 12 : 7))
+    setBottom(clampMenubarFont(s.menubarBottomFontSize, l === 1 ? 7 : 12))
+    const gs = listHoldingGroups(ports)
+    setGroups(gs)
+    // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
+    const known = new Set(gs)
+    setHasUngrouped(
+      Object.values(ports.config.getConfig().holdings).some((f) =>
+        Object.entries(f.allocations || {}).some(([g, sh]) => Number(sh) > 0 && !known.has(g)),
+      ),
+    )
+  }, [ports])
+
+  /** 分组显示开关：即时保存（低频操作） */
+  async function toggleGroup(g: string, show: boolean) {
+    const next = show
+      ? hidden.filter((x) => x !== g)
+      : Array.from(new Set([...hidden, g]))
+    setHidden(next)
+    try {
+      await updateSettings(ports, {menubarHiddenGroups: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 布局模式：切到等大时上下字号联动为当前下行值（clamp 5-11）并一次保存 */
+  async function handleLayoutChange(v: string) {
+    const l = Number(v) as 0 | 1 | 2
+    setLayout(l)
+    try {
+      if (l === 2) {
+        const unified = Math.round(Math.min(11, Math.max(5, bottom)))
+        setTop(unified)
+        setBottom(unified)
+        await updateSettings(ports, {
+          menubarLayout: 2,
+          menubarTopFontSize: unified,
+          menubarBottomFontSize: unified,
+        })
+      } else {
+        await updateSettings(ports, {menubarLayout: l})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 字号 Slider：拖动仅本地预览，松手才保存（避免连续触发后端刷新） */
+  async function commitFont(side: 'top' | 'bottom', v: number) {
+    try {
+      if (layout === 2) {
+        setTop(v)
+        setBottom(v)
+        await updateSettings(ports, {menubarTopFontSize: v, menubarBottomFontSize: v})
+      } else if (side === 'top') {
+        setTop(v)
+        await updateSettings(ports, {menubarTopFontSize: v})
+      } else {
+        setBottom(v)
+        await updateSettings(ports, {menubarBottomFontSize: v})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const range = MENUBAR_FONT_RANGES[layout]
+
+  return (
+    <SectionCard title="菜单栏">
+      <p className="text-xs text-muted">
+        菜单栏显示在 macOS 顶部状态栏，两行展示基金涨跌（红涨绿跌）。以下设置仅桌面版生效。
+      </p>
+
+      {/* 分组显示 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">分组显示</div>
+        <p className="text-xs text-muted">
+          可单独隐藏某个持仓分组在菜单栏中的实例；「总览」始终显示。
+        </p>
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+            <span className="text-sm text-ink-soft">总览</span>
+            <Switch checked disabled aria-label="总览固定显示" />
+          </div>
+          {groups.map((g) => (
+            <div
+              key={g}
+              className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2"
+            >
+              <span className="truncate text-sm text-ink">{g}</span>
+              <Switch
+                checked={!hidden.includes(g)}
+                onCheckedChange={(c) => void toggleGroup(g, c)}
+                aria-label={`显示/隐藏分组 ${g}`}
+              />
+            </div>
+          ))}
+          {hasUngrouped ? (
+            <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+              <span className="truncate text-sm text-ink">未分组</span>
+              <Switch
+                checked={!hidden.includes('')}
+                onCheckedChange={(c) => void toggleGroup('', c)}
+                aria-label="显示/隐藏未分组"
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* 布局模式 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">布局模式</div>
+        <p className="text-xs text-muted">
+          上行小字/下行大字（默认）、上行大字/下行小字、两行等大。
+        </p>
+        <SegmentedControl.Root
+          value={String(layout)}
+          onValueChange={(v) => void handleLayoutChange(v)}
+          className="pt-1"
+        >
+          {MENUBAR_LAYOUTS.map((opt) => (
+            <SegmentedControl.Item key={opt.value} value={opt.value}>
+              {opt.label}
+            </SegmentedControl.Item>
+          ))}
+        </SegmentedControl.Root>
+      </div>
+
+      {/* 字号 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">字号</div>
+        <p className="text-xs text-muted">
+          单位 pt。拖动实时预览，松开后保存并立即应用到菜单栏；范围随布局模式变化。
+        </p>
+        {layout === 2 ? (
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-ink-soft leading-none">等大字号</span>
+              <span className="font-mono text-xs text-muted">{top}pt</span>
+            </div>
+            <Slider
+              value={[top]}
+              min={range.top[0]}
+              max={range.top[1]}
+              step={1}
+              onValueChange={([v]) => setTop(v)}
+              onValueCommit={([v]) => void commitFont('top', v)}
+              aria-label="等大字号"
+            />
+            <p className="text-[11px] text-muted">
+              范围 {range.top[0]}–{range.top[1]}pt（两行同步）
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-soft leading-none">上行字号</span>
+                <span className="font-mono text-xs text-muted">{top}pt</span>
+              </div>
+              <Slider
+                value={[top]}
+                min={range.top[0]}
+                max={range.top[1]}
+                step={1}
+                onValueChange={([v]) => setTop(v)}
+                onValueCommit={([v]) => void commitFont('top', v)}
+                aria-label="上行字号"
+              />
+              <p className="text-[11px] text-muted">
+                范围 {range.top[0]}–{range.top[1]}pt
+              </p>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-soft leading-none">下行字号</span>
+                <span className="font-mono text-xs text-muted">{bottom}pt</span>
+              </div>
+              <Slider
+                value={[bottom]}
+                min={range.bottom[0]}
+                max={range.bottom[1]}
+                step={1}
+                onValueChange={([v]) => setBottom(v)}
+                onValueCommit={([v]) => void commitFont('bottom', v)}
+                aria-label="下行字号"
+              />
+              <p className="text-[11px] text-muted">
+                范围 {range.bottom[0]}–{range.bottom[1]}pt
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </SectionCard>
   )
 }

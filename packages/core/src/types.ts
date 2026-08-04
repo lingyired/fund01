@@ -175,6 +175,17 @@ export type AppSettings = {
   theme?: AppThemePref
   /** 指数看板显示的指数 code 列表（最多 5 个），默认见 DEFAULT_SELECTED_INDICES */
   selectedIndices?: string[]
+  /**
+   * 菜单栏中隐藏的持仓分组名列表（仅 tauri 生效；'' 表示未分组）。
+   * 不在列表中的分组默认显示；「总览」恒显示。
+   */
+  menubarHiddenGroups?: string[]
+  /** 菜单栏布局模式：0=上小下大(默认) 1=上大下小 2=等大。仅 tauri 生效 */
+  menubarLayout?: 0 | 1 | 2
+  /** 菜单栏上行字体大小（pt，位置语义，由 Rust 侧按当前布局 clamp） */
+  menubarTopFontSize?: number
+  /** 菜单栏下行字体大小（pt，位置语义，由 Rust 侧按当前布局 clamp） */
+  menubarBottomFontSize?: number
 }
 
 export type AppConfig = {

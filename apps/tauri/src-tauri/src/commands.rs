@@ -99,21 +99,41 @@ pub fn get_config(state: State<AppState>) -> AppConfig {
     state.config.read().unwrap().clone()
 }
 
+/// 判断设置变更是否「仅涉及菜单栏展示」（隐藏分组 / 布局 / 字号）。
+/// 此类变更不改变行情数据口径，保存后无需触发行情刷新。
+fn is_menubar_only_settings_change(old: &AppSettings, new: &AppSettings) -> bool {
+    let mut a = old.clone();
+    let mut b = new.clone();
+    a.menubar_hidden_groups = None;
+    a.menubar_layout = None;
+    a.menubar_top_font_size = None;
+    a.menubar_bottom_font_size = None;
+    b.menubar_hidden_groups = None;
+    b.menubar_layout = None;
+    b.menubar_top_font_size = None;
+    b.menubar_bottom_font_size = None;
+    a == b
+}
+
 #[tauri::command]
 pub async fn save_config(
     app: AppHandle,
     state: State<'_, AppState>,
     config: AppConfig,
 ) -> Result<AppConfig, String> {
+    let old = state.config.read().unwrap().clone();
     let raw = serde_json::to_value(&config).map_err(|e| e.to_string())?;
     let normalized = crate::portfolio::normalize_config(&raw);
     *state.config.write().unwrap() = normalized.clone();
     persist_config(&app, &normalized);
-    // 分组/持仓变化 → 重建 menubar 实例
+    // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
     crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());
-    // 立即按新配置刷新
-    crate::refresh::trigger_refresh(app);
+    // 仅当「影响行情数据的配置」变更时才立即刷新；
+    // 纯菜单栏展示设置（隐藏分组/布局/字号）不触发网络请求
+    if !is_menubar_only_settings_change(&old.settings, &normalized.settings) {
+        crate::refresh::trigger_refresh(app);
+    }
     Ok(normalized)
 }
 

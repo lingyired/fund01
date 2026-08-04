@@ -1,12 +1,17 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { WindowPort } from '@fund01/core'
+import type { SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
 
 /** Tauri 窗口 Port：打开设置窗口（Rust 创建/聚焦 settings 窗口） */
 export class TauriWindowPort implements WindowPort {
-  async openSettings(tab?: 'general' | 'holdings' | 'data'): Promise<void> {
+  async openSettings(tab?: SettingsTabId): Promise<void> {
     await invoke('open_settings_window', { tab: tab ?? null })
+  }
+
+  /** 桌面版支持 macOS 菜单栏 → 设置页显示「菜单栏」tab */
+  supportsMenubar(): boolean {
+    return true
   }
 
   getVersion(): string {

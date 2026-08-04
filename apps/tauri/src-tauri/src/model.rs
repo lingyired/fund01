@@ -55,7 +55,7 @@ impl FundRecord {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     #[serde(default = "default_show_gold")]
@@ -74,6 +74,18 @@ pub struct AppSettings {
     pub theme: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_indices: Option<Vec<String>>,
+    /// 菜单栏隐藏的持仓分组名列表（'' 表示未分组）；不在列表的分组默认显示
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_hidden_groups: Option<Vec<String>>,
+    /// 菜单栏布局模式：0=上小下大(默认) 1=上大下小 2=等大
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_layout: Option<u8>,
+    /// 菜单栏上行字体大小（pt，位置语义，按当前布局 clamp）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_top_font_size: Option<f64>,
+    /// 菜单栏下行字体大小（pt，位置语义，按当前布局 clamp）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_bottom_font_size: Option<f64>,
 }
 
 fn default_show_gold() -> bool {
@@ -91,11 +103,15 @@ impl Default for AppSettings {
             holding_group_orders: None,
             theme: None,
             selected_indices: None,
+            menubar_hidden_groups: None,
+            menubar_layout: None,
+            menubar_top_font_size: None,
+            menubar_bottom_font_size: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshInterval {
     pub trading: u64,

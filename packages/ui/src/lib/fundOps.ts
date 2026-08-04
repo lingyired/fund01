@@ -519,6 +519,35 @@ export function updateSettings(
       }
     }
   }
+  if (Array.isArray(patch.menubarHiddenGroups)) {
+    // 整体替换 menubarHiddenGroups：去重保序，仅保留 ''(未分组) 或现有分组名
+    const valid = new Set(config.settings.holdingGroups || [])
+    const next: string[] = []
+    for (const g of patch.menubarHiddenGroups) {
+      const key = String(g ?? '').trim()
+      if ((key === '' || valid.has(key)) && !next.includes(key)) next.push(key)
+    }
+    config.settings.menubarHiddenGroups = next
+  }
+  if (
+    patch.menubarLayout === 0 ||
+    patch.menubarLayout === 1 ||
+    patch.menubarLayout === 2
+  ) {
+    config.settings.menubarLayout = patch.menubarLayout
+  }
+  if (
+    typeof patch.menubarTopFontSize === 'number' &&
+    Number.isFinite(patch.menubarTopFontSize)
+  ) {
+    config.settings.menubarTopFontSize = Math.min(16, Math.max(5, patch.menubarTopFontSize))
+  }
+  if (
+    typeof patch.menubarBottomFontSize === 'number' &&
+    Number.isFinite(patch.menubarBottomFontSize)
+  ) {
+    config.settings.menubarBottomFontSize = Math.min(16, Math.max(5, patch.menubarBottomFontSize))
+  }
   ports.config.saveConfig(config)
   return config.settings
 }

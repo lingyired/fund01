@@ -27,6 +27,10 @@ pub fn default_config() -> AppConfig {
             holding_group_orders: Some(HashMap::new()),
             theme: Some("system".to_string()),
             selected_indices: Some(DEFAULT_SELECTED_INDICES.iter().map(|s| s.to_string()).collect()),
+            menubar_hidden_groups: Some(vec![]),
+            menubar_layout: Some(0),
+            menubar_top_font_size: Some(7.0),
+            menubar_bottom_font_size: Some(12.0),
         },
         holdings: HashMap::new(),
         watchlist: HashMap::new(),
@@ -271,6 +275,37 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     }
 
     let settings_raw = payload.get("settings");
+    // menubarHiddenGroups：保留 ''(未分组)，去重保序，只留有效分组
+    let mut menubar_hidden_groups: Vec<String> = Vec::new();
+    if let Some(h) = settings_raw.and_then(|s| s.get("menubarHiddenGroups")).and_then(|v| v.as_array()) {
+        for g in h {
+            let key = g.as_str().unwrap_or("").trim().to_string();
+            if (key.is_empty() || holding_groups.contains(&key)) && !menubar_hidden_groups.contains(&key) {
+                menubar_hidden_groups.push(key);
+            }
+        }
+    }
+    // menubarLayout：0|1|2，非法回落 0
+    let menubar_layout: u8 = match settings_raw.and_then(|s| s.get("menubarLayout")).and_then(|v| v.as_u64()) {
+        Some(1) => 1,
+        Some(2) => 2,
+        _ => 0,
+    };
+    // 字号（位置语义，clamp 5-16）；未设置时按布局默认（与插件原生默认一致 0:7/12 1:12/7 2:9/9）
+    let (d_top, d_bottom) = match menubar_layout {
+        1 => (12.0, 7.0),
+        2 => (9.0, 9.0),
+        _ => (7.0, 12.0),
+    };
+    let clampf = |v: Option<f64>, d: f64| v.map(|x| x.clamp(5.0, 16.0)).unwrap_or(d);
+    let menubar_top_font_size = clampf(
+        settings_raw.and_then(|s| s.get("menubarTopFontSize")).and_then(|v| v.as_f64()),
+        d_top,
+    );
+    let menubar_bottom_font_size = clampf(
+        settings_raw.and_then(|s| s.get("menubarBottomFontSize")).and_then(|v| v.as_f64()),
+        d_bottom,
+    );
     let show_gold = settings_raw
         .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))
         .unwrap_or(true);
@@ -327,6 +362,10 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             holding_group_orders: Some(holding_group_orders),
             theme: Some(theme),
             selected_indices: Some(selected_indices),
+            menubar_hidden_groups: Some(menubar_hidden_groups),
+            menubar_layout: Some(menubar_layout),
+            menubar_top_font_size: Some(menubar_top_font_size),
+            menubar_bottom_font_size: Some(menubar_bottom_font_size),
         },
         holdings,
         watchlist,

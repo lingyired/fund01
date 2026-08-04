@@ -89,6 +89,7 @@ fn has_ungrouped(rows: &[FundQuoteRow], groups: &[String]) -> bool {
 /// 计算期望实例列表：(id, 顶行文字, 涨跌%)
 fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<(String, String, f64)> {
     let groups = config.settings.holding_groups.clone().unwrap_or_default();
+    let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
     let rows: &[FundQuoteRow] = quote
         .and_then(|q| q.holdings.as_ref())
         .map(|h| h.list.as_slice())
@@ -101,10 +102,14 @@ fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<(St
         .unwrap_or(0.0);
     out.push((INSTANCE_OVERVIEW.to_string(), "总览".to_string(), overview_pct));
 
+    // 总览恒在；每个分组一个实例（隐藏的分组跳过，idx 保持原始序号 → id 稳定）
     for (idx, g) in groups.iter().enumerate() {
+        if hidden.iter().any(|h| h == g) {
+            continue;
+        }
         out.push((format!("menubar-group-{idx}"), g.clone(), group_percent(rows, g)));
     }
-    if has_ungrouped(rows, &groups) {
+    if has_ungrouped(rows, &groups) && !hidden.iter().any(|h| h.is_empty()) {
         out.push(("menubar-ungrouped".to_string(), "未分组".to_string(), group_percent(rows, "")));
     }
     out.truncate(MAX_INSTANCES);
@@ -141,6 +146,31 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
     listened.insert(id.to_string());
 }
 
+/// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
+/// 布局/字号变更只能靠 rebuild 路径应用（update_menubar 只碰文字/颜色）。
+fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64)]) {
+    let mb = app.multiline_menubar();
+    let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
+    // 位置语义字号；未设置时按布局默认（与插件原生默认一致 0:7/12 1:12/7 2:9/9）
+    let top = config
+        .settings
+        .menubar_top_font_size
+        .unwrap_or(if layout == 1 { 12.0 } else { 7.0 })
+        .clamp(5.0, 16.0);
+    let mut bottom = config
+        .settings
+        .menubar_bottom_font_size
+        .unwrap_or(if layout == 1 { 7.0 } else { 12.0 })
+        .clamp(5.0, 16.0);
+    if layout == 2 {
+        bottom = top; // 等大强制对称兜底（插件会再 clamp 5-11，对称保持）
+    }
+    for (id, _, _) in desired {
+        let _ = mb.set_layout(id.clone(), layout);
+        let _ = mb.set_font_sizes(id.clone(), top, bottom);
+    }
+}
+
 /// 应用启动 / 配置变更：重建实例集合
 pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&QuoteUpdate>) {
     let desired = desired_instances(config, quote);
@@ -150,7 +180,6 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
             let _ = mb.create(id.clone());
-            let _ = mb.set_layout(id.clone(), 0);
             tracked().lock().unwrap().insert(id.clone());
         }
         ensure_click_listener(app, id);
@@ -165,7 +194,10 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         tracked_set.remove(&id);
     }
 
-    // 3. 设置右键菜单（版本 + 打开设置 + 退出）
+    // 3. 应用布局模式与字号（对所有实例）
+    apply_menubar_style(app, config, &desired);
+
+    // 4. 设置右键菜单（版本 + 打开设置 + 退出）
     let version = env!("CARGO_PKG_VERSION").to_string();
     let _ = app.multiline_menubar().set_menu(
         INSTANCE_OVERVIEW.to_string(),
@@ -193,7 +225,7 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ],
     );
 
-    // 4. 更新文字与颜色
+    // 5. 更新文字与颜色
     update_menubar(app, quote);
 }
 

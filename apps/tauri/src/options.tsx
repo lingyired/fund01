@@ -17,7 +17,8 @@ async function bootstrap() {
 
   // 与 Chrome 端一致的 ?tab= 解析（Tauri webview 的 location.search 同样可用）
   const urlTab = new URLSearchParams(window.location.search).get('tab')
-  const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
+  const initialTab =
+    urlTab === 'holdings' || urlTab === 'data' || urlTab === 'menubar' ? urlTab : 'general'
 
   const windowPort = new TauriWindowPort()
   const ports: Ports = {
