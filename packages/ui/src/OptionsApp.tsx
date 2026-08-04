@@ -1061,7 +1061,11 @@ function EditHoldingsSection({
                                 disabled={saving}
                                 size="1"
                               >
-                                <Select.Trigger className="w-full" placeholder="未分组" />
+                                <Select.Trigger
+                                  className="w-full"
+                                  style={{width: '100%'}}
+                                  placeholder="未分组"
+                                />
                                 <Select.Content position="popper">
                                   <Select.Item value={UNGROUPED_VALUE}>未分组</Select.Item>
                                   {groups
