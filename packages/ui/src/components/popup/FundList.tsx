@@ -57,12 +57,15 @@ function SortIcon({active, dir}: {active: boolean; dir?: SortDir}) {
 function SortableHeader({
   sortKey,
   label,
+  hint,
   align,
   sort,
   onSort,
 }: {
   sortKey: SortKey
   label: string
+  /** 表头 label 后的辅助提示语（仅基金列使用） */
+  hint?: string
   align?: 'left' | 'right'
   sort: {key: SortKey; dir: SortDir} | null
   onSort: (k: SortKey) => void
@@ -85,6 +88,11 @@ function SortableHeader({
         aria-label={`按${label}排序`}
       >
         {label}
+        {hint ? (
+          <span className="ml-1 shrink-0 text-[10px] font-normal text-muted">
+            {hint}
+          </span>
+        ) : null}
         <SortIcon active={active} dir={sort?.dir} />
       </button>
     </Table.ColumnHeaderCell>
@@ -186,6 +194,7 @@ export function FundList({
           <SortableHeader
             sortKey="amount"
             label="基金（持仓金额）"
+            hint="点击基金名称查看走势"
             sort={sort}
             onSort={handleSort}
           />
