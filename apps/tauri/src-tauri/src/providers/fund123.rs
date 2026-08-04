@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::http::{self, DESKTOP_UA};
 use crate::model::{FundQuote, TrendPoint};
-use crate::providers::{pad6, FundQuoteInput, QuoteProvider, QuoteSource};
+use crate::providers::{pad6, FundQuoteInput, QuoteProvider};
 
 // ----------------------------- CSRF -----------------------------
 
@@ -167,7 +167,6 @@ pub async fn search_funds_by_keyword(keyword: &str) -> Vec<(String, String)> {
 }
 
 pub struct MatiariaResult {
-    pub code: String,
     pub name: String,
     pub day_growth: Option<f64>,
     pub net_value: Option<f64>,
@@ -202,7 +201,7 @@ pub async fn get_fund_matiaria(code: &str) -> Result<MatiariaResult, String> {
     let raw_date = grab(r#"netValueDate":"([^"]+)"#).unwrap_or_default();
     let net_value_date = crate::calendar::normalize_net_value_date(&raw_date, &chrono::Local::now());
     let name = grab(r#"fundName":"([^"]+)"#).unwrap_or_default();
-    Ok(MatiariaResult { code: padded, name, day_growth, net_value, net_value_date })
+    Ok(MatiariaResult { name, day_growth, net_value, net_value_date })
 }
 
 /// 盘中分时走势（fund123 POST）
@@ -420,10 +419,6 @@ pub async fn fetch_intraday_for_dialog(
 pub struct Fund123QuoteProvider;
 
 impl QuoteProvider for Fund123QuoteProvider {
-    fn id(&self) -> QuoteSource {
-        QuoteSource::Fund123
-    }
-
     async fn fetch_quotes(&self, funds: &[FundQuoteInput]) -> Vec<FundQuote> {
         // fund123 接口对并发爆发有限流（403），全程串行（fund123_post 内部还有全局互斥）
         crate::providers::run_quotes_concurrent(

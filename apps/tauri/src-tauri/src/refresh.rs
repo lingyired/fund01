@@ -109,6 +109,16 @@ pub async fn refresh_all(app: &AppHandle, force: bool) {
         if !inputs.is_empty() {
             let provider = get_quote_provider(source);
             let quotes = provider.fetch_quotes(&inputs).await;
+            let with_percent = quotes.iter().filter(|q| q.percent.is_some()).count();
+            let with_nav = quotes.iter().filter(|q| q.net_value.is_some()).count();
+            eprintln!(
+                "[fund01] refresh 基金 source={} inputs={} quotes={} with_percent={} with_nav={}",
+                config.settings.quote_source.as_deref().unwrap_or("fundmnfinfo"),
+                inputs.len(),
+                quotes.len(),
+                with_percent,
+                with_nav
+            );
             let hold_codes: HashSet<&str> = holdings_funds.iter().map(|f| f.code.as_str()).collect();
             let mut h_quotes = Vec::new();
             let mut w_quotes = Vec::new();

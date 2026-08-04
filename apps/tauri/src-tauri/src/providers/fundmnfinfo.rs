@@ -6,18 +6,24 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::http::{self, DESKTOP_UA};
+use crate::http::{self, DESKTOP_UA, MOBILE_UA};
 use crate::model::{FundQuote, TrendPoint};
 use crate::providers::{
-    pad6, run_quotes_concurrent, eastmoney_fund_get, FundQuoteInput, QuoteProvider, QuoteSource,
+    pad6, run_quotes_concurrent, eastmoney_fund_get, FundQuoteInput, QuoteProvider,
 };
 
 const MNFINFO_DEVICEID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 
 /// 批量拉取 FundMNFInfo（最多 200 个/次），返回 code → 原始 item
+///
+/// ⚠️ UA 必须是 MOBILE_UA：东财对 FundMNFInfo 接口拒绝桌面 UA 的脚本请求
+/// （HTTP 200 + Success:false + ErrCode=61136403「网络繁忙」），手机 UA 放行。
+/// 已用 curl 实测：同一 IP 下 DESKTOP_UA → 61136403，MOBILE_UA → Success:true。
+/// 副作用：移动 UA 不返回 GSZ/GSZZL（盘中估算），空窗期/盘中靠自算估值兜底。
 async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
     let mut out = HashMap::new();
     for chunk in codes.chunks(200) {
+        eprintln!("[fund01] FundMNFInfo 请求 chunk={} codes={}", chunk.len(), chunk.join(","));
         let query = http::params(&[
             ("pageIndex", "1"),
             ("pageSize", "200"),
@@ -33,13 +39,21 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
             match http::http_get_json(
                 "https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo",
                 &query,
-                DESKTOP_UA,
+                MOBILE_UA,
                 Some("https://fund.eastmoney.com/"),
                 Duration::from_secs(12),
             )
             .await
             {
                 Ok(v) => {
+                    // HTTP 200 ≠ 成功：东财业务层失败（Success=false）会静默返回空 Datas，
+                    // 之前不检查导致"无数据且无日志"，这里必须显式打出来
+                    let success = v.get("Success").and_then(|x| x.as_bool()).unwrap_or(false);
+                    if !success {
+                        let err_code = v.get("ErrCode").map(|x| x.to_string()).unwrap_or_default();
+                        let err_msg = v.get("ErrMsg").and_then(|x| x.as_str()).unwrap_or("?");
+                        eprintln!("[fund01] FundMNFInfo 业务失败 attempt={attempt} ErrCode={err_code} ErrMsg={err_msg}");
+                    }
                     data = Some(v);
                     break;
                 }
@@ -53,15 +67,27 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
         }
         if let Some(data) = data {
             if let Some(list) = data.get("Datas").and_then(|v| v.as_array()) {
+                let mut hit = 0;
                 for item in list {
                     let code = pad6(item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""));
                     if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
                         out.insert(code, item.clone());
+                        hit += 1;
                     }
                 }
+                eprintln!("[fund01] FundMNFInfo 响应 Datas={} 有效命中={hit}", list.len());
+            } else {
+                eprintln!(
+                    "[fund01] FundMNFInfo 响应无 Datas 字段（Success={}，原始前 120 字: {}）",
+                    data.get("Success").map(|x| x.to_string()).unwrap_or_default(),
+                    data.to_string().chars().take(120).collect::<String>()
+                );
             }
+        } else {
+            eprintln!("[fund01] FundMNFInfo chunk 全部尝试失败（网络层）");
         }
     }
+    eprintln!("[fund01] FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
     out
 }
 
@@ -325,10 +351,6 @@ pub async fn get_calc_gszzl(code: &str) -> Option<f64> {
 pub struct FundMNFInfoQuoteProvider;
 
 impl QuoteProvider for FundMNFInfoQuoteProvider {
-    fn id(&self) -> QuoteSource {
-        QuoteSource::FundMnfinfo
-    }
-
     async fn fetch_quotes(&self, funds: &[FundQuoteInput]) -> Vec<FundQuote> {
         if funds.is_empty() {
             return vec![];
@@ -379,6 +401,13 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         net_value_date = p.net_value_date;
         mnf_time = p.time;
         use_calc_needed = p.use_calc_needed;
+        eprintln!(
+            "[fund01] FundMNFInfo 行情 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} est_growth={estimate_growth:?} est_net={estimate_net_value:?} net_value={net_value:?} prev_net={prev_net_value:?} date={net_value_date} time={mnf_time:?} use_calc_needed={use_calc_needed}"
+        );
+    } else {
+        eprintln!(
+            "[fund01] FundMNFInfo 无该基金行情 code={code} name={name} —— 批量接口未返回该 code（可能请求被业务拒绝或 code 不合法）"
+        );
     }
 
     // FundMNFInfo 已批量提供行情，分时走势留空由前端懒加载
@@ -408,7 +437,12 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 percent = Some(calc_gszzl);
                 percent_source = Some("estimate".to_string());
                 use_calc = true;
+                eprintln!("[fund01] FundMNFInfo 自算估值成功 code={code} calc_gszzl={calc_gszzl} calc_gsz={calc_gsz}");
+            } else {
+                eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
+        } else {
+            eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败）");
         }
     }
 

@@ -36,17 +36,9 @@ impl QuoteSource {
             QuoteSource::FundMnfinfo
         }
     }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            QuoteSource::Fund123 => "fund123",
-            QuoteSource::FundMnfinfo => "fundmnfinfo",
-        }
-    }
 }
 
 pub trait QuoteProvider {
-    fn id(&self) -> QuoteSource;
     async fn fetch_quotes(&self, funds: &[FundQuoteInput]) -> Vec<FundQuote>;
 }
 
@@ -57,13 +49,6 @@ pub enum AnyProvider {
 }
 
 impl AnyProvider {
-    pub fn id(&self) -> QuoteSource {
-        match self {
-            AnyProvider::Fund123(p) => p.id(),
-            AnyProvider::Mnf(p) => p.id(),
-        }
-    }
-
     pub async fn fetch_quotes(&self, funds: &[FundQuoteInput]) -> Vec<FundQuote> {
         match self {
             AnyProvider::Fund123(p) => p.fetch_quotes(funds).await,
@@ -79,19 +64,7 @@ pub fn get_quote_provider(source: QuoteSource) -> AnyProvider {
     }
 }
 
-/// 空行情（失败兜底，对应 emptyQuote）
-pub fn empty_quote(fund: &FundQuoteInput, error: Option<String>) -> FundQuote {
-    let code = pad6(&fund.code);
-    FundQuote {
-        code: code.clone(),
-        name: fund.name.clone().filter(|n| !n.is_empty()).unwrap_or(code),
-        fund_key: fund.fund_key.clone().unwrap_or_default(),
-        sectors: fund.sectors.clone(),
-        error,
-        ..Default::default()
-    }
-}
-
+/// 补零到 6 位基金代码
 pub fn pad6(code: &str) -> String {
     let c = code.trim();
     if c.len() >= 6 {

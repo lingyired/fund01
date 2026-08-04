@@ -101,15 +101,6 @@ pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>) {
     }
 }
 
-/// 隐藏浮窗并启动延迟销毁
-pub fn hide_popup(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window(POPUP_LABEL) {
-        let _ = win.hide();
-    }
-    let state = app.state::<AppState>();
-    schedule_destroy(app.clone(), &state);
-}
-
 /// 打开设置窗口（复用 options.html?tab= 约定）
 pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
     if let Some(win) = app.get_webview_window(SETTINGS_LABEL) {

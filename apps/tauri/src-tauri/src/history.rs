@@ -232,8 +232,6 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
                 code: s.code.clone(),
                 name: s.name,
                 fund_key: s.fund_key,
-                net_value: s.net_value,
-                day_growth: s.day_growth,
             });
         }
         Err(e) => {
@@ -285,8 +283,6 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
                         code: s.code,
                         name: s.name,
                         fund_key: s.fund_key,
-                        net_value: s.net_value,
-                        day_growth: s.day_growth,
                     });
                 }
                 Err(e) => eprintln!("[fund01] resolveFund 纠正代码后重查失败: {e}"),
@@ -344,6 +340,4 @@ struct SearchMeta {
     code: String,
     name: String,
     fund_key: String,
-    net_value: Option<f64>,
-    day_growth: Option<f64>,
 }

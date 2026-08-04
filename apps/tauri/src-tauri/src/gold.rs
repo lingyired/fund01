@@ -34,9 +34,6 @@ struct GoldQuote {
     name: String,
     price: Option<f64>,
     prev_close: Option<f64>,
-    open: Option<f64>,
-    high: Option<f64>,
-    low: Option<f64>,
     change: Option<f64>,
     percent: Option<f64>,
     time: String,
@@ -51,11 +48,8 @@ fn parse_sina_gold(text: &str) -> Option<GoldQuote> {
     }
     let parse = |i: usize| parts.get(i).and_then(|s| s.parse::<f64>().ok());
     let price = parse(0);
-    let high = parse(4);
-    let low = parse(5);
     let time = parts.get(6).copied().unwrap_or("").to_string();
     let prev_close = parse(7);
-    let open = parse(8);
     let date = parts.get(12).copied().unwrap_or("").to_string();
     let name = parts.get(13).copied().unwrap_or("AU9999").to_string();
     let percent = match (price, prev_close) {
@@ -71,9 +65,6 @@ fn parse_sina_gold(text: &str) -> Option<GoldQuote> {
         name: if name.contains('金') { "AU9999 沪金99".to_string() } else { "AU9999".to_string() },
         price: price.filter(|p| p.is_finite()),
         prev_close: prev_close.filter(|p| p.is_finite()),
-        open: open.filter(|p| p.is_finite()),
-        high: high.filter(|p| p.is_finite()),
-        low: low.filter(|p| p.is_finite()),
         change: change.map(round4).filter(|c| c.is_finite()),
         percent: percent.map(round4).filter(|p| p.is_finite()),
         time: if date.is_empty() { time.clone() } else { format!("{date} {time}") },
@@ -136,9 +127,6 @@ async fn fetch_eastmoney_quote() -> Result<GoldQuote, String> {
                     },
                     price: price.filter(|p| p.is_finite()),
                     prev_close: prev_close.filter(|p| p.is_finite()),
-                    open: d.get("f46").and_then(|v| v.as_f64()).filter(|v| v.is_finite()),
-                    high: d.get("f44").and_then(|v| v.as_f64()).filter(|v| v.is_finite()),
-                    low: d.get("f45").and_then(|v| v.as_f64()).filter(|v| v.is_finite()),
                     change: change.map(round4).filter(|c| c.is_finite()),
                     percent: percent.map(round4).filter(|p| p.is_finite()),
                     time: String::new(),

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use reqwest::header::{HeaderMap, HeaderValue, ORIGIN, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, REFERER, USER_AGENT};
 use serde_json::Value;
 
 pub const DESKTOP_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
@@ -207,12 +207,4 @@ pub async fn retry_3(
 pub fn gbk_decode(bytes: &[u8]) -> String {
     let (cow, _, _) = encoding_rs::GBK.decode(bytes);
     cow.into_owned()
-}
-
-/// 东财接口通用头（Origin/Referer 指向 fund.eastmoney.com）
-pub fn fund_headers() -> Vec<(&'static str, &'static str)> {
-    vec![
-        (ORIGIN.as_str(), "https://fund.eastmoney.com"),
-        (REFERER.as_str(), "https://fund.eastmoney.com/"),
-    ]
 }
