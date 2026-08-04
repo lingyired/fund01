@@ -1126,7 +1126,7 @@ function ImportSection({
   groupsReload: number
 }) {
   const ports = usePorts()
-  const [mode, setMode] = useState<'file' | 'paste'>('file')
+  const [mode, setMode] = useState<'file' | 'paste'>('paste')
   const [text, setText] = useState('')
   const [entries, setEntries] = useState<ImportEntry[]>([])
   const [error, setError] = useState('')
