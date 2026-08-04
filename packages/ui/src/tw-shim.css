@@ -35,6 +35,7 @@
 .block{display:block}
 .blur-2xl{filter:blur(40px)}
 .border{border-width:1px;border-style:solid}
+.border-r{border-right-width:1px;border-right-style:solid}
 .border-accent{border-color:var(--accent-9)}
 .border-b{border-bottom-width:1px;border-bottom-style:solid}
 .border-gold\/20{border-color:color-mix(in oklab, var(--app-gold) 20%, transparent)}
@@ -51,6 +52,7 @@
 .border-rise\/30{border-color:color-mix(in oklab, var(--app-rise) 30%, transparent)}
 .border-t{border-top-width:1px;border-top-style:solid}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
+.break-words{overflow-wrap:break-word;word-break:break-word}
 .cursor-not-allowed{cursor:not-allowed}
 .cursor-pointer{cursor:pointer}
 .cursor-zoom-in{cursor:zoom-in}
@@ -106,6 +108,7 @@
 .h-\[60px\]{height:60px}
 .h-auto{height:auto}
 .h-full{height:100%}
+.h-screen{height:100vh}
 .hidden{display:none}
 .hover\:-translate-y-0\.5:hover{transform:translateY(-0.125rem)}
 .hover\:bg-paper-deep:hover{background-color:var(--color-surface)}
@@ -127,6 +130,7 @@
 .justify-between{justify-content:space-between}
 .justify-center{justify-content:center}
 .justify-end{justify-content:flex-end}
+.justify-start{justify-content:flex-start}
 .leading-none{line-height:1}
 .leading-relaxed{line-height:1.625}
 @media (min-width:1024px){.lg\:gap-5{gap:20px}}
@@ -146,11 +150,13 @@
 @media (min-width:768px){.md\:hidden{display:none}}
 .min-h-0{min-height:0}
 .min-h-9{min-height:36px}
+.min-h-screen{min-height:100vh}
 .min-h-\[180px\]{min-height:180px}
 .min-w-0{min-width:0}
 .min-w-\[560px\]{min-width:560px}
 .ml-0\.5{margin-left:2px}
 .ml-1{margin-left:4px}
+.mx-auto{margin-left:auto;margin-right:auto}
 .ml-1\.5{margin-left:6px}
 .mr-1{margin-right:4px}
 .mt-0\.5{margin-top:2px}
@@ -189,6 +195,7 @@
 .px-2\.5{padding-left:10px;padding-right:10px}
 .px-3{padding-left:12px;padding-right:12px}
 .px-4{padding-left:16px;padding-right:16px}
+.px-6{padding-left:24px;padding-right:24px}
 .py-0\.5{padding-top:2px;padding-bottom:2px}
 .py-1{padding-top:4px;padding-bottom:4px}
 .py-1\.5{padding-top:6px;padding-bottom:6px}
@@ -235,6 +242,7 @@
 @media (min-width:640px){.sm\:text-xs{font-size:12px;line-height:1.25rem}}
 @media (min-width:640px){.sm\:w-\[calc\(100\%-2rem\)\]{width:calc(100% - 2rem)}}
 .sticky{position:sticky}
+.scroll-mt-4{scroll-margin-top:16px}
 .table-fixed{table-layout:fixed}
 .tabular-nums{font-variant-numeric:tabular-nums}
 .text-2xl{font-size:24px;line-height:2rem}
@@ -258,8 +266,18 @@
 .text-rise{color:var(--app-rise)}
 .text-sm{font-size:14px;line-height:1.25rem}
 .text-white{color:#fff}
+.text-xl{font-size:20px;line-height:1.75rem}
 .text-xs{font-size:12px;line-height:1.25rem}
 .to-paper\/50{--tw-gradient-to:color-mix(in oklab, var(--color-background) 50%, transparent)}
+.bottom-0{bottom:0px}
+.fixed{position:fixed}
+.inset-0{top:0;right:0;bottom:0;left:0}
+.inset-x-0{right:0;left:0}
+.inset-y-0{top:0;bottom:0}
+.left-0{left:0px}
+.max-w-none{max-width:none}
+.rounded-none{border-radius:0}
+.z-50{z-index:50}
 .top-0{top:0px}
 .tracking-tight{letter-spacing:-0.025em}
 .tracking-wide{letter-spacing:0.025em}
@@ -281,12 +299,17 @@
 .w-5{width:20px}
 .w-7{width:28px}
 .w-8{width:32px}
+.w-60{width:15rem}
 .w-\[10\%\]{width:10%}
 .w-\[124px\]{width:124px}
+.w-\[150px\]{width:150px}
 .w-\[22\%\]{width:22%}
 .w-\[40\%\]{width:40%}
+.w-\[44px\]{width:44px}
 .w-\[6\%\]{width:6%}
 .w-\[calc\(100\%-1rem\)\]{width:calc(100% - 1rem)}
+.w-\[calc\(46\%-44px\)\]{width:calc(46% - 44px)}
+.w-auto{width:auto}
 .w-full{width:100%}
 .whitespace-nowrap{white-space:nowrap}
 .whitespace-pre{white-space:pre}
@@ -298,5 +321,7 @@
 .space-y-1\.5 > :not([hidden]) ~ :not([hidden]){margin-top:6px}
 .space-y-2 > :not([hidden]) ~ :not([hidden]){margin-top:8px}
 .space-y-3 > :not([hidden]) ~ :not([hidden]){margin-top:12px}
+.space-y-4 > :not([hidden]) ~ :not([hidden]){margin-top:16px}
+.space-y-8 > :not([hidden]) ~ :not([hidden]){margin-top:32px}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 }

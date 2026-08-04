@@ -1,5 +1,13 @@
 import {httpGet, httpPost, MOBILE_UA, fmtDate} from './http'
-import {isConfirmedSessionActive, type QuoteSource} from '@fund01/core'
+import {
+  isConfirmedSessionActive,
+  isLooseSameFundName,
+  isSameFundName,
+  looseFundName,
+  pickFundByName,
+  type QuoteSource,
+  type ResolveFundResult,
+} from '@fund01/core'
 
 // CSRF token 缓存：SW 重启时丢失，会多请求一次 fund123.cn（可接受）
 const csrfCache = new Map<string, {token: string; expiresAt: number}>()
@@ -82,6 +90,129 @@ export async function searchFund(code: string) {
     netValue: parseFloat(info.netValue) || null,
     dayGrowth: parsePct(info.dayOfGrowth),
   }
+}
+
+/**
+ * 按关键词（基金名 / 代码 / 拼音简写）搜索基金，返回候选列表。
+ *
+ * ⚠️ 该接口是**模糊匹配且永远返回结果**的：搜一个根本不存在的名字也会返回
+ * 10 条无关基金。因此调用方**绝不能直接取第一条**，必须用
+ * `pickFundByName()` 做名称精确过滤。
+ */
+export async function searchFundsByKeyword(
+  keyword: string,
+): Promise<{code: string; name: string}[]> {
+  const key = String(keyword || '').trim()
+  if (!key) return []
+  const data = await httpGet(
+    'https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx',
+    {
+      params: {m: 1, key},
+      headers: {Referer: 'https://fund.eastmoney.com/'},
+      timeout: 12000,
+    },
+  )
+  const rows = Array.isArray(data?.Datas) ? data.Datas : []
+  return rows
+    .filter((r: any) => r?.CODE && r?.NAME && /^\d{6}$/.test(String(r.CODE)))
+    .map((r: any) => ({code: String(r.CODE), name: String(r.NAME)}))
+}
+
+/**
+ * 用「名称」交叉验证「代码」，必要时按名称反查出正确代码。
+ *
+ * 背景：AI 从持仓截图识别代码常错一两位（009995→009895），错误代码往往也是
+ * 一只真实存在的基金，导入不报错却装错标的。名称是唯一能交叉验证的信息。
+ *
+ * 不同平台对基金叫法有差异（如 fund123「嘉实低碳精选混合C」vs 天天基金
+ * 「嘉实低碳精选混合发起式C」），所以 officialNames 传入**多平台权威名**，
+ * 只要用户传入名与其中任一相符（严格或宽松）即视为代码正确，不再误报。
+ *
+ * 策略（宁缺毋滥，不猜）：
+ * - 输入名与任一权威名（严格/宽松）一致 → 直接通过
+ * - 不一致 → 按名称搜索；候选里若能唯一确定一只，才纠正代码
+ * - 仍无法确定 → 保留原代码，返回 nameMismatch 由上层提示用户
+ */
+async function verifyCodeByName(
+  code: string,
+  officialNames: string[],
+  inputName?: string,
+): Promise<Pick<ResolveFundResult, 'nameMismatch' | 'codeCorrected'> & {code: string}> {
+  const input = String(inputName || '').trim()
+  // 没传名称 → 无需处理
+  if (!input) return {code}
+  // 不同平台叫法不同，任一权威名（严格或宽松）与输入名相符即通过，避免误报。
+  const matchAny = officialNames.some(
+    (n) => !!n && (isSameFundName(input, n) || isLooseSameFundName(input, n)),
+  )
+  if (matchAny) return {code}
+
+  /**
+   * 用给定关键词搜索，并据结果判定当前 code 是否成立：
+   * - candidates 里包含当前 code → 叫法差异（官方全称 vs App 简称），代码正确，ok=true
+   * - 否则 pickFundByName 唯一命中另一只 → returned.codeCorrected
+   * - 否则 → null（交给上层是否再试宽松名 / 告警）
+   */
+  const searchAndVerify = async (
+    keyword: string,
+  ): Promise<null | {ok: true} | {ok: false; corrected: NonNullable<ResolveFundResult['codeCorrected']>}> => {
+    if (!keyword) return null
+    let candidates: {code: string; name: string}[] = []
+    try {
+      candidates = await searchFundsByKeyword(keyword)
+    } catch (e) {
+      console.warn('[fund01] verifyCodeByName 搜索失败', {
+        code,
+        keyword,
+        errMsg: e instanceof Error ? e.message : String(e),
+      })
+      return null
+    }
+    // 候选里若包含原代码，说明只是叫法差异（官方全称 vs App 简称），代码本身没错
+    if (candidates.some((c) => c.code === code)) return {ok: true}
+    const picked = pickFundByName(candidates, input)
+    if (picked && picked.hit.code !== code) {
+      console.warn('[fund01] verifyCodeByName 代码已纠正', {
+        from: code,
+        to: picked.hit.code,
+        keyword,
+        inputName: input,
+        officialNames,
+        matchedBy: picked.matchedBy,
+      })
+      return {
+        ok: false,
+        corrected: {
+          from: code,
+          to: picked.hit.code,
+          fromName: officialNames.find((n) => !!n) || '',
+          toName: picked.hit.name,
+          matchedBy: picked.matchedBy,
+        },
+      }
+    }
+    return null
+  }
+
+  // 1) 用原始名搜索（最常见路径）
+  const r1 = await searchAndVerify(input)
+  if (r1 && (r1.ok || r1.corrected)) {
+    return r1.ok ? {code} : {code: r1.corrected.to, codeCorrected: r1.corrected}
+  }
+
+  // 2) 宽松名兜底：剥离「混合/发起式/股票」等类型词后再搜一次。
+  //    消化「嘉实低碳精选混合发起式C」这类多了冗余描述、但实际就是 017037 的情况，
+  //    避免 AI 多加一两个类型词就误报「代码与名称对不上」。
+  const loose = looseFundName(input)
+  if (loose.length >= 4) {
+    const r2 = await searchAndVerify(loose)
+    if (r2 && (r2.ok || r2.corrected)) {
+      return r2.ok ? {code} : {code: r2.corrected.to, codeCorrected: r2.corrected}
+    }
+  }
+
+  const officials = officialNames.filter((n) => !!n)
+  return {code, nameMismatch: {input, officials}}
 }
 
 async function eastmoneyFundGet(path: string, params: Record<string, any> = {}) {
@@ -1135,7 +1266,7 @@ export async function resolveFund(payload: {
   name?: string
   sectors?: string[]
 }) {
-  const code = String(payload.code || '').trim()
+  let code = String(payload.code || '').trim()
   let meta: any = {}
   try {
     meta = await searchFund(code)
@@ -1156,10 +1287,57 @@ export async function resolveFund(payload: {
     if (!payload.name) throw e
   }
 
+  // 代码 ↔ 名称交叉验证。必须在拉板块/净值之前完成，
+  // 否则纠正后的代码拿不到对应数据（会混入错误基金的净值）。
+  let nameMismatch: ResolveFundResult['nameMismatch']
+  let codeCorrected: ResolveFundResult['codeCorrected']
+
+  // 收集多平台权威名（不同平台叫法不同，任一相符即可通过）：
+  //  - fund123 /api/fund/searchFund → fundInfo.fundName
+  //  - 东方财富 FundMNFInfo → SHORTNAME
+  // fund123 不可用时仍有 eastmoney 兜底；只在校验有需要时（传了 name）才发起，
+  // 人工手输代码（无 name）路径不额外请求，避免无谓网络开销。
+  const collectOfficialNames = async (c: string): Promise<string[]> => {
+    const names: string[] = []
+    if (meta.name) names.push(meta.name)
+    try {
+      const mnf = await fetchFundMNFInfo([String(c).padStart(6, '0')])
+      const item = mnf.get(String(c).padStart(6, '0'))
+      const sn = item?.SHORTNAME
+      if (sn) names.push(String(sn))
+    } catch (e) {
+      console.warn('[fund01] resolveFund 取 FundMNFInfo 名称失败', {
+        code: c,
+        errMsg: e instanceof Error ? e.message : String(e),
+      })
+    }
+    return names
+  }
+
+  if (payload.name) {
+    const officialNames = await collectOfficialNames(meta.code || code)
+    const verified = await verifyCodeByName(meta.code || code, officialNames, payload.name)
+    nameMismatch = verified.nameMismatch
+    codeCorrected = verified.codeCorrected
+    if (verified.code !== (meta.code || code)) {
+      code = verified.code
+      // 代码变了，必须用新代码重新取一次元信息（fundKey/净值都会不同）
+      try {
+        meta = await searchFund(code)
+      } catch (e) {
+        console.warn('[fund01] resolveFund 纠正代码后重查失败', {
+          code,
+          errMsg: e instanceof Error ? e.message : String(e),
+        })
+      }
+    }
+  }
+  const officialName: string = meta.name || ''
+
   let sectors = Array.isArray(payload.sectors) ? payload.sectors : null
   if (!sectors?.length) {
     try {
-      sectors = await fetchFundSectorsQueued(meta.code || code, payload.name || meta.name)
+      sectors = await fetchFundSectorsQueued(meta.code || code, officialName || payload.name)
     } catch (e) {
       console.warn('[fund01] resolveFund fetchFundSectorsQueued 失败', {
         code,
@@ -1211,7 +1389,9 @@ export async function resolveFund(payload: {
 
   return {
     code: meta.code || code,
-    name: payload.name || meta.name || code,
+    // 关键：官方名优先。以前是 payload.name 优先，导致「代码错、名字对」时
+    // 界面显示的是用户给的正确名字、数据却来自另一只基金，错配完全不可见。
+    name: officialName || payload.name || code,
     fundKey: meta.fundKey || '',
     sectors: sectors || [],
     netValue: netValue ?? null,
@@ -1219,5 +1399,8 @@ export async function resolveFund(payload: {
     prevNetValueDate,
     netValueDate,
     confirmedSession: isConfirmedSessionActive(netValueDate),
+    officialName: officialName || undefined,
+    nameMismatch,
+    codeCorrected,
   }
 }

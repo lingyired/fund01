@@ -309,3 +309,27 @@ SW 的 `refreshAll` 不是每次都拉所有数据源，而是根据 `shouldRefr
   - Tauri menubar：视口 = WebviewWindow 尺寸（需在 Rust 端设定）
   - Dashboard 标签页 / Tauri 主窗口：视口 = 浏览器窗口（100vh 自然有意义）
 - 未来 Tauri 实现时也需注意 menubar WebviewWindow 的尺寸设定
+
+### 9.8 设置项迁移到原生 options 页（popup 瘦身）
+
+**决策**：把「个人设置 / 持仓分组 / 添加持仓 / 编辑持仓 / 导入持仓 / 数据备份」全部从 popup 移到 Chrome 原生 options 页（`manifest.json` 的 `options_ui`，`open_in_tab: true`），popup 只保留刷新 / 主题 / 新标签页 / 设置齿轮。
+
+**动机**：
+1. popup 切走其他工具即销毁，编辑持仓常需从别处拷贝内容，popup 消失导致不便；options 页是常驻标签页，状态不丢。
+2. popup 更轻，减少不必要逻辑。
+3. Tauri 版设置界面也将独立（架构前瞻）：设置 UI 放 `packages/ui` 而非 app 层，跨端复用。
+
+**实现**：
+- `packages/ui/src/OptionsApp.tsx`：左侧导航 + 右侧滚动内容（6 个 `SectionCard`）。纯逻辑抽到 `lib/importHoldings.ts`、`lib/batchEdit.ts`；`FundFormDialog` 抽出可复用 `FundFormBody`（内联常驻 + 弹窗两用，供 popup 自选的「添加自选」复用）。
+- `apps/chrome/src/options/index.tsx`：入口，注入三个 Chrome Port + `initTheme()` 后渲染 `<OptionsApp/>`。
+- popup 齿轮：`onOpenSettings={() => chrome.runtime.openOptionsPage()}`（自动复用已打开的 options 标签页）。
+- 删除 popup 内废弃组件：`ConfigDialog` / `ImportHoldingsDialog` / `BatchEditHoldingsDialog` / `FundActionsMenu`。
+
+**复用边界**：`OptionsApp` 经 `PortsContext` 拿运行时能力，Tauri 端只需换 Port 实现 + 独立入口即可复用同一套设置 UI。
+
+### 9.9 rsbuild 多页（popup + options）的 HTML 模板
+
+- `source.entry` 的对象值遵循 **Rspack 的 `EntryDescription`**（用 `import` 而非 `entry`，且无 `html` 字段）。早期误用 `{ entry, html }` 形式，rsbuild 静默忽略 → **不产出 JS bundle**（仅生成 HTML 模板），构建看似成功实则扩展不可用。务必用字符串入口名 + 全局 `html` 配置。
+- 每个入口用各自 HTML 模板的正确做法：`html.template` / `html.title` 传**函数**，参数为 `{ entryName }`，按 entryName 返回对应模板路径（见 `apps/chrome/rsbuild.config.ts`）。
+- `background` 入口（MV3 Service Worker）也会自动生成 `background.html`，由 `scripts/copy-manifest.mjs` 清理。
+- 同时 `chunkSplit: { strategy: 'all-in-one' }` 会让每个入口产出单文件 JS（popup.js / options.js），且两者各自带一份 CSS（705KB，含 Radix 全量样式），属预期。

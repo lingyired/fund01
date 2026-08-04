@@ -135,6 +135,23 @@ export const DEFAULT_SELECTED_INDICES: string[] = [
 
 export const MAX_SELECTED_INDICES = 5
 
+/** 指数的简档（仅 code + name），用于看板候选列表等静态场景。 */
+export type IndexMeta = {code: string; name: string}
+
+/** 指数候选目录（看板可勾选的全部指数，带名称）。最多选中 MAX_SELECTED_INDICES 个。 */
+export const AVAILABLE_INDICES: IndexMeta[] = [
+  {code: '000001', name: '上证指数'},
+  {code: '399001', name: '深证成指'},
+  {code: '399006', name: '创业板指'},
+  {code: '899050', name: '北证50'},
+  {code: '000688', name: '科创50'},
+  {code: '000016', name: '上证50'},
+  {code: '000300', name: '沪深300'},
+  {code: '000905', name: '中证500'},
+  {code: 'NDX', name: '纳斯达克100'},
+  {code: 'SPX', name: '标普500'},
+]
+
 /** 扩展程序角标（badge）显示方式 */
 export type BadgeMode = 'percent' | 'amount' | 'hidden'
 
@@ -198,6 +215,27 @@ export type ResolveFundResult = {
   prevNetValueDate?: string
   netValueDate?: string
   confirmedSession?: boolean
+  /**
+   * 数据源返回的官方基金名，不受调用方传入 name 影响。
+   * 用于校验「代码 ↔ 名称」是否指向同一只基金。
+   */
+  officialName?: string
+  /**
+   * 传入 name 与任一平台官方名都不符，且按名称反查也没能确定正确代码。
+   * 此时 code 保持调用方传入值。调用方应据此**拒绝导入**（AI 识图常错代码）。
+   */
+  nameMismatch?: {input: string; officials: string[]}
+  /**
+   * 按名称反查后纠正了基金代码（传入代码指向的是另一只基金）。
+   * `matchedBy: 'exact'` 为名称完全一致，`'loose'` 为忽略基金类型词后一致。
+   */
+  codeCorrected?: {
+    from: string
+    to: string
+    fromName: string
+    toName: string
+    matchedBy: 'exact' | 'loose'
+  }
 }
 
 /** 盘中分时走势（FundTrendDialog 懒加载） */

@@ -191,7 +191,7 @@ export function IndexTrendDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Content className="rt-popup-dialog w-[calc(100%-1rem)] max-w-2xl p-4 sm:w-[calc(100%-2rem)] sm:max-w-4xl sm:p-5 lg:max-w-5xl">
         <div className="mb-4 flex flex-col gap-1 pr-6">
-          <Dialog.Title className="font-display font-bold truncate text-base sm:text-lg">
+          <Dialog.Title size="4" mb="0" className="font-display truncate text-base leading-none sm:text-lg">
             {item?.name || '指数趋势'}
           </Dialog.Title>
         </div>

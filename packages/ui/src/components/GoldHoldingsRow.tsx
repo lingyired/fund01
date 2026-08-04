@@ -24,7 +24,7 @@ function useGoldSettings(data: GoldPayload | null, onChanged: () => void) {
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Content className="rt-popup-dialog">
         <div className="mb-4 flex flex-col gap-1">
-          <Dialog.Title className="font-display font-bold">
+          <Dialog.Title size="4" mb="0" className="font-display leading-none">
             AU9999 仓位设置
           </Dialog.Title>
         </div>
