@@ -22,11 +22,11 @@ export function IndexBar({
     .filter((x): x is IndexItem => !!x)
 
   return (
-    <div className="px-3 pt-3">
+    <div className="px-3 pt-2">
       <div className="scrollbar-hide flex gap-2 overflow-x-auto pb-1">
         {loading && !ordered.length ? (
           Array.from({length: 5}).map((_, i) => (
-            <Skeleton key={i} className="h-[60px] w-[124px] shrink-0" />
+            <Skeleton key={i} className="h-[52px] w-[124px] shrink-0" />
           ))
         ) : ordered.length === 0 ? (
           <div className="py-3 text-xs text-muted">未选择指数，可在设置中勾选</div>
@@ -48,12 +48,12 @@ export function IndexBar({
                     open()
                   }
                 }}
-                className="w-[124px] shrink-0 cursor-pointer rounded-xl border border-line/70 bg-panel px-3 py-2 text-left transition-colors hover:bg-paper-deep"
+                className="w-[124px] shrink-0 cursor-pointer rounded-xl border border-line/70 bg-panel px-3 py-1.5 text-left transition-colors hover:bg-paper-deep"
               >
-                <div className="truncate text-xs text-muted">{item.name}</div>
+                <div className="truncate text-[11px] text-muted">{item.name}</div>
                 <div
                   className={cn(
-                    'mt-1 font-mono text-base font-semibold tabular-nums',
+                    'mt-0.5 font-mono text-sm font-semibold leading-none tabular-nums',
                     pctClass(item.percent),
                   )}
                 >
@@ -61,7 +61,7 @@ export function IndexBar({
                 </div>
                 <div
                   className={cn(
-                    'mt-0.5 flex items-baseline gap-1 font-mono text-xs tabular-nums',
+                    'mt-1 flex items-baseline gap-1 font-mono text-[11px] leading-none tabular-nums',
                     pctClass(item.percent),
                   )}
                 >
