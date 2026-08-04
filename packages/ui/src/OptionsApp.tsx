@@ -1,11 +1,13 @@
 import {useEffect, useMemo, useRef, useState} from 'react'
 import {
   Check,
+  Copy,
   Database,
   Download,
   FolderTree,
   Plus,
   Settings2,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -13,6 +15,7 @@ import {
 import {
   Button,
   IconButton,
+  ScrollArea,
   SegmentedControl,
   Select,
   Tabs,
@@ -51,6 +54,7 @@ import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings
 import {FundFormBody} from './components/FundFormDialog'
 import {applyTheme} from './theme'
 import {usePorts} from './context'
+import importPromptMd from '../../../docs/import-prompt.md?raw'
 import './index.css'
 
 /* ── Tab 定义 ─────────────────────────────────────────────── */
@@ -90,7 +94,7 @@ export function OptionsApp() {
       >
         {/* 顶部：品牌 + 一级 Tab 导航（激活态颜色由 Radix 主题变量驱动，暗色模式自动正确） */}
         <header className="shrink-0 border-b border-line/70 bg-panel/85">
-          <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
             <div className="flex items-center gap-2">
               <span className="font-display text-lg font-extrabold tracking-tight">
                 Fund01
@@ -99,7 +103,7 @@ export function OptionsApp() {
             </div>
             <span className="text-[11px] text-muted">修改即时保存到本机浏览器。</span>
           </div>
-          <div className="mx-auto max-w-3xl px-6">
+          <div className="mx-auto max-w-5xl px-6">
             <Tabs.List>
               {TABS.map((t) => {
                 const Icon = t.icon
@@ -115,7 +119,7 @@ export function OptionsApp() {
         </header>
 
         {/* 内容区：每个 tab 只渲染自己的内容 */}
-        <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-6">
+        <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
           <Tabs.Content value="general">
             <GeneralSection onNavigate={setTab} />
           </Tabs.Content>
@@ -382,12 +386,6 @@ function GeneralSection({
           基金当日净值/估值/涨跌幅的来源。两种数据源的盘中分时走势均走 fund123。
         </p>
         <div className="space-y-1 pt-1">
-          <label
-            htmlFor="quote-source"
-            className="text-sm font-medium text-ink-soft leading-none"
-          >
-            当日行情数据源
-          </label>
           <Select.Root
             value={quoteSource}
             onValueChange={(v) =>
@@ -779,6 +777,48 @@ function EditHoldingsSection({
     setRows((cur) => cur.filter((_, i) => i !== index))
   }
 
+  /** 修改某行份额所属分组；目标分组已有同一基金时先确认再合并累加 */
+  function handleGroupChange(index: number, next: string) {
+    const cur = rows[index]
+    if (next === cur.group) return
+    const targetIdx = rows.findIndex(
+      (r, i) => i !== index && r.code === cur.code && r.group === next,
+    )
+    if (targetIdx !== -1) {
+      const target = rows[targetIdx]
+      const label = next || '未分组'
+      const msg = `「${cur.name}」在分组「${label}」已有份额 ${target.shares || 0}，确定合并累加吗？\n合并后：份额相加，成本单价按份额加权平均。`
+      if (!confirm(msg)) return
+      const s1 = Number(cur.shares) || 0
+      const s2 = Number(target.shares) || 0
+      const c1 = Number(cur.cost) || 0
+      const c2 = Number(target.cost) || 0
+      const mergedShares = s1 + s2
+      let mergedCost = ''
+      if (mergedShares > 0 && c1 > 0 && c2 > 0) {
+        // 份额加权平均成本单价
+        mergedCost = String(Math.round(((s1 * c1 + s2 * c2) / mergedShares) * 1e6) / 1e6)
+      } else if (c1 > 0) {
+        mergedCost = cur.cost
+      } else if (c2 > 0) {
+        mergedCost = target.cost
+      }
+      setRows((curRows) =>
+        curRows
+          .map((r, i) =>
+            i === targetIdx
+              ? {...r, shares: String(mergedShares), cost: mergedCost}
+              : r,
+          )
+          .filter((_, i) => i !== index),
+      )
+      setMessage(`已合并到「${label}」，保存后生效`)
+    } else {
+      updateRow(index, {group: next})
+      setMessage(`已移到「${next || '未分组'}」，保存后生效`)
+    }
+  }
+
   async function deleteGroup(group: string) {
     const label = group || '未分组'
     if (!confirm(`删除分组「${label}」及其内所有基金？此操作不可撤销。`)) return
@@ -804,10 +844,42 @@ function EditHoldingsSection({
     setError('')
     setMessage('')
     try {
+      // 以「编辑后的行集合」为准重建每个基金的分组份额：
+      // 1) 逐行写入当前 group 的份额/成本；2) 原 config 中存在但行集合不再覆盖的分组 → 清掉
+      // （覆盖「移动/删除行」后旧分组份额残留的问题）
+      const rowsByCode = new Map<string, EditRow[]>()
       for (const r of rows) {
-        const shares = Number(r.shares) || 0
-        const cost = r.cost.trim() === '' ? undefined : Number(r.cost) || 0
-        await setFundAllocation(ports, r.code, r.group, shares, cost)
+        const list = rowsByCode.get(r.code) || []
+        list.push(r)
+        rowsByCode.set(r.code, list)
+      }
+      const funds = ports.config.getConfig().holdings
+      for (const code of Object.keys(funds)) {
+        const key = code.padStart(6, '0')
+        const list = rowsByCode.get(key)
+        if (!list) {
+          // 该基金所有行都被删除 → 清空其全部分组（allocations 清空后自动删除基金）。
+          // setFundAllocation 删空 allocations 会连带删除基金，之后再删会抛「基金不存在」，需逐次容错
+          const prevGroups = Object.keys(funds[key]?.allocations || {})
+          for (const g of prevGroups) {
+            if (!ports.config.getConfig().holdings[key]) break
+            await setFundAllocation(ports, key, g, 0)
+          }
+          continue
+        }
+        const rowGroups = new Set(list.map((r) => r.group))
+        for (const r of list) {
+          const shares = Number(r.shares) || 0
+          const cost = r.cost.trim() === '' ? undefined : Number(r.cost) || 0
+          await setFundAllocation(ports, key, r.group, shares, cost)
+        }
+        const prevGroups = Object.keys(funds[key]?.allocations || {})
+        for (const g of prevGroups) {
+          if (!rowGroups.has(g)) {
+            if (!ports.config.getConfig().holdings[key]) break
+            await setFundAllocation(ports, key, g, 0)
+          }
+        }
       }
       for (const g of groups) {
         const codes = rows.filter((r) => r.group === g).map((r) => r.code)
@@ -912,6 +984,7 @@ function EditHoldingsSection({
                       <col className="w-[150px]" />
                       <col className="w-[150px]" />
                       <col className="w-[150px]" />
+                      <col className="w-[140px]" />
                       <col className="w-[44px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-panel text-muted">
@@ -920,6 +993,7 @@ function EditHoldingsSection({
                         <th className="px-2 py-1.5 text-right font-medium">持仓金额</th>
                         <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
                         <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
+                        <th className="px-2 py-1.5 text-center font-medium">分组</th>
                         <th className="px-1 py-1.5 text-center font-medium">删</th>
                       </tr>
                     </thead>
@@ -976,6 +1050,32 @@ function EditHoldingsSection({
                                 placeholder="留空"
                               />
                             </td>
+                            <td className="px-2 py-1.5 align-middle">
+                              <Select.Root
+                                value={r.group || UNGROUPED_VALUE}
+                                onValueChange={(v) =>
+                                  handleGroupChange(i, v === UNGROUPED_VALUE ? '' : v)
+                                }
+                                disabled={saving}
+                                size="1"
+                              >
+                                <Select.Trigger
+                                  className="w-full"
+                                  style={{width: '100%'}}
+                                  placeholder="未分组"
+                                />
+                                <Select.Content position="popper">
+                                  <Select.Item value={UNGROUPED_VALUE}>未分组</Select.Item>
+                                  {groups
+                                    .filter((g) => g !== '')
+                                    .map((g) => (
+                                      <Select.Item key={g} value={g}>
+                                        {g}
+                                      </Select.Item>
+                                    ))}
+                                </Select.Content>
+                              </Select.Root>
+                            </td>
                             <td className="px-1 py-1.5 align-middle">
                               <div className="flex justify-center">
                                 <IconButton
@@ -1024,7 +1124,7 @@ function ImportSection({
   groupsReload: number
 }) {
   const ports = usePorts()
-  const [mode, setMode] = useState<'file' | 'paste'>('file')
+  const [mode, setMode] = useState<'file' | 'paste'>('paste')
   const [text, setText] = useState('')
   const [entries, setEntries] = useState<ImportEntry[]>([])
   const [error, setError] = useState('')
@@ -1037,13 +1137,13 @@ function ImportSection({
   const [warnings, setWarnings] = useState<string[]>([])
   const [defaultGroup, setDefaultGroup] = useState('')
   const [groups, setGroups] = useState<string[]>([])
-  const [showFormat, setShowFormat] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [message, setMessage] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   // 挂载/换 ports 时重置表单（不清 groups）
   useEffect(() => {
-    setMode('file')
+    setMode('paste')
     setText('')
     setEntries([])
     setError('')
@@ -1051,7 +1151,7 @@ function ImportSection({
     setProgress({done: 0, total: 0, failed: []})
     setWarnings([])
     setDefaultGroup('')
-    setShowFormat(false)
+    setCopied(false)
   }, [ports])
 
   // 分组列表跟随外部信号（持仓分组增删改、导入建组后同步）
@@ -1081,6 +1181,16 @@ function ImportSection({
         .filter((g) => g && !groups.includes(g)),
     ),
   )
+
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(importPromptMd)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setError('复制失败，请手动选中复制')
+    }
+  }
 
   async function handleFile(file: File) {
     try {
@@ -1157,38 +1267,54 @@ function ImportSection({
 
   return (
     <SectionCard title="导入持仓">
-      {/* 格式说明 */}
+      {/* 用 AI 助手生成 JSON（教程） */}
       <div className="rounded-lg border border-line/70 bg-paper/40 text-xs text-muted">
-        <Button
-          type="button"
-          variant="ghost"
-          size="1"
-          onClick={() => setShowFormat((v) => !v)}
-          className="flex h-auto w-full items-center justify-start gap-1 px-3 py-2 text-left font-medium text-ink-soft"
-          aria-expanded={showFormat}
-        >
-          {showFormat ? '收起格式说明' : 'JSON 格式说明（数组，每条 = 一个基金在某分组的份额）'}
-        </Button>
-        {showFormat ? (
-          <div className="px-3 pb-2">
-            <pre className="mt-1 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
-{IMPORT_SAMPLE}
-            </pre>
-            <ul className="mt-1.5 space-y-0.5">
-              <li><code className="font-mono">code</code> 必填，6 位基金代码</li>
-              <li><code className="font-mono">amount</code> 必填，持仓金额（元）</li>
-              <li><code className="font-mono">amountBasis</code> 可选，<code>prev</code>(昨结算，默认) / <code>today</code>(今结算)。<b>按持仓截图判断</b>：显示「今日收益已更新」填 <code>today</code>，否则填 <code>prev</code>——填错会让份额整体偏一天涨跌幅</li>
-              <li><code className="font-mono">navDate</code> 可选，金额对应的净值日期（<code>2026-08-01</code> 或 <code>08-01</code>）。<b>优先级高于 amountBasis</b>，截图能读到净值日期时填它最稳，隔夜导入也不会错位</li>
-              <li><code className="font-mono">group</code> 可选，分组名（未声明则用下方默认分组；同一基金写多条即可分布在多个分组）</li>
-              <li><code className="font-mono">cost</code> 可选，持仓成本单价（元/份，用于累计收益；不填则不统计）</li>
-              <li><code className="font-mono">holdProfit</code> 可选，累计收益（元，用于反推成本单价；与 cost 二选一，cost 优先）</li>
-              <li><code className="font-mono">shares</code> 可选，持有份额（份）。提供则直接作为份额、<b>跳过金额→净值折算</b>，最精确也无基准歧义；与 <code>cost</code> 搭配可同时锁定份额与成本</li>
-              <li><code className="font-mono">holdProfitRate</code> 可选，持仓收益率（支持 <code>&quot;9.95%&quot;</code> 或 <code>0.0995</code>）。<code>holdProfit</code> 缺失时用它反推；都有则做成本交叉校验</li>
-              <li><code className="font-mono">dailyProfit</code> 可选，昨日/今日收益（元）。<b>不参与计算</b>，仅用于校验金额口径——截图没有份额时，这是唯一能自动发现数据错位的信号，建议填。<b>非交易日空窗期（周末/节假日/未更新）App 会显示 0.00，此时请省略该字段</b>（填 0 会被当作「无数据」跳过校验，不会误报）</li>
-              <li><code className="font-mono">name</code> 可选，留空会自动解析</li>
-            </ul>
+        <div className="flex items-center gap-1.5 border-b border-line/30 px-3 py-2">
+          <Sparkles className="h-3.5 w-3.5 text-gold" />
+          <span className="font-medium text-ink-soft">用 AI 助手生成 JSON（推荐）</span>
+        </div>
+        <div className="space-y-1.5 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
+          <div>
+            <b className="mr-1 text-gold">1.</b>
+            在基金 App 里用<b>手机长截图</b>截取完整的持仓列表（包含每只基金的金额、收益、净值日期等）。
           </div>
-        ) : null}
+          <div>
+            <b className="mr-1 text-gold">2.</b>
+            把截图和下方提示词一起交给<b>豆包、千问</b>等支持读取图片的 AI 助手，
+            <b>尽量选择专家模式</b>，识别更准。
+          </div>
+          <div>
+            <b className="mr-1 text-gold">3.</b>
+            把 AI 返回的 JSON 粘贴到上方输入框（或存成文件走「选择文件」导入）。
+          </div>
+        </div>
+        <div className="px-3 pb-2">
+          <ScrollArea
+            type="auto"
+            scrollbars="vertical"
+            style={{height: 120}}
+            className="rounded-md border border-line/40 bg-panel/60"
+          >
+            <pre className="whitespace-pre-wrap px-3 py-2 font-mono text-[11px] leading-relaxed text-ink-soft">
+              {importPromptMd}
+            </pre>
+          </ScrollArea>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-[11px] text-muted">
+              共 {importPromptMd.split('\n').length} 行，可滚动查看；点击按钮复制完整提示词
+            </span>
+            <Button
+              type="button"
+              size="1"
+              variant="outline"
+              disabled={running}
+              onClick={copyPrompt}
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? '已复制' : '拷贝提示词'}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* 默认分组 */}
@@ -1227,20 +1353,20 @@ function ImportSection({
         <Button
           type="button"
           size="1"
-          variant={mode === 'file' ? 'solid' : 'outline'}
-          onClick={() => setMode('file')}
-          disabled={running}
-        >
-          选择文件
-        </Button>
-        <Button
-          type="button"
-          size="1"
           variant={mode === 'paste' ? 'solid' : 'outline'}
           onClick={() => setMode('paste')}
           disabled={running}
         >
           粘贴 JSON
+        </Button>
+        <Button
+          type="button"
+          size="1"
+          variant={mode === 'file' ? 'solid' : 'outline'}
+          onClick={() => setMode('file')}
+          disabled={running}
+        >
+          选择文件
         </Button>
       </div>
 
