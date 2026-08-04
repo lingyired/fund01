@@ -14,9 +14,17 @@ use crate::providers::{pad6, FundQuoteInput, QuoteProvider, QuoteSource};
 // ----------------------------- CSRF -----------------------------
 
 static CSRF_CACHE: OnceLock<Mutex<Option<(String, Instant)>>> = OnceLock::new();
+/// 全局互斥：串行化所有 fund123 请求（CSRF 刷新 + POST），避免并发爆发触发
+/// fund123 的频率风控（queryFundEstimateIntraday 等接口高频并发会 403）。
+static FUND123_IO_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const CSRF_TTL: Duration = Duration::from_secs(10 * 60);
 
+async fn fund123_io() -> tokio::sync::MutexGuard<'static, ()> {
+    FUND123_IO_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
+}
+
 async fn ensure_csrf(force: bool) -> Result<String, String> {
+    // 调用方（fund123_post::run）已持有 FUND123_IO_LOCK，这里不再加锁
     if !force {
         let cache = CSRF_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
         if let Some((token, exp)) = cache.as_ref() {
@@ -46,6 +54,9 @@ async fn ensure_csrf(force: bool) -> Result<String, String> {
 
 async fn fund123_post(path: &str, body: &Value) -> Result<Value, String> {
     async fn run(path: &str, body: &Value, force: bool) -> Result<Value, String> {
+        // 全局互斥：串行化所有 fund123 请求（CSRF 刷新 + POST），
+        // 避免并发爆发触发 fund123 频率风控（queryFundEstimateIntraday 高频并发 403）
+        let _guard = fund123_io().await;
         let csrf = ensure_csrf(force).await?;
         let url = format!("https://www.fund123.cn{path}?_csrf={csrf}");
         http::http_post_json(
@@ -64,7 +75,15 @@ async fn fund123_post(path: &str, body: &Value) -> Result<Value, String> {
         Ok(v) => Ok(v),
         Err(e) if e.contains("403") || e.contains("401") => {
             eprintln!("[fund01] fund123_post {path} 首次失败 ({e})，刷新 CSRF 重试");
-            run(path, body, true).await
+            // 风控 403：退避 1s 再强制刷新重试（避免立即再触发）
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            match run(path, body, true).await {
+                Ok(v) => Ok(v),
+                Err(e2) => {
+                    eprintln!("[fund01] fund123_post {path} 重试仍失败: {e2}");
+                    Err(e2)
+                }
+            }
         }
         Err(e) => Err(e),
     }
@@ -406,11 +425,58 @@ impl QuoteProvider for Fund123QuoteProvider {
     }
 
     async fn fetch_quotes(&self, funds: &[FundQuoteInput]) -> Vec<FundQuote> {
+        // fund123 接口对并发爆发有限流（403），全程串行（fund123_post 内部还有全局互斥）
         crate::providers::run_quotes_concurrent(
             funds,
             |f| Box::pin(async move { get_fund_quote(&f).await }),
-            4,
+            1,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ⚠️ 以下测试依赖网络（访问 fund123.cn），默认 #[ignore] 跳过；
+    // 手动运行：cargo test --lib fund123::tests -- --ignored --nocapture
+
+    #[tokio::test]
+    #[ignore]
+    async fn probe_fund123_post() {
+        // 复现 app 运行时路径：ensure_csrf(共享缓存) + fund123_post
+        let r = fund123_post("/api/fund/searchFund", &json!({"fundCode": "161725"})).await;
+        println!("[app-probe] fund123_post result: {:?}", r);
+        assert!(r.is_ok(), "fund123_post 应成功: {:?}", r.err());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn probe_ensure_csrf() {
+        let token = ensure_csrf(false).await;
+        println!("[app-probe] ensure_csrf: {:?}", token);
+        assert!(token.is_ok());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn probe_concurrent_post_serialized() {
+        // 验证全局互斥 + 串行化后，10 只基金并发 fund123_post 不再触发风控 403
+        let mut handles = Vec::new();
+        for code in ["161725", "110022", "001594", "003095", "005827", "012414", "011102", "001714", "004231", "005968"] {
+            handles.push(tokio::spawn(async move {
+                fund123_post("/api/fund/searchFund", &json!({"fundCode": code})).await
+            }));
+        }
+        let mut ok = 0;
+        for h in handles {
+            match h.await.unwrap() {
+                Ok(_) => ok += 1,
+                Err(e) => println!("[serialized] 失败: {e}"),
+            }
+        }
+        println!("[serialized] 成功: {ok}/10");
+        assert!(ok == 10, "串行化后应全部成功，实际 {ok}/10");
     }
 }
