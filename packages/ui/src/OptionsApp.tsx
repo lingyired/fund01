@@ -70,8 +70,8 @@ type TabId = SettingsTabId
 const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
   {id: 'general', label: '通用', icon: Settings2},
   {id: 'holdings', label: '持仓', icon: FolderTree},
-  {id: 'data', label: '数据', icon: Database},
   {id: 'menubar', label: '菜单栏', icon: Menu},
+  {id: 'data', label: '备份', icon: Database},
 ]
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
