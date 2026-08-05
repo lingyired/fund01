@@ -81,22 +81,32 @@ fn format_amount(v: f64) -> String {
     format!("{sign}{}{}", n.round(), unit)
 }
 
+/// 行情行索引：code → quote 行（分组归属与份额以最新 config 为准，此处只取行情数值）
+type QuoteRows<'a> = HashMap<&'a str, &'a FundQuoteRow>;
+
+fn quote_rows(quote: Option<&QuoteUpdate>) -> QuoteRows<'_> {
+    quote
+        .and_then(|q| q.holdings.as_ref())
+        .map(|h| h.list.iter().map(|r| (r.fund.code.as_str(), r)).collect())
+        .unwrap_or_default()
+}
+
 /// 分组涨跌（%）：Σ(组内份额分摊的 pnl) / Σ(组内份额 × 昨净值)
-fn group_percent(rows: &[FundQuoteRow], group: &str) -> f64 {
+/// 份额取最新 config.holdings（权威），行情（pnl/昨净值）取 quote 快照，缺失按 0。
+/// 不用 quote 行内的 allocations：那是「上次刷新时」的 config 快照，
+/// 重命名/调整分组后两者会错位，导致实例集合误判、数值显示旧份额。
+/// 收益用「每份收益 × 最新份额」分摊：修改持仓后即使行情未刷新，数值也立即贴合新份额。
+fn group_percent(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
     let mut pnl = 0.0f64;
     let mut bod = 0.0f64;
-    for row in rows {
-        let sh_g = row.fund.allocations.get(group).copied().unwrap_or(0.0);
+    for fund in config.holdings.values() {
+        let sh_g = fund.allocations.get(group).copied().unwrap_or(0.0);
         if sh_g <= 0.0 {
             continue;
         }
-        let total_sh = row.fund.total_shares();
-        if total_sh <= 0.0 {
-            continue;
-        }
-        let frac = sh_g / total_sh;
-        pnl += row.pnl.unwrap_or(0.0) * frac;
-        bod += sh_g * row.prev_net_value.unwrap_or(0.0);
+        let row = rows.get(fund.code.as_str()).copied();
+        pnl += per_share_pnl(row) * sh_g;
+        bod += sh_g * row.and_then(|r| r.prev_net_value).unwrap_or(0.0);
     }
     if bod > 0.0 {
         pnl / bod * 100.0
@@ -105,44 +115,55 @@ fn group_percent(rows: &[FundQuoteRow], group: &str) -> f64 {
     }
 }
 
-/// 分组收益额：Σ(组内份额分摊的 pnl)
-fn group_pnl(rows: &[FundQuoteRow], group: &str) -> f64 {
+/// 分组收益额：Σ(组内份额分摊的 pnl)（份额取最新 config，每份收益口径同上）
+fn group_pnl(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
     let mut pnl = 0.0f64;
-    for row in rows {
-        let sh_g = row.fund.allocations.get(group).copied().unwrap_or(0.0);
+    for fund in config.holdings.values() {
+        let sh_g = fund.allocations.get(group).copied().unwrap_or(0.0);
         if sh_g <= 0.0 {
             continue;
         }
-        let total_sh = row.fund.total_shares();
-        if total_sh <= 0.0 {
-            continue;
-        }
-        pnl += row.pnl.unwrap_or(0.0) * (sh_g / total_sh);
+        let row = rows.get(fund.code.as_str()).copied();
+        pnl += per_share_pnl(row) * sh_g;
     }
     pnl
 }
 
-/// 是否存在未分组持仓
-fn has_ungrouped(rows: &[FundQuoteRow], groups: &[String]) -> bool {
-    rows.iter().any(|row| {
-        row.fund
-            .allocations
+/// 每份收益 = 行内 pnl / 行内总份额（pnl 是「刷新时份额」的整基金收益，
+/// 除以旧份额得到每份 Δ净值，再乘以最新份额即可贴合最新持仓）。
+fn per_share_pnl(row: Option<&FundQuoteRow>) -> f64 {
+    match row {
+        Some(r) => {
+            let total = r.fund.total_shares();
+            if total > 0.0 {
+                r.pnl.unwrap_or(0.0) / total
+            } else {
+                0.0
+            }
+        }
+        None => 0.0,
+    }
+}
+
+/// 是否存在未分组持仓：以最新 config 的份额为权威（同 group_percent 的理由，
+/// 避免重命名/调整分组后依赖过期行情快照误判出多余的 ungrouped 实例）。
+fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
+    config.holdings.values().any(|fund| {
+        fund.allocations
             .iter()
             .any(|(g, sh)| (*sh > 0.0) && !groups.iter().any(|known| known == g))
     })
 }
 
 /// 计算期望实例列表：(id, 顶行文字, 涨跌%, 收益额)
+/// 实例集合（分组归属/未分组判定）与份额一律以最新 config 为权威，行情仅取 quote。
 fn desired_instances(
     config: &AppConfig,
     quote: Option<&QuoteUpdate>,
 ) -> Vec<(String, String, f64, f64)> {
     let groups = config.settings.holding_groups.clone().unwrap_or_default();
     let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
-    let rows: &[FundQuoteRow] = quote
-        .and_then(|q| q.holdings.as_ref())
-        .map(|h| h.list.as_slice())
-        .unwrap_or(&[]);
+    let rows = quote_rows(quote);
 
     let mut out: Vec<(String, String, f64, f64)> = Vec::new();
     let overview = quote.and_then(|q| q.holdings.as_ref()).map(|h| h.summary.clone());
@@ -163,16 +184,16 @@ fn desired_instances(
         out.push((
             format!("menubar-group-{idx}"),
             g.clone(),
-            group_percent(rows, g),
-            group_pnl(rows, g),
+            group_percent(config, &rows, g),
+            group_pnl(config, &rows, g),
         ));
     }
-    if has_ungrouped(rows, &groups) && !hidden.iter().any(|h| h.is_empty()) {
+    if has_ungrouped(config, &groups) && !hidden.iter().any(|h| h.is_empty()) {
         out.push((
             "menubar-ungrouped".to_string(),
             "未分组".to_string(),
-            group_percent(rows, ""),
-            group_pnl(rows, ""),
+            group_percent(config, &rows, ""),
+            group_pnl(config, &rows, ""),
         ));
     }
     out.truncate(MAX_INSTANCES);
@@ -210,7 +231,7 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
 }
 
 /// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
-/// 布局/字号变更只能靠 rebuild 路径应用（update_menubar 只碰文字/颜色）。
+/// rebuild（布局/字号/隐藏变更）与 update（刷新兜底）路径都会调用，幂等。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
 /// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64, f64)]) {
@@ -242,12 +263,12 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
     }
 }
 
-/// 应用启动 / 配置变更：重建实例集合
-pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&QuoteUpdate>) {
-    let desired = desired_instances(config, quote);
-
+/// 收敛实例集合：创建缺失实例（+点击监听）、销毁多余实例（+移除监听）。
+/// 幂等，rebuild 与 update 共用——保证任何时刻菜单栏实例与「最新 config + 行情」对齐，
+/// 避免分组/持仓变更后（尤其刷新完成后）多余实例残留、正确实例缺失。
+fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
     // 1. 创建缺失实例 + 监听点击
-    for (id, _, _, _) in &desired {
+    for (id, _, _, _) in desired {
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
             let _ = mb.create(id.clone());
@@ -267,11 +288,14 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
             app.unlisten(event_id);
         }
     }
+}
 
-    // 3. 应用布局模式与字号（对所有实例）
-    apply_menubar_style(app, config, &desired);
+/// 应用启动 / 配置变更：重建实例集合（实例增删 + 右键菜单 + 文字/样式）
+pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&QuoteUpdate>) {
+    // 1. 收敛实例集合（创建缺失 + 销毁多余）
+    sync_instances(app, &desired_instances(config, quote));
 
-    // 4. 设置右键菜单（版本 + 打开设置 + 退出）
+    // 2. 设置右键菜单（版本 + 打开设置 + 退出）
     let version = env!("CARGO_PKG_VERSION").to_string();
     let _ = app.multiline_menubar().set_menu(
         INSTANCE_OVERVIEW.to_string(),
@@ -299,16 +323,20 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ],
     );
 
-    // 5. 更新文字与颜色
+    // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等）
     update_menubar(app, quote);
 }
 
-/// 每次刷新后：更新全部实例的文字与颜色（不增删实例）
+/// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
+/// 修改持仓/分组后即使尚未触发 rebuild，刷新也会让实例集合与最新配置对齐。
 pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）
     let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
     let desired = desired_instances(&config, quote);
+    // 刷新后分组/持仓可能已变化：先收敛实例集合 + 应用布局字号，再更新文字
+    sync_instances(app, &desired);
+    apply_menubar_style(app, &config, &desired);
     let mb = app.multiline_menubar();
     for (id, top, pct, amount) in desired {
         let (bottom, color) = if show_amount {

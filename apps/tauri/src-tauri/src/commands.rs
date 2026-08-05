@@ -99,23 +99,25 @@ pub fn get_config(state: State<AppState>) -> AppConfig {
     state.config.read().unwrap().clone()
 }
 
-/// 判断设置变更是否「仅涉及菜单栏展示」（隐藏分组 / 布局 / 字号）。
+/// 判断配置变更是否「仅涉及菜单栏展示」（隐藏分组 / 布局 / 字号 / 数值显示）。
 /// 此类变更不改变行情数据口径，保存后无需触发行情刷新。
-fn is_menubar_only_settings_change(old: &AppSettings, new: &AppSettings) -> bool {
+/// 注意比较的是整个 AppConfig：持仓/自选/黄金/分组等任何数据口径变更都会触发刷新，
+/// 保证「修改持仓后 menubar（及 badge/列表）能随最新配置实时更新」。
+fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     let mut a = old.clone();
     let mut b = new.clone();
-    a.menubar_hidden_groups = None;
-    a.menubar_layout = None;
-    a.menubar_top_font_size = None;
-    a.menubar_bottom_font_size = None;
-    a.menubar_equal_font_size = None;
-    a.menubar_show_amount = None;
-    b.menubar_hidden_groups = None;
-    b.menubar_layout = None;
-    b.menubar_top_font_size = None;
-    b.menubar_bottom_font_size = None;
-    b.menubar_equal_font_size = None;
-    b.menubar_show_amount = None;
+    a.settings.menubar_hidden_groups = None;
+    a.settings.menubar_layout = None;
+    a.settings.menubar_top_font_size = None;
+    a.settings.menubar_bottom_font_size = None;
+    a.settings.menubar_equal_font_size = None;
+    a.settings.menubar_show_amount = None;
+    b.settings.menubar_hidden_groups = None;
+    b.settings.menubar_layout = None;
+    b.settings.menubar_top_font_size = None;
+    b.settings.menubar_bottom_font_size = None;
+    b.settings.menubar_equal_font_size = None;
+    b.settings.menubar_show_amount = None;
     a == b
 }
 
@@ -135,7 +137,7 @@ pub async fn save_config(
     crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());
     // 仅当「影响行情数据的配置」变更时才立即刷新；
     // 纯菜单栏展示设置（隐藏分组/布局/字号）不触发网络请求
-    if !is_menubar_only_settings_change(&old.settings, &normalized.settings) {
+    if !is_menubar_only_settings_change(&old, &normalized) {
         crate::refresh::trigger_refresh(app);
     }
     Ok(normalized)

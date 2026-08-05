@@ -33,6 +33,14 @@ export function App() {
   useEffect(() => {
     applyTheme(themePref)
   }, [themePref])
+  // 配置变化（设置里改了指数看板/主题等）后重读配置：popup 常驻时保持同步，
+  // 否则 selectedIndices 等只在首次渲染读取一次，修改后 popup 仍显示旧配置。
+  // ConfigPort.onChanged 各平台实现已覆盖「任何窗口」的变更：
+  // tauri 监听 config-change 广播；chrome 合并同窗口本地 listeners + 跨窗口 storage 事件
+  useEffect(() => {
+    const off = config.onChanged(() => setCfgTick((t) => t + 1))
+    return off
+  }, [config])
   // 配置变化（设置里改了主题/指数）后重新读取偏好
   useEffect(() => {
     setThemePref(getStoredThemePref())

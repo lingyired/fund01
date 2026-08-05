@@ -580,21 +580,22 @@ export function listFunds(
   return [...Object.values(holdings), ...Object.values(watchlist)]
 }
 
-/** 新增一个持仓分组（已存在则忽略），返回最新分组列表 */
-export function addHoldingGroup(ports: Ports, name: string): string[] {
+/** 新增一个持仓分组（已存在则忽略），返回最新分组列表。
+ *  async：保存完成（持久化 + 内存镜像更新）后才 resolve，保证调用方随后读取/重载到的配置是最新的。 */
+export async function addHoldingGroup(ports: Ports, name: string): Promise<string[]> {
   const trimmed = String(name || '').trim()
   if (!trimmed) throw new Error('分组名不能为空')
   const config = ports.config.getConfig()
   const groups = config.settings.holdingGroups || []
   if (!groups.includes(trimmed)) {
     config.settings.holdingGroups = [...groups, trimmed]
-    ports.config.saveConfig(config)
+    await ports.config.saveConfig(config)
   }
   return config.settings.holdingGroups || []
 }
 
 /** 删除一个持仓分组，并把引用它的持仓从该分组中移除（删除对应 allocation 与 cost） */
-export function removeHoldingGroup(ports: Ports, name: string): string[] {
+export async function removeHoldingGroup(ports: Ports, name: string): Promise<string[]> {
   const trimmed = String(name || '').trim()
   const config = ports.config.getConfig()
   config.settings.holdingGroups = (config.settings.holdingGroups || []).filter(
@@ -623,7 +624,7 @@ export function removeHoldingGroup(ports: Ports, name: string): string[] {
       delete config.holdings[key]
     }
   }
-  ports.config.saveConfig(config)
+  await ports.config.saveConfig(config)
   return config.settings.holdingGroups
 }
 
@@ -631,7 +632,7 @@ export function removeHoldingGroup(ports: Ports, name: string): string[] {
  * 删除一个持仓分组及其内所有基金（彻底删除，含多分组基金）。
  * 用于批量编辑弹窗的"删除分组"按钮。
  */
-export function removeHoldingGroupWithFunds(ports: Ports, name: string): string[] {
+export async function removeHoldingGroupWithFunds(ports: Ports, name: string): Promise<string[]> {
   const trimmed = String(name || '').trim()
   const config = ports.config.getConfig()
   config.settings.holdingGroups = (config.settings.holdingGroups || []).filter(
@@ -655,11 +656,11 @@ export function removeHoldingGroupWithFunds(ports: Ports, name: string): string[
 }
 
 /** 重命名一个持仓分组，并同步更新引用它的持仓的 allocations/costs key 与排序 key */
-export function renameHoldingGroup(
+export async function renameHoldingGroup(
   ports: Ports,
   oldName: string,
   newName: string,
-): string[] {
+): Promise<string[]> {
   const o = String(oldName || '').trim()
   const n = String(newName || '').trim()
   if (!n) throw new Error('分组名不能为空')
@@ -691,7 +692,7 @@ export function renameHoldingGroup(
     const merged = Array.from(new Set([...order, ...existing]))
     config.settings.holdingGroupOrders[n] = merged
   }
-  ports.config.saveConfig(config)
+  await ports.config.saveConfig(config)
   return config.settings.holdingGroups
 }
 
@@ -701,11 +702,11 @@ export function getHoldingGroupOrder(ports: Ports, group: string): string[] {
 }
 
 /** 设置某分组内的基金排序（codes 有序列表） */
-export function setHoldingGroupOrder(
+export async function setHoldingGroupOrder(
   ports: Ports,
   group: string,
   codes: string[],
-): void {
+): Promise<void> {
   const config = ports.config.getConfig()
   const cleaned = Array.from(
     new Set(
@@ -725,7 +726,7 @@ export function setHoldingGroupOrder(
   if (Object.keys(config.settings.holdingGroupOrders).length === 0) {
     config.settings.holdingGroupOrders = undefined
   }
-  ports.config.saveConfig(config)
+  await ports.config.saveConfig(config)
 }
 
 /**
@@ -734,13 +735,13 @@ export function setHoldingGroupOrder(
  * - cost<=0 或 undefined 表示清空该分组成本单价（保留份额）
  * - 保留其他分组的 allocation/cost
  */
-export function setFundAllocation(
+export async function setFundAllocation(
   ports: Ports,
   code: string,
   group: string,
   shares: number,
   cost?: number,
-): void {
+): Promise<void> {
   const config = ports.config.getConfig()
   const key = String(code).padStart(6, '0')
   const fund = config.holdings[key]
@@ -766,7 +767,7 @@ export function setFundAllocation(
   if (Object.keys(allocations).length === 0) {
     delete config.holdings[key]
   }
-  ports.config.saveConfig(config)
+  await ports.config.saveConfig(config)
 }
 
 export function exportConfig(ports: Ports): AppConfig {

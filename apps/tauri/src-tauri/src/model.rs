@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 // 基金与配置
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FundRecord {
     pub code: String,
@@ -126,7 +126,7 @@ pub struct RefreshInterval {
     pub non_trading: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub settings: AppSettings,
@@ -137,7 +137,7 @@ pub struct AppConfig {
     pub gold: GoldConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GoldConfig {
     #[serde(default)]
