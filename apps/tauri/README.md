@@ -160,6 +160,11 @@ macOS 上调 `app.set_activation_policy(Accessory)` 让应用不出现在 Dock�
 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 ```
 
+**Dock 图标随设置窗口切换**（`window.rs::open_settings_window`）：应用整体 Accessory 常驻，
+打开 `settings` 窗口时 `app.set_dock_visibility(true)` 切到 Regular（Dock 出现应用图标，
+可 Cmd+Tab 切换），窗口销毁（`WindowEvent::Destroyed`）后 `set_dock_visibility(false)` 恢复
+Accessory 不占 Dock。menubar 浮窗始终 Accessory，不参与切换。
+
 ## 3. 后端定时任务（Rust）
 
 Rust 后端是常驻进程（不像 MV3 SW 30s 休眠）。用 `tauri::async_runtime::spawn` + `tokio::time::interval`：
@@ -503,6 +508,7 @@ Tauri 一个 app 可有多个 `WebviewWindow`，用 label 区分：
 
 - popup 齿轮按钮 / footer「修改持仓」在 UI 层只调 `windowPort.openSettings(tab?)`，不感知平台差异
 - **设置界面 = 普通页面窗口，不做浮窗**：`settings` 窗口是带标题栏的正常窗口（1200×800，默认装饰、可出现在任务栏 / Dock），等价于浏览器里打开一个 options 标签页；与 `menubar` 浮窗（`decorations: false`、`skip_taskbar: true`、`always_on_top: true`）形态完全相反
+- **macOS Dock 图标随设置窗口出现**：应用默认 `ActivationPolicy::Accessory`（不占 Dock），`open_settings_window` 打开设置窗口时临时切 Regular 显示 Dock 图标，窗口关闭后恢复 Accessory（见 2.1）
 - Tauri 实现 = 创建（或聚焦已存在的）`settings` 窗口：`WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("options.html"))`；已存在则 `get_webview_window("settings").show()` + `set_focus()`，避免重复开窗
 - 带 tab 定位（footer「修改持仓」→ `openSettings('holdings')`）：沿用 `options.html?tab=holdings` URL 参数约定（见 6.5），`OptionsApp.initialTab` 解析零改动
 - Chrome 对照：无 tab 走 `openOptionsPage()`（复用已开标签），带 tab 走 `tabs.create(?tab=)`

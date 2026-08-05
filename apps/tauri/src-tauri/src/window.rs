@@ -124,6 +124,10 @@ pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>, tab: Opti
 /// 打开设置窗口（复用 options.html?tab= 约定）
 pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
     if let Some(win) = app.get_webview_window(SETTINGS_LABEL) {
+        // macOS: 设置窗口 = 主界面形态，确保 Dock 显示应用图标
+        //（应用启动时 Accessory 常驻，若用户关窗后恢复过则需再次切回）
+        #[cfg(target_os = "macos")]
+        let _ = app.set_dock_visibility(true);
         let _ = win.show();
         let _ = win.set_focus();
         return;
@@ -137,6 +141,18 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
         .inner_size(1200.0, 800.0)
         .build()
     {
+        // macOS: 打开设置窗口时切到 Regular（Dock 出现应用图标）；
+        // 窗口销毁后恢复 Accessory（menubar 常驻、不占 Dock）
+        #[cfg(target_os = "macos")]
+        {
+            let _ = app.set_dock_visibility(true);
+            let app2 = app.clone();
+            win.on_window_event(move |event| {
+                if let WindowEvent::Destroyed = event {
+                    let _ = app2.set_dock_visibility(false);
+                }
+            });
+        }
         let _ = win.show();
     }
 }
