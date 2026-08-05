@@ -200,7 +200,28 @@ fn desired_instances(
     out
 }
 
-/// 点击事件监听（每个实例一次，记录 EventId 供销毁时移除）：解析状态项 rect → 弹出浮窗
+/// 点击实例 id → popup 分组 tab id（与前端 GroupTabs 的 tab id 对齐）：
+/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{idx} → holding_groups[idx]（分组名）。
+fn popup_tab_for(config: &AppConfig, id: &str) -> Option<String> {
+    if id == INSTANCE_OVERVIEW {
+        return Some("all".to_string());
+    }
+    if id == "menubar-ungrouped" {
+        return Some("__ungrouped__".to_string());
+    }
+    id.strip_prefix("menubar-group-")
+        .and_then(|s| s.parse::<usize>().ok())
+        .and_then(|i| {
+            config
+                .settings
+                .holding_groups
+                .as_ref()
+                .and_then(|g| g.get(i).cloned())
+        })
+}
+
+/// 点击事件监听（每个实例一次，记录 EventId 供销毁时移除）：解析状态项 rect → 弹出浮窗，
+/// 并把该实例对应的分组 tab id 一并传给浮窗（popup 直达该分组 tab）
 fn ensure_click_listener(app: &AppHandle, id: &str) {
     let mut map = listeners().lock().unwrap();
     if map.contains_key(id) {
@@ -209,6 +230,7 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
     let event_name = format!("multiline-menubar://{id}//click");
     let app_listener = app.clone();
     let app_handler = app.clone();
+    let instance_id = id.to_string();
     let event_id = app_listener.listen(event_name, move |event| {
         let payload: Value = serde_json::from_str(event.payload()).unwrap_or(Value::Null);
         let rect = payload
@@ -224,7 +246,12 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
             .filter(|(_, _, w, h)| *w > 0.0 && *h > 0.0);
         // 右键（菜单）由原生层处理；这里只处理左键
         if payload.get("button").and_then(|v| v.as_str()) == Some("left") {
-            show_popup(&app_handler, rect);
+            // 实例 id 与分组归属以最新 config 为权威（分组可能已重命名/删除）
+            let state = app_handler.state::<crate::state::AppState>();
+            let config = state.config.read().unwrap().clone();
+            let tab = popup_tab_for(&config, &instance_id);
+            drop(state);
+            show_popup(&app_handler, rect, tab.as_deref());
         }
     });
     map.insert(id.to_string(), event_id);

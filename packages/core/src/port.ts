@@ -51,6 +51,11 @@ export interface EventPort {
   onQuoteUpdate(cb: (payload: QuoteUpdate) => void): () => void
   /** 订阅配置变更（多窗口同步） */
   onConfigChange(cb: (config: AppConfig) => void): () => void
+  /**
+   * 订阅「点击 menubar 分组实例 → 浮窗直达分组 tab」事件（Tauri 实现；Chrome 不实现 → undefined → UI 跳过）。
+   * payload 即 popup 分组 tab id：'all' / 分组名 / '__ungrouped__'
+   */
+  onPopupOpenGroup?(cb: (tabId: string) => void): () => void
 }
 
 /** 设置页一级 tab 标识（OptionsApp 与 openSettings 共用） */

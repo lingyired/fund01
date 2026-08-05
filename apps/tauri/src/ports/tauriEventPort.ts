@@ -22,4 +22,15 @@ export class TauriEventPort implements EventPort {
       unlisten?.()
     }
   }
+
+  /** 点击 menubar 分组实例 → 浮窗直达分组 tab（Rust 端 window.rs 在 show_popup 时 emit） */
+  onPopupOpenGroup(cb: (tabId: string) => void): () => void {
+    let unlisten: (() => void) | undefined
+    listen<string>('popup-open-group', (e) => cb(e.payload)).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }
 }

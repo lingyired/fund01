@@ -72,6 +72,25 @@ export function App() {
   // 新标签页能力为可选：Tauri 无此概念时不实现，按钮自动隐藏
   const openInNewWindow = windowPort.openInNewWindow
 
+  // 外部直达分组 tab（Tauri）：
+  // 1) 初次创建浮窗时 URL 带 ?tab=xxx（window.rs ensure_popup_window 创建时拼入）；
+  // 2) 浮窗已存在时点击 menubar 实例 → popup-open-group 事件（EventPort 可选，Chrome 不实现）。
+  // 统一为 {id} 对象传给 PopupLayout：每次事件都产生新对象（对象身份触发 effect），
+  // 保证「浮窗开着时重复点击同一分组」也能重新定位；null = 不干预。
+  const [requestedTab, setRequestedTab] = useState<{id: string} | null>(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get('tab')
+      return id ? {id} : null
+    } catch {
+      return null
+    }
+  })
+  const popupOpenGroup = ports.event.onPopupOpenGroup
+  useEffect(() => {
+    if (!popupOpenGroup) return
+    return popupOpenGroup((tabId) => setRequestedTab({id: tabId}))
+  }, [popupOpenGroup])
+
   const settings = config.getConfig().settings
   const selectedIndices =
     settings.selectedIndices && settings.selectedIndices.length > 0
@@ -168,6 +187,7 @@ export function App() {
         data={holdings}
         loading={loading}
         onEditHoldings={() => void windowPort.openSettings('holdings')}
+        requestedTab={requestedTab}
       />
       </div>
     </Theme>

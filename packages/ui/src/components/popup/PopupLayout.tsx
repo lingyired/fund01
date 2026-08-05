@@ -1,4 +1,4 @@
-import {useMemo, useState} from 'react'
+import {useEffect, useMemo, useState} from 'react'
 import type {HoldingsPayload} from '@fund01/core'
 import {usePorts} from '../../context'
 import {listHoldingGroups} from '../../lib/fundOps'
@@ -17,22 +17,48 @@ export function PopupLayout({
   data,
   loading,
   onEditHoldings,
+  requestedTab,
 }: {
   data: HoldingsPayload | null
   loading?: boolean
   /** 打开设置页「持仓」tab（footer「修改持仓」按钮触发） */
   onEditHoldings?: () => void
+  /**
+   * 外部请求直达的分组 tab id（Tauri 点击 menubar 分组实例时传入）：
+   * {id: 'all' | 分组名 | '__ungrouped__'}；null 表示不干预当前选中。
+   * 每次请求都是新对象（对象身份变化触发），重复点击同一分组也能重新定位；
+   * 数据未就绪时先挂起，tabs 出来后自动应用；分组已不存在则保持当前选中。
+   */
+  requestedTab?: {id: string} | null
 }) {
   const ports = usePorts()
   const list = data?.list || []
   const holdingGroups = listHoldingGroups(ports)
   const [activeTab, setActiveTab] = useState('all')
+  // 外部请求但 tabs 尚未就绪时挂起，待 tabs 可用后应用
+  const [pendingTab, setPendingTab] = useState<string | null>(null)
 
   const groupKeys = useMemo(
     () => getGroupKeys(list, holdingGroups),
     [list, holdingGroups],
   )
   const tabs = useMemo(() => buildTabs(list, groupKeys), [list, groupKeys])
+
+  // 外部请求（点击 menubar 分组）：挂起到 pending
+  useEffect(() => {
+    if (requestedTab == null) return
+    setPendingTab(requestedTab.id)
+  }, [requestedTab])
+
+  // pending tab 在 tabs 可用时应用；无效（分组已不存在/未加载）则丢弃，保持当前
+  useEffect(() => {
+    if (!pendingTab) return
+    if (tabs.some((t) => t.id === pendingTab)) {
+      setActiveTab(pendingTab)
+    }
+    setPendingTab(null)
+  }, [tabs, pendingTab])
+
   const summaries = useMemo(
     () => groupKeys.map((k) => summarizeGroup(list, k)),
     [list, groupKeys],
