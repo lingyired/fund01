@@ -1,6 +1,6 @@
 [package]
 name = "fund01-tauri"
-version = "1.0.3"
+version = "1.0.4"
 description = "fund01 基金盯盘桌面版（macOS menubar）"
 authors = ["lingyired"]
 edition = "2021"

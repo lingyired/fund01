@@ -145,7 +145,7 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
         _ => "options.html".to_string(),
     };
     if let Ok(win) = WebviewWindowBuilder::new(app, SETTINGS_LABEL, WebviewUrl::App(url.into()))
-        .title("fund01 · 设置")
+        .title("fund01 设置")
         .inner_size(1200.0, 800.0)
         .build()
     {
