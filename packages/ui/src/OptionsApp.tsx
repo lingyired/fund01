@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   FolderTree,
+  GripVertical,
   Menu,
   Plus,
   Settings2,
@@ -221,6 +222,19 @@ function GeneralSection({
   const [selectedIndices, setSelectedIndices] = useState<string[]>(
     DEFAULT_SELECTED_INDICES,
   )
+  // 指数拖拽排序：Pointer Events 实现（Chrome / Tauri WKWebView 行为一致，不依赖
+  // 浏览器原生 HTML5 DnD —— WKWebView 的 dragstart/dragover/drop 支持与 Chromium 差异大）。
+  // 拖动中按指针位置实时交换行（只改 UI），松开时把最终顺序一次性持久化。
+  const dragState = useRef<{
+    from: number // 拖起时的行 index
+    index: number // 当前所在行 index（实时交换后更新）
+    pointerId: number
+    startY: number
+    active: boolean // 移动超过阈值后进入拖拽
+  } | null>(null)
+  const dragOrder = useRef<string[] | null>(null) // 拖拽中的最新顺序（避免 state 渲染滞后）
+  const rowEls = useRef<(HTMLDivElement | null)[]>([])
+  const [dragIndex, setDragIndex] = useState<number | null>(null) // 仅驱动样式（拖起行半透明）
   const [quoteSource, setQuoteSource] = useState<'fund123' | 'fundmnfinfo'>(
     'fundmnfinfo',
   )
@@ -291,6 +305,40 @@ function GeneralSection({
     }
   }
 
+  /** 持久化指数顺序（popup 看板按 selectedIndices 顺序展示） */
+  async function persistIndices(list: string[]) {
+    try {
+      await updateSettings(ports, {selectedIndices: list})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 按指针 Y 坐标命中的行 index（用实时布局 rect，交换后自动更新） */
+  function findRowIndex(y: number): number | null {
+    const els = rowEls.current
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i]
+      // 已卸载/未挂载的行跳过（交换后 ref 数组可能短暂持有旧 DOM）
+      if (!el || !el.isConnected) continue
+      const r = el.getBoundingClientRect()
+      if (y >= r.top && y <= r.bottom) return i
+    }
+    return null
+  }
+
+  /** 拖动中实时交换：把当前行移到指针命中行，并更新工作数组 */
+  function swapRowTo(d: NonNullable<typeof dragState.current>, target: number) {
+    if (target === d.index) return
+    const base = dragOrder.current ?? selectedIndices
+    const next = [...base]
+    const [moved] = next.splice(d.index, 1)
+    next.splice(target, 0, moved)
+    d.index = target
+    dragOrder.current = next
+    setSelectedIndices(next)
+  }
+
   async function handleQuoteSourceChange(next: 'fund123' | 'fundmnfinfo') {
     if (next === quoteSource) return
     setQuoteSource(next)
@@ -330,14 +378,20 @@ function GeneralSection({
     }
   }
 
-  // 看板候选：完整指数目录（带名称）+ 已选中但不在目录里的 code（保留既有选择）
-  const indexOptions = useMemo(() => {
-    const byCode = new Map(AVAILABLE_INDICES.map((i) => [i.code, i]))
-    const extra = selectedIndices
-      .filter((c) => !byCode.has(c))
-      .map((c) => ({code: c, name: c}))
-    return [...AVAILABLE_INDICES, ...extra]
-  }, [selectedIndices])
+  // 已选指数（按 selectedIndices 顺序，含不在目录里的 code 以保留既有选择）+ 候选目录
+  const indexByCode = useMemo(
+    () => new Map(AVAILABLE_INDICES.map((i) => [i.code, i])),
+    [],
+  )
+  const selectedMeta = useMemo(
+    () =>
+      selectedIndices.map((code) => indexByCode.get(code) ?? {code, name: code}),
+    [selectedIndices, indexByCode],
+  )
+  const candidates = useMemo(
+    () => AVAILABLE_INDICES.filter((i) => !selectedIndices.includes(i.code)),
+    [selectedIndices],
+  )
 
   return (
     <SectionCard title="个人设置">
@@ -387,32 +441,121 @@ function GeneralSection({
             {selectedIndices.length}/{MAX_SELECTED_INDICES}
           </span>
         </div>
-        <p className="text-xs text-muted">勾选要在看板显示的指数（最多 5 个）。</p>
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {indexOptions.map((item) => {
-            const selected = selectedIndices.includes(item.code)
-            const disabled =
-              !selected && selectedIndices.length >= MAX_SELECTED_INDICES
-            return (
-              <button
+        <p className="text-xs text-muted">
+          勾选要在看板显示的指数（最多 5 个）。已选指数可拖动调整顺序，看板按此顺序展示。
+        </p>
+
+        {/* 已选指数：拖动排序（Pointer Events，Chrome / Tauri 通用） */}
+        {selectedMeta.length > 0 ? (
+          <div className="space-y-1 pt-1">
+            {selectedMeta.map((item, idx) => (
+              <div
                 key={item.code}
-                type="button"
-                disabled={disabled}
-                onClick={() => void toggleIndex(item.code)}
+                ref={(el) => {
+                  rowEls.current[idx] = el
+                }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return
+                  try {
+                    ;(e.currentTarget as HTMLDivElement).setPointerCapture(
+                      e.pointerId,
+                    )
+                  } catch {
+                    /* ignore */
+                  }
+                  dragState.current = {
+                    from: idx,
+                    index: idx,
+                    pointerId: e.pointerId,
+                    startY: e.clientY,
+                    active: false,
+                  }
+                  dragOrder.current = null
+                  setDragIndex(idx)
+                }}
+                onPointerMove={(e) => {
+                  const d = dragState.current
+                  if (!d || e.pointerId !== d.pointerId) return
+                  if (!d.active) {
+                    if (Math.abs(e.clientY - d.startY) < 6) return
+                    d.active = true
+                  }
+                  const target = findRowIndex(e.clientY)
+                  if (target != null) swapRowTo(d, target)
+                }}
+                onPointerUp={(e) => {
+                  const d = dragState.current
+                  if (!d || e.pointerId !== d.pointerId) return
+                  dragState.current = null
+                  setDragIndex(null)
+                  const order = dragOrder.current
+                  dragOrder.current = null
+                  if (d.active && order && d.index !== d.from) {
+                    void persistIndices(order)
+                  }
+                }}
+                onPointerCancel={() => {
+                  dragState.current = null
+                  dragOrder.current = null
+                  setDragIndex(null)
+                }}
                 className={cn(
-                  'rounded-full border px-2.5 py-1 text-xs transition-colors',
-                  selected
-                    ? 'border-accent bg-accent text-white'
-                    : disabled
+                  'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
+                  dragIndex === idx && 'opacity-60',
+                )}
+                style={{
+                  cursor: dragIndex === idx ? 'grabbing' : 'grab',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                  touchAction: 'none',
+                }}
+                title="按住拖动调整看板顺序"
+              >
+                <GripVertical className="h-4 w-4 shrink-0 text-muted" />
+                <span className="flex-1 truncate text-sm text-ink">{item.name}</span>
+                <span className="font-mono text-[11px] text-muted">{item.code}</span>
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  // 阻止 pointerdown 冒泡到行启动拖拽：否则 setPointerCapture 后按钮收不到 click
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => void toggleIndex(item.code)}
+                  title="从看板移除"
+                >
+                  <X className="h-3.5 w-3.5 text-rise" />
+                </IconButton>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="pt-1 text-xs text-muted">未选择指数</div>
+        )}
+
+        {/* 候选指数：点击添加 */}
+        {candidates.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {candidates.map((item) => {
+              const disabled = selectedIndices.length >= MAX_SELECTED_INDICES
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => void toggleIndex(item.code)}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
+                    disabled
                       ? 'cursor-not-allowed border-line bg-panel text-muted/50'
                       : 'border-line bg-panel text-ink-soft hover:border-accent/50',
-                )}
-              >
-                {item.name}
-              </button>
-            )
-          })}
-        </div>
+                  )}
+                >
+                  + {item.name}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
 
       {/* 数据源 */}
@@ -1740,6 +1883,22 @@ function MenubarSection() {
         菜单栏显示在 macOS 顶部状态栏，两行展示基金涨跌（红涨绿跌）。以下设置仅桌面版生效。
       </p>
 
+      {/* 数值显示 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">数值显示</div>
+        <p className="text-xs text-muted">
+          菜单栏第二行显示收益率百分比或收益额；收益额用 k(千)/w(万)/kw(千万) 简写。
+        </p>
+        <SegmentedControl.Root
+          value={showAmount ? 'amount' : 'percent'}
+          onValueChange={(v) => void handleShowAmountChange(v)}
+          className="pt-1"
+        >
+          <SegmentedControl.Item value="percent">收益率</SegmentedControl.Item>
+          <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
+        </SegmentedControl.Root>
+      </div>
+
       {/* 分组显示 */}
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
@@ -1793,22 +1952,6 @@ function MenubarSection() {
               {opt.label}
             </SegmentedControl.Item>
           ))}
-        </SegmentedControl.Root>
-      </div>
-
-      {/* 数值显示 */}
-      <div className="space-y-2 border-t border-line/50 pt-3">
-        <div className="text-sm font-medium text-ink">数值显示</div>
-        <p className="text-xs text-muted">
-          菜单栏第二行显示收益率百分比或收益额；收益额用 k(千)/w(万)/kw(千万) 简写。
-        </p>
-        <SegmentedControl.Root
-          value={showAmount ? 'amount' : 'percent'}
-          onValueChange={(v) => void handleShowAmountChange(v)}
-          className="pt-1"
-        >
-          <SegmentedControl.Item value="percent">收益率</SegmentedControl.Item>
-          <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
         </SegmentedControl.Root>
       </div>
 
