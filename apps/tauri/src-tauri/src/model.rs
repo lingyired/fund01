@@ -89,6 +89,9 @@ pub struct AppSettings {
     /// 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-11，上限受插件原生 clamp 限制）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_equal_font_size: Option<f64>,
+    /// 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_show_amount: Option<bool>,
 }
 
 fn default_show_gold() -> bool {
@@ -111,6 +114,7 @@ impl Default for AppSettings {
             menubar_top_font_size: None,
             menubar_bottom_font_size: None,
             menubar_equal_font_size: None,
+            menubar_show_amount: None,
         }
     }
 }

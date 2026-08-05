@@ -53,6 +53,34 @@ fn format_pct(pct: f64) -> String {
     }
 }
 
+/// 金额简写（对应 TS `formatShortAmount`：k/w/kw，带符号，保留 1 位小数、放不下再去）。
+/// 菜单栏行宽有限，收益额用简写 + 方向符号表达。
+fn format_amount(v: f64) -> String {
+    if !v.is_finite() {
+        return "+0".to_string();
+    }
+    let sign = if v < 0.0 { "-" } else { "+" };
+    let abs = v.abs();
+    let (n, unit) = if abs >= 1e7 {
+        (abs / 1e7, "kw")
+    } else if abs >= 1e4 {
+        (abs / 1e4, "w")
+    } else if abs >= 1e3 {
+        (abs / 1e3, "k")
+    } else {
+        (abs, "")
+    };
+    let is_int = (n - n.round()).abs() < 1e-9;
+    let cands: &[usize] = if is_int { &[0] } else { &[1, 0] };
+    for &d in cands {
+        let s = format!("{:.*}{}", d, n, unit);
+        if s.len() <= 4 {
+            return format!("{sign}{s}");
+        }
+    }
+    format!("{sign}{}{}", n.round(), unit)
+}
+
 /// 分组涨跌（%）：Σ(组内份额分摊的 pnl) / Σ(组内份额 × 昨净值)
 fn group_percent(rows: &[FundQuoteRow], group: &str) -> f64 {
     let mut pnl = 0.0f64;
@@ -77,6 +105,23 @@ fn group_percent(rows: &[FundQuoteRow], group: &str) -> f64 {
     }
 }
 
+/// 分组收益额：Σ(组内份额分摊的 pnl)
+fn group_pnl(rows: &[FundQuoteRow], group: &str) -> f64 {
+    let mut pnl = 0.0f64;
+    for row in rows {
+        let sh_g = row.fund.allocations.get(group).copied().unwrap_or(0.0);
+        if sh_g <= 0.0 {
+            continue;
+        }
+        let total_sh = row.fund.total_shares();
+        if total_sh <= 0.0 {
+            continue;
+        }
+        pnl += row.pnl.unwrap_or(0.0) * (sh_g / total_sh);
+    }
+    pnl
+}
+
 /// 是否存在未分组持仓
 fn has_ungrouped(rows: &[FundQuoteRow], groups: &[String]) -> bool {
     rows.iter().any(|row| {
@@ -87,8 +132,11 @@ fn has_ungrouped(rows: &[FundQuoteRow], groups: &[String]) -> bool {
     })
 }
 
-/// 计算期望实例列表：(id, 顶行文字, 涨跌%)
-fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<(String, String, f64)> {
+/// 计算期望实例列表：(id, 顶行文字, 涨跌%, 收益额)
+fn desired_instances(
+    config: &AppConfig,
+    quote: Option<&QuoteUpdate>,
+) -> Vec<(String, String, f64, f64)> {
     let groups = config.settings.holding_groups.clone().unwrap_or_default();
     let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
     let rows: &[FundQuoteRow] = quote
@@ -96,22 +144,36 @@ fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<(St
         .map(|h| h.list.as_slice())
         .unwrap_or(&[]);
 
-    let mut out: Vec<(String, String, f64)> = Vec::new();
-    let overview_pct = quote
-        .and_then(|q| q.holdings.as_ref())
-        .map(|h| h.summary.total_pnl_percent)
-        .unwrap_or(0.0);
-    out.push((INSTANCE_OVERVIEW.to_string(), "总览".to_string(), overview_pct));
+    let mut out: Vec<(String, String, f64, f64)> = Vec::new();
+    let overview = quote.and_then(|q| q.holdings.as_ref()).map(|h| h.summary.clone());
+    let overview_pct = overview.as_ref().map(|s| s.total_pnl_percent).unwrap_or(0.0);
+    let overview_amount = overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0);
+    out.push((
+        INSTANCE_OVERVIEW.to_string(),
+        "总览".to_string(),
+        overview_pct,
+        overview_amount,
+    ));
 
     // 总览恒在；每个分组一个实例（隐藏的分组跳过，idx 保持原始序号 → id 稳定）
     for (idx, g) in groups.iter().enumerate() {
         if hidden.iter().any(|h| h == g) {
             continue;
         }
-        out.push((format!("menubar-group-{idx}"), g.clone(), group_percent(rows, g)));
+        out.push((
+            format!("menubar-group-{idx}"),
+            g.clone(),
+            group_percent(rows, g),
+            group_pnl(rows, g),
+        ));
     }
     if has_ungrouped(rows, &groups) && !hidden.iter().any(|h| h.is_empty()) {
-        out.push(("menubar-ungrouped".to_string(), "未分组".to_string(), group_percent(rows, "")));
+        out.push((
+            "menubar-ungrouped".to_string(),
+            "未分组".to_string(),
+            group_percent(rows, ""),
+            group_pnl(rows, ""),
+        ));
     }
     out.truncate(MAX_INSTANCES);
     out
@@ -151,7 +213,7 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
 /// 布局/字号变更只能靠 rebuild 路径应用（update_menubar 只碰文字/颜色）。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
 /// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
-fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64)]) {
+fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64, f64)]) {
     let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
     let (top, bottom) = if layout == 2 {
@@ -174,7 +236,7 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
             .clamp(10.0, 14.0);
         (t, b)
     };
-    for (id, _, _) in desired {
+    for (id, _, _, _) in desired {
         let _ = mb.set_layout(id.clone(), layout);
         let _ = mb.set_font_sizes(id.clone(), top, bottom);
     }
@@ -185,7 +247,7 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
     let desired = desired_instances(config, quote);
 
     // 1. 创建缺失实例 + 监听点击
-    for (id, _, _) in &desired {
+    for (id, _, _, _) in &desired {
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
             let _ = mb.create(id.clone());
@@ -196,7 +258,7 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 
     // 2. 销毁多余实例（同步移除 click 监听，释放闭包持有的 AppHandle）
     let mut tracked_set = tracked().lock().unwrap();
-    let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _)| id).collect();
+    let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _, _)| id).collect();
     let stale: Vec<String> = tracked_set.iter().filter(|id| !desired_ids.contains(id)).cloned().collect();
     for id in stale {
         let _ = app.multiline_menubar().remove(id.clone());
@@ -244,13 +306,18 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 /// 每次刷新后：更新全部实例的文字与颜色（不增删实例）
 pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
+    // 数值显示方式：false=收益率百分比，true=收益额（简写）
+    let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
     let desired = desired_instances(&config, quote);
     let mb = app.multiline_menubar();
-    for (id, top, pct) in desired {
-        let bottom = format_pct(pct);
-        let color = color_for(pct).to_string();
+    for (id, top, pct, amount) in desired {
+        let (bottom, color) = if show_amount {
+            (format_amount(amount), color_for(amount))
+        } else {
+            (format_pct(pct), color_for(pct))
+        };
         let _ = mb.set_text(id.clone(), top.clone(), bottom.clone());
-        let _ = mb.set_colors(id.clone(), ColorStyle::Default, ColorStyle::Solid { value: color });
+        let _ = mb.set_colors(id.clone(), ColorStyle::Default, ColorStyle::Solid { value: color.to_string() });
         let _ = mb.set_tooltip(id.clone(), format!("{top} {bottom}"));
     }
 }

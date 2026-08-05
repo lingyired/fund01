@@ -8,6 +8,7 @@ import type { SettingsTabId, WindowPort } from '@fund01/core'
  * - openInNewWindow()：把 popup.html 作为普通网页在新标签页打开（?tab=1 进入「标签页模式」铺满视口）
  * - getVersion()：读 manifest 版本号
  * - 不实现 supportsMenubar()（菜单栏是 tauri/macOS 能力，chrome 设置页不显示「菜单栏」tab）
+ * - supportsBadge()：返回 true（扩展角标是 chrome 能力）
  */
 export class ChromeWindowPort implements WindowPort {
   async openSettings(tab?: SettingsTabId): Promise<void> {
@@ -22,6 +23,11 @@ export class ChromeWindowPort implements WindowPort {
 
   async openInNewWindow(): Promise<void> {
     window.open(chrome.runtime.getURL('popup.html?tab=1'), '_blank')
+  }
+
+  /** 扩展角标是 Chrome 扩展能力 */
+  supportsBadge(): boolean {
+    return true
   }
 
   getVersion(): string {

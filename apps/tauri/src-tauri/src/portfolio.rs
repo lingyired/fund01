@@ -32,6 +32,7 @@ pub fn default_config() -> AppConfig {
             menubar_top_font_size: Some(7.0),
             menubar_bottom_font_size: Some(12.0),
             menubar_equal_font_size: Some(9.0),
+            menubar_show_amount: Some(false),
         },
         holdings: HashMap::new(),
         watchlist: HashMap::new(),
@@ -313,6 +314,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         8.0,
         11.0,
     );
+    let menubar_show_amount = settings_raw
+        .and_then(|s| s.get("menubarShowAmount").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
     let show_gold = settings_raw
         .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))
         .unwrap_or(true);
@@ -374,6 +378,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_top_font_size: Some(menubar_top_font_size),
             menubar_bottom_font_size: Some(menubar_bottom_font_size),
             menubar_equal_font_size: Some(menubar_equal_font_size),
+            menubar_show_amount: Some(menubar_show_amount),
         },
         holdings,
         watchlist,

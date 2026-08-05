@@ -22,6 +22,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarTopFontSize: 7,
     menubarBottomFontSize: 12,
     menubarEqualFontSize: 9,
+    menubarShowAmount: false,
   },
   holdings: {},
   watchlist: {},
@@ -282,6 +283,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         DEFAULT_MENUBAR_FONT[2][0],
         MENUBAR_FONT_RANGES[2].top,
       ),
+      menubarShowAmount:
+        typeof payload?.settings?.menubarShowAmount === 'boolean'
+          ? payload.settings.menubarShowAmount
+          : DEFAULT_CONFIG.settings.menubarShowAmount,
     },
     holdings,
     watchlist,

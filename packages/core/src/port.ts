@@ -64,6 +64,8 @@ export interface WindowPort {
   openInNewWindow?(): Promise<void>
   /** 是否支持菜单栏（Tauri 实现返回 true；Chrome 不实现 → undefined → UI 自动隐藏「菜单栏」设置 tab） */
   supportsMenubar?(): boolean
+  /** 是否支持扩展角标（Chrome 实现返回 true；Tauri 实现返回 false → UI 自动隐藏「扩展角标」设置项） */
+  supportsBadge?(): boolean
   /** 应用版本号（Chrome: getManifest().version；Tauri: invoke 或构建注入） */
   getVersion(): string
 }

@@ -358,24 +358,26 @@ function GeneralSection({
         </SegmentedControl.Root>
       </div>
 
-      {/* 扩展角标 */}
-      <div className="space-y-2 border-t border-line/50 pt-3">
-        <div className="text-sm font-medium text-ink">扩展角标</div>
-        <p className="text-xs text-muted">
-          工具栏图标右下角的角标内容。收益额会用 k(千)/w(万)/kw(千万) 简写，文本最长 4 位；方向由角标颜色（红涨绿跌）表达。
-        </p>
-        <SegmentedControl.Root
-          value={badgeMode}
-          onValueChange={(v) => void handleBadgeModeChange(v as BadgeMode)}
-          className="pt-1"
-        >
-          {BADGE_OPTIONS.map((opt) => (
-            <SegmentedControl.Item key={opt.value} value={opt.value}>
-              {opt.label}
-            </SegmentedControl.Item>
-          ))}
-        </SegmentedControl.Root>
-      </div>
+      {/* 扩展角标（仅 chrome 扩展支持） */}
+      {ports.window.supportsBadge?.() !== false ? (
+        <div className="space-y-2 border-t border-line/50 pt-3">
+          <div className="text-sm font-medium text-ink">扩展角标</div>
+          <p className="text-xs text-muted">
+            工具栏图标右下角的角标内容。收益额会用 k(千)/w(万)/kw(千万) 简写，文本最长 4 位；方向由角标颜色（红涨绿跌）表达。
+          </p>
+          <SegmentedControl.Root
+            value={badgeMode}
+            onValueChange={(v) => void handleBadgeModeChange(v as BadgeMode)}
+            className="pt-1"
+          >
+            {BADGE_OPTIONS.map((opt) => (
+              <SegmentedControl.Item key={opt.value} value={opt.value}>
+                {opt.label}
+              </SegmentedControl.Item>
+            ))}
+          </SegmentedControl.Root>
+        </div>
+      ) : null}
 
       {/* 指数看板 */}
       <div className="space-y-2 border-t border-line/50 pt-3">
@@ -1652,6 +1654,7 @@ function MenubarSection() {
   const [top, setTop] = useState(7)
   const [bottom, setBottom] = useState(12)
   const [equal, setEqual] = useState(9)
+  const [showAmount, setShowAmount] = useState(false)
   const [hasUngrouped, setHasUngrouped] = useState(false)
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
@@ -1664,6 +1667,7 @@ function MenubarSection() {
     setTop(clampToRange(s.menubarTopFontSize, MENUBAR_FONT_RANGES[0].top, 7))
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 12))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
+    setShowAmount(s.menubarShowAmount === true)
     const gs = listHoldingGroups(ports)
     setGroups(gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
@@ -1694,6 +1698,17 @@ function MenubarSection() {
     setLayout(l)
     try {
       await updateSettings(ports, {menubarLayout: l})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 数值显示方式：收益率 / 收益额 */
+  async function handleShowAmountChange(v: string) {
+    const next = v === 'amount'
+    setShowAmount(next)
+    try {
+      await updateSettings(ports, {menubarShowAmount: next})
     } catch {
       /* ignore */
     }
@@ -1778,6 +1793,22 @@ function MenubarSection() {
               {opt.label}
             </SegmentedControl.Item>
           ))}
+        </SegmentedControl.Root>
+      </div>
+
+      {/* 数值显示 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">数值显示</div>
+        <p className="text-xs text-muted">
+          菜单栏第二行显示收益率百分比或收益额；收益额用 k(千)/w(万)/kw(千万) 简写。
+        </p>
+        <SegmentedControl.Root
+          value={showAmount ? 'amount' : 'percent'}
+          onValueChange={(v) => void handleShowAmountChange(v)}
+          className="pt-1"
+        >
+          <SegmentedControl.Item value="percent">收益率</SegmentedControl.Item>
+          <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
         </SegmentedControl.Root>
       </div>
 

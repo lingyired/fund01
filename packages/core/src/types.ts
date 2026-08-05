@@ -191,6 +191,8 @@ export type AppSettings = {
   menubarBottomFontSize?: number
   /** 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-11，上限受插件原生 clamp 限制）。仅 tauri 生效 */
   menubarEqualFontSize?: number
+  /** 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）。仅 tauri 生效 */
+  menubarShowAmount?: boolean
 }
 
 export type AppConfig = {

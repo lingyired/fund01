@@ -109,11 +109,13 @@ fn is_menubar_only_settings_change(old: &AppSettings, new: &AppSettings) -> bool
     a.menubar_top_font_size = None;
     a.menubar_bottom_font_size = None;
     a.menubar_equal_font_size = None;
+    a.menubar_show_amount = None;
     b.menubar_hidden_groups = None;
     b.menubar_layout = None;
     b.menubar_top_font_size = None;
     b.menubar_bottom_font_size = None;
     b.menubar_equal_font_size = None;
+    b.menubar_show_amount = None;
     a == b
 }
 

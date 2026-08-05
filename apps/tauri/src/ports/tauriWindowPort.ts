@@ -14,6 +14,11 @@ export class TauriWindowPort implements WindowPort {
     return true
   }
 
+  /** 扩展角标是 Chrome 扩展能力，桌面版不显示该设置项 */
+  supportsBadge(): boolean {
+    return false
+  }
+
   getVersion(): string {
     if (!versionCache) {
       invoke<string>('get_version').then((v) => {

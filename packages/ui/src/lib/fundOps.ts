@@ -550,6 +550,9 @@ export function updateSettings(
   ) {
     config.settings.menubarEqualFontSize = Math.min(11, Math.max(8, patch.menubarEqualFontSize))
   }
+  if (typeof patch.menubarShowAmount === 'boolean') {
+    config.settings.menubarShowAmount = patch.menubarShowAmount
+  }
   ports.config.saveConfig(config)
   return config.settings
 }
