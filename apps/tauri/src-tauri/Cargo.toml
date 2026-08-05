@@ -24,10 +24,8 @@ chrono = "0.4"
 regex = "1"
 encoding_rs = "0.8"
 futures = "0.3"
-# 多行 menubar 插件（用户自研，本地 path 依赖；发布后切 crates.io）
-tauri-plugin-multiline-menubar = { path = "../../../../tauri-plugin-multiline-menubar" }
-# 阶段4：多行 menubar 插件（setColor 修改版）
-# tauri-plugin-multiline-menubar = { path = "../../../tauri-plugin-multiline-menubar" }
+# 多行 menubar 插件（用户自研）：固定 GitHub 最新版 v1.2.0，与本地工作区解耦
+tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.2.0" }
 
 [profile.release]
 strip = true
