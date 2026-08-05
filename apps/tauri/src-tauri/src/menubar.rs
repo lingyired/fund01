@@ -150,7 +150,7 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
 /// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
 /// 布局/字号变更只能靠 rebuild 路径应用（update_menubar 只碰文字/颜色）。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
-/// 布局 2（等大）用 equal（8-12）并两行对称。
+/// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64)]) {
     let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
@@ -159,7 +159,7 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
             .settings
             .menubar_equal_font_size
             .unwrap_or(9.0)
-            .clamp(8.0, 12.0);
+            .clamp(8.0, 11.0);
         (eq, eq)
     } else {
         let t = config

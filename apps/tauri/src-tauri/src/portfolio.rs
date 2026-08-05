@@ -291,7 +291,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         Some(2) => 2,
         _ => 0,
     };
-    // 字号（位置语义，clamp 到布局对应范围）；未设置时按布局默认（与插件原生默认一致 0:7/12 2:9/9）
+    // 字号（位置语义，clamp 到布局对应范围）；未设置时按布局默认（与插件原生默认一致 0:7/12 2:9/9）。
+    // 等大上限 11 受插件 v1.2.0 原生 equal clamp 限制，勿改插件
     let (d_top, d_bottom) = if menubar_layout == 2 { (9.0, 9.0) } else { (7.0, 12.0) };
     let clampf = |v: Option<f64>, d: f64, lo: f64, hi: f64| v.map(|x| x.clamp(lo, hi)).unwrap_or(d);
     let menubar_top_font_size = clampf(
@@ -310,7 +311,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         settings_raw.and_then(|s| s.get("menubarEqualFontSize")).and_then(|v| v.as_f64()),
         9.0,
         8.0,
-        12.0,
+        11.0,
     );
     let show_gold = settings_raw
         .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))

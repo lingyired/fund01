@@ -86,7 +86,7 @@ pub struct AppSettings {
     /// 菜单栏下行字体大小（pt，布局 0「下大上小」的下行大字，范围 10-14）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_font_size: Option<f64>,
-    /// 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-12）
+    /// 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-11，上限受插件原生 clamp 限制）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_equal_font_size: Option<f64>,
 }

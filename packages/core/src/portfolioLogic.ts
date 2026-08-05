@@ -134,13 +134,14 @@ export function normalizeFundMap(
 /** 兼容旧版含 funds 字段的配置（导入旧导出文件时使用） */
 export type LegacyAppConfig = Partial<AppConfig> & {funds?: Record<string, FundRecord>}
 
-/** 菜单栏各布局模式的字号范围（pt，位置语义）：0=下大上小 上7-10/下10-14；2=等大 8-12 */
+/** 菜单栏各布局模式的字号范围（pt，位置语义）：0=下大上小 上7-10/下10-14；2=等大 8-11
+ *  （等大上限 11 受插件 v1.2.0 原生 equal clamp 限制，勿改插件） */
 export const MENUBAR_FONT_RANGES: Record<
   MenubarLayout,
   {top: readonly [number, number]; bottom: readonly [number, number]}
 > = {
   0: {top: [7, 10], bottom: [10, 14]},
-  2: {top: [8, 12], bottom: [8, 12]},
+  2: {top: [8, 11], bottom: [8, 11]},
 }
 
 /** 菜单栏布局默认字号（pt，位置语义）：0=上7/下12，2=等大9/9（与插件原生默认一致） */

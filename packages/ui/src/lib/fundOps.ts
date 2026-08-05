@@ -548,7 +548,7 @@ export function updateSettings(
     typeof patch.menubarEqualFontSize === 'number' &&
     Number.isFinite(patch.menubarEqualFontSize)
   ) {
-    config.settings.menubarEqualFontSize = Math.min(12, Math.max(8, patch.menubarEqualFontSize))
+    config.settings.menubarEqualFontSize = Math.min(11, Math.max(8, patch.menubarEqualFontSize))
   }
   ports.config.saveConfig(config)
   return config.settings
