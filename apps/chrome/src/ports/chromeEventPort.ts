@@ -3,12 +3,31 @@ import type { AppConfig, EventPort, QuoteUpdate } from '@fund01/core'
 // popup 本地缓存的配置 key（与 chromeConfigPort 保持一致）
 const STORAGE_KEY = 'wzk-fund-config'
 
+// storage key → QuoteUpdate 字段映射（onChanged 增量读取用）
+const CACHE_KEYS: Record<
+  'cache-holdings' | 'cache-watchlist' | 'cache-indices' | 'cache-market' | 'cache-gold' | 'cache-time',
+  'holdings' | 'watchlist' | 'indices' | 'market' | 'gold' | 'time'
+> = {
+  'cache-holdings': 'holdings',
+  'cache-watchlist': 'watchlist',
+  'cache-indices': 'indices',
+  'cache-market': 'market',
+  'cache-gold': 'gold',
+  'cache-time': 'time',
+}
+
 /**
  * Chrome 扩展事件 Port 实现。
  * - onQuoteUpdate() 监听 chrome.storage.onChanged 的 cache-time 变化，组装 QuoteUpdate
  * - onConfigChange() 监听 window storage 事件（跨窗口同步）
+ *
+ * 增量读取：SW 每次刷新会写入多个 cache-* key，onChanged 的 changes 已携带各 key 的新值，
+ * 直接用 newValue 组装，只对未变化的字段沿用上次值（首帧用模块级 lastQuote 兜底），
+ * 避免每个刷新周期都全量 get + 反序列化 6 个缓存对象。
  */
 export class ChromeEventPort implements EventPort {
+  private lastQuote: QuoteUpdate | null = null
+
   onQuoteUpdate(cb: (payload: QuoteUpdate) => void): () => void {
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
@@ -17,26 +36,17 @@ export class ChromeEventPort implements EventPort {
       if (area !== 'local') return
       // cache-time 变化意味着 SW 刷新完成，组装 QuoteUpdate 推给 UI
       if (!changes['cache-time']) return
-      chrome.storage.local
-        .get([
-          'cache-holdings',
-          'cache-watchlist',
-          'cache-indices',
-          'cache-market',
-          'cache-gold',
-          'cache-time',
-        ])
-        .then((cached) => {
-          const payload: QuoteUpdate = {
-            holdings: (cached['cache-holdings'] as QuoteUpdate['holdings']) || null,
-            watchlist: (cached['cache-watchlist'] as QuoteUpdate['watchlist']) || null,
-            indices: (cached['cache-indices'] as QuoteUpdate['indices']) || null,
-            market: (cached['cache-market'] as QuoteUpdate['market']) || null,
-            gold: (cached['cache-gold'] as QuoteUpdate['gold']) || null,
-            time: (cached['cache-time'] as number) || Date.now(),
-          }
-          cb(payload)
-        })
+      const next: QuoteUpdate = this.lastQuote
+        ? {...this.lastQuote}
+        : {holdings: null, watchlist: null, indices: null, market: null, gold: null, time: 0}
+      for (const key of Object.keys(CACHE_KEYS) as (keyof typeof CACHE_KEYS)[]) {
+        const change = changes[key]
+        if (!change) continue
+        // 各字段类型不同，这里按 storage 原始值直接赋（undefined 表示该字段本轮未刷新）
+        ;(next as Record<string, unknown>)[CACHE_KEYS[key]] = change.newValue ?? null
+      }
+      this.lastQuote = next
+      cb(next)
     }
     chrome.storage.onChanged.addListener(listener)
     return () => chrome.storage.onChanged.removeListener(listener)

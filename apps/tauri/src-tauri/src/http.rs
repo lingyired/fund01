@@ -19,6 +19,8 @@ fn client() -> &'static reqwest::Client {
             .user_agent(DESKTOP_UA)
             // fund123 CSRF 依赖 GET /fund 下发的会话 cookie
             .cookie_store(true)
+            // 限制重定向次数，防止上游接口异常时被带到任意域
+            .redirect(reqwest::redirect::Policy::limited(3))
             .timeout(Duration::from_secs(15))
             .build()
             .expect("reqwest client 构建失败")

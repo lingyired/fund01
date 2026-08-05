@@ -36,20 +36,10 @@ export class ChromeConfigPort implements ConfigPort {
 
   onChanged(cb: (config: AppConfig) => void): () => void {
     this.listeners.add(cb)
-    // 监听 chrome.storage.local 变化（其他 popup 实例修改配置时同步）
-    const listener = (
-      _changes: Record<string, chrome.storage.StorageChange>,
-      area: string,
-    ) => {
-      if (area === 'local') {
-        // SW 不写 SW_CONFIG_KEY，这里主要处理多 popup 实例同步
-        // localStorage 是每窗口独立的，跨窗口同步依赖 storage 事件（见 EventPort）
-      }
-    }
-    chrome.storage.onChanged.addListener(listener)
+    // 跨窗口/跨 popup 的配置同步由 ChromeEventPort.onConfigChange（window storage 事件）负责，
+    // 同窗口变更由 saveConfig 直接通知本地 listeners，这里无需再注册 storage.onChanged
     return () => {
       this.listeners.delete(cb)
-      chrome.storage.onChanged.removeListener(listener)
     }
   }
 }

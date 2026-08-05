@@ -98,6 +98,16 @@ fn filter_fund_nav_by_range(rows_asc: Vec<HistRow>, range: &str) -> Vec<HistRow>
     rows_asc.into_iter().filter(|p| p.date >= start_str).collect()
 }
 
+/// 降采样：点数超过 max 时按比例均匀抽取（保留首尾），控制序列化体积与前端渲染量。
+/// 对应 TS 侧 downsamplePoints；since 成立以来一次最多拉 2 万点，需收敛到 1200 点。
+fn downsample<T: Clone>(points: &[T], max: usize) -> Vec<T> {
+    if points.len() <= max {
+        return points.to_vec();
+    }
+    let step = (points.len() - 1) as f64 / (max - 1) as f64;
+    (0..max).map(|i| points[(i as f64 * step).round() as usize].clone()).collect()
+}
+
 /// 基金历史净值（对应 getFundHistory）
 pub async fn get_fund_history(code: &str, range: &str) -> Result<FundHistoryPayload, String> {
     let padded = pad6(code);
@@ -106,7 +116,9 @@ pub async fn get_fund_history(code: &str, range: &str) -> Result<FundHistoryPayl
         _ => "3m",
     };
     let desc = match key {
-        "since" => fetch_fund_nav_history_paged(&padded, 500, 40, 0).await,
+        // min_count 提前退出：成立以来的净值大多 2000-5000 行，4-10 页即可拿全量，
+        // 老基金才需要继续翻页，避免所有基金都串行拉满 40 页
+        "since" => fetch_fund_nav_history_paged(&padded, 500, 40, 2000).await,
         "3y" => fetch_fund_nav_history_paged(&padded, 500, 3, 900).await,
         "1y" => fetch_fund_nav_history(&padded, 320, 1).await.unwrap_or_default(),
         _ => fetch_fund_nav_history(&padded, 120, 1).await.unwrap_or_default(),
@@ -121,14 +133,17 @@ pub async fn get_fund_history(code: &str, range: &str) -> Result<FundHistoryPayl
         return Err("暂无该周期净值数据".to_string());
     }
     let base = asc[0].net_value;
-    let points: Vec<FundHistoryPoint> = asc
-        .iter()
-        .map(|p| FundHistoryPoint {
-            date: p.date.clone(),
-            net_value: p.net_value.unwrap_or(0.0),
-            percent: base.filter(|b| b.is_finite()).map(|b| round4((p.net_value.unwrap_or(0.0) - b) / b * 100.0)),
-        })
-        .collect();
+    let points: Vec<FundHistoryPoint> = downsample(
+        &asc
+            .iter()
+            .map(|p| FundHistoryPoint {
+                date: p.date.clone(),
+                net_value: p.net_value.unwrap_or(0.0),
+                percent: base.filter(|b| b.is_finite()).map(|b| round4((p.net_value.unwrap_or(0.0) - b) / b * 100.0)),
+            })
+            .collect::<Vec<_>>(),
+        1200,
+    );
     let period_percent = points.last().and_then(|l| l.percent);
     Ok(FundHistoryPayload {
         code: padded,

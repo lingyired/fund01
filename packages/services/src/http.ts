@@ -36,9 +36,12 @@ export async function httpGet(
     params?: Record<string, string | number | undefined>
     timeout?: number
     responseType?: 'json' | 'text' | 'arraybuffer'
+    /** 是否携带 cookie；默认 omit，避免把用户在行情站点（东财/新浪等）的登录态发给第三方接口 */
+    credentials?: RequestCredentials
   },
 ): Promise<any> {
-  const {headers, params, timeout = 15000, responseType = 'json'} = options || {}
+  const {headers, params, timeout = 15000, responseType = 'json', credentials = 'omit'} =
+    options || {}
   const u = new URL(url)
   if (params) {
     for (const [k, v] of Object.entries(params)) {
@@ -53,7 +56,7 @@ export async function httpGet(
     const res = await fetch(fullUrl, {
       headers: {['User-Agent']: UA, ...headers},
       signal: controller.signal,
-      credentials: 'include',
+      credentials,
     })
     if (!res.ok) {
       const body = await readBodyPreview(res)
@@ -93,9 +96,11 @@ export async function httpPost(
   options?: {
     headers?: Record<string, string>
     timeout?: number
+    /** 是否携带 cookie；默认 omit，fund123 的 CSRF 会话依赖时显式传 include */
+    credentials?: RequestCredentials
   },
 ): Promise<any> {
-  const {headers, timeout = 15000} = options || {}
+  const {headers, timeout = 15000, credentials = 'omit'} = options || {}
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   const t0 = Date.now()
@@ -109,7 +114,7 @@ export async function httpPost(
       },
       body: JSON.stringify(body),
       signal: controller.signal,
-      credentials: 'include',
+      credentials,
     })
     if (!res.ok) {
       const bodyPreview = await readBodyPreview(res)
