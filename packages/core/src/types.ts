@@ -155,6 +155,9 @@ export const AVAILABLE_INDICES: IndexMeta[] = [
 /** 扩展程序角标（badge）显示方式 */
 export type BadgeMode = 'percent' | 'amount' | 'hidden'
 
+/** 菜单栏布局模式：0=下大上小（默认，上行小字/下行大字）2=等大。仅 tauri 生效 */
+export type MenubarLayout = 0 | 2
+
 export type AppSettings = {
   showGold: boolean
   /** 定时刷新间隔配置（秒） */
@@ -180,12 +183,14 @@ export type AppSettings = {
    * 不在列表中的分组默认显示；「总览」恒显示。
    */
   menubarHiddenGroups?: string[]
-  /** 菜单栏布局模式：0=上小下大(默认) 1=上大下小 2=等大。仅 tauri 生效 */
-  menubarLayout?: 0 | 1 | 2
-  /** 菜单栏上行字体大小（pt，位置语义，由 Rust 侧按当前布局 clamp） */
+  /** 菜单栏布局模式：0=下大上小(默认) 2=等大（1=上大下小已移除）。仅 tauri 生效 */
+  menubarLayout?: MenubarLayout
+  /** 菜单栏上行字体大小（pt，布局 0「下大上小」的上行小字，范围 7-10） */
   menubarTopFontSize?: number
-  /** 菜单栏下行字体大小（pt，位置语义，由 Rust 侧按当前布局 clamp） */
+  /** 菜单栏下行字体大小（pt，布局 0「下大上小」的下行大字，范围 10-14） */
   menubarBottomFontSize?: number
+  /** 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-12）。仅 tauri 生效 */
+  menubarEqualFontSize?: number
 }
 
 export type AppConfig = {

@@ -77,15 +77,18 @@ pub struct AppSettings {
     /// 菜单栏隐藏的持仓分组名列表（'' 表示未分组）；不在列表的分组默认显示
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_hidden_groups: Option<Vec<String>>,
-    /// 菜单栏布局模式：0=上小下大(默认) 1=上大下小 2=等大
+    /// 菜单栏布局模式：0=下大上小(默认) 2=等大（1=上大下小已移除）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_layout: Option<u8>,
-    /// 菜单栏上行字体大小（pt，位置语义，按当前布局 clamp）
+    /// 菜单栏上行字体大小（pt，布局 0「下大上小」的上行小字，范围 7-10）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_font_size: Option<f64>,
-    /// 菜单栏下行字体大小（pt，位置语义，按当前布局 clamp）
+    /// 菜单栏下行字体大小（pt，布局 0「下大上小」的下行大字，范围 10-14）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_font_size: Option<f64>,
+    /// 菜单栏等大字号（pt，布局 2「等大」两行共用，范围 8-12）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_equal_font_size: Option<f64>,
 }
 
 fn default_show_gold() -> bool {
@@ -107,6 +110,7 @@ impl Default for AppSettings {
             menubar_layout: None,
             menubar_top_font_size: None,
             menubar_bottom_font_size: None,
+            menubar_equal_font_size: None,
         }
     }
 }

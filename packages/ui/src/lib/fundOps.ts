@@ -529,24 +529,26 @@ export function updateSettings(
     }
     config.settings.menubarHiddenGroups = next
   }
-  if (
-    patch.menubarLayout === 0 ||
-    patch.menubarLayout === 1 ||
-    patch.menubarLayout === 2
-  ) {
+  if (patch.menubarLayout === 0 || patch.menubarLayout === 2) {
     config.settings.menubarLayout = patch.menubarLayout
   }
   if (
     typeof patch.menubarTopFontSize === 'number' &&
     Number.isFinite(patch.menubarTopFontSize)
   ) {
-    config.settings.menubarTopFontSize = Math.min(16, Math.max(5, patch.menubarTopFontSize))
+    config.settings.menubarTopFontSize = Math.min(10, Math.max(7, patch.menubarTopFontSize))
   }
   if (
     typeof patch.menubarBottomFontSize === 'number' &&
     Number.isFinite(patch.menubarBottomFontSize)
   ) {
-    config.settings.menubarBottomFontSize = Math.min(16, Math.max(5, patch.menubarBottomFontSize))
+    config.settings.menubarBottomFontSize = Math.min(14, Math.max(10, patch.menubarBottomFontSize))
+  }
+  if (
+    typeof patch.menubarEqualFontSize === 'number' &&
+    Number.isFinite(patch.menubarEqualFontSize)
+  ) {
+    config.settings.menubarEqualFontSize = Math.min(12, Math.max(8, patch.menubarEqualFontSize))
   }
   ports.config.saveConfig(config)
   return config.settings

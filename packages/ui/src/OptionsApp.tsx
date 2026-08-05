@@ -30,12 +30,14 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  MenubarLayout,
   SettingsTabId,
 } from '@fund01/core'
 import {
   AVAILABLE_INDICES,
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
+  MENUBAR_FONT_RANGES,
   MIN_REFRESH_INTERVAL,
 } from '@fund01/core'
 import {cn, formatAmount} from '@fund01/core'
@@ -1629,43 +1631,39 @@ function DataBackupSection() {
 
 /* ── 菜单栏（仅 tauri 显示） ───────────────────────────────── */
 const MENUBAR_LAYOUTS: {value: string; label: string}[] = [
-  {value: '0', label: '上小下大'},
-  {value: '1', label: '上大下小'},
+  {value: '0', label: '下大上小'},
   {value: '2', label: '等大'},
 ]
 
-// 位置语义字号范围（pt）：0: 上5-11/下8-16；1: 上8-16/下5-11；2: 5-11 联动（与插件 role 范围一致）
-const MENUBAR_FONT_RANGES: Record<
-  0 | 1 | 2,
-  {top: readonly [number, number]; bottom: readonly [number, number]}
-> = {
-  0: {top: [5, 11], bottom: [8, 16]},
-  1: {top: [8, 16], bottom: [5, 11]},
-  2: {top: [5, 11], bottom: [5, 11]},
-}
-
-function clampMenubarFont(v: number | undefined, fallback: number): number {
+function clampToRange(
+  v: number | undefined,
+  range: readonly [number, number],
+  fallback: number,
+): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback
-  return Math.min(16, Math.max(5, v))
+  return Math.min(range[1], Math.max(range[0], v))
 }
 
 function MenubarSection() {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [hidden, setHidden] = useState<string[]>([])
-  const [layout, setLayout] = useState<0 | 1 | 2>(0)
+  const [layout, setLayout] = useState<MenubarLayout>(0)
   const [top, setTop] = useState(7)
   const [bottom, setBottom] = useState(12)
+  const [equal, setEqual] = useState(9)
   const [hasUngrouped, setHasUngrouped] = useState(false)
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
     const s = fetchSettings(ports)
-    const l: 0 | 1 | 2 = s.menubarLayout === 1 || s.menubarLayout === 2 ? s.menubarLayout : 0
+    const l: MenubarLayout = s.menubarLayout === 2 ? 2 : 0
     setLayout(l)
     setHidden(s.menubarHiddenGroups ?? [])
-    setTop(clampMenubarFont(s.menubarTopFontSize, l === 1 ? 12 : 7))
-    setBottom(clampMenubarFont(s.menubarBottomFontSize, l === 1 ? 7 : 12))
+    // 每种布局的字号独立存储：布局 0 用 top/bottom，布局 2 用 equal
+    setTop(clampToRange(s.menubarTopFontSize, MENUBAR_FONT_RANGES[0].top, 7))
+    setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 12))
+    setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     const gs = listHoldingGroups(ports)
     setGroups(gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
@@ -1690,35 +1688,23 @@ function MenubarSection() {
     }
   }
 
-  /** 布局模式：切到等大时上下字号联动为当前下行值（clamp 5-11）并一次保存 */
+  /** 布局模式：每种布局的字号独立存储，切换布局只保存布局本身、不动字号 */
   async function handleLayoutChange(v: string) {
-    const l = Number(v) as 0 | 1 | 2
+    const l = Number(v) as MenubarLayout
     setLayout(l)
     try {
-      if (l === 2) {
-        const unified = Math.round(Math.min(11, Math.max(5, bottom)))
-        setTop(unified)
-        setBottom(unified)
-        await updateSettings(ports, {
-          menubarLayout: 2,
-          menubarTopFontSize: unified,
-          menubarBottomFontSize: unified,
-        })
-      } else {
-        await updateSettings(ports, {menubarLayout: l})
-      }
+      await updateSettings(ports, {menubarLayout: l})
     } catch {
       /* ignore */
     }
   }
 
   /** 字号 Slider：拖动仅本地预览，松手才保存（避免连续触发后端刷新） */
-  async function commitFont(side: 'top' | 'bottom', v: number) {
+  async function commitFont(side: 'top' | 'bottom' | 'equal', v: number) {
     try {
-      if (layout === 2) {
-        setTop(v)
-        setBottom(v)
-        await updateSettings(ports, {menubarTopFontSize: v, menubarBottomFontSize: v})
+      if (side === 'equal') {
+        setEqual(v)
+        await updateSettings(ports, {menubarEqualFontSize: v})
       } else if (side === 'top') {
         setTop(v)
         await updateSettings(ports, {menubarTopFontSize: v})
@@ -1780,7 +1766,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">布局模式</div>
         <p className="text-xs text-muted">
-          上行小字/下行大字（默认）、上行大字/下行小字、两行等大。
+          下行大字/上行小字（默认）、两行等大。每种布局的字号独立记忆，切换布局互不影响。
         </p>
         <SegmentedControl.Root
           value={String(layout)}
@@ -1799,21 +1785,21 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">字号</div>
         <p className="text-xs text-muted">
-          单位 pt。拖动实时预览，松开后保存并立即应用到菜单栏；范围随布局模式变化。
+          单位 pt。拖动实时预览，松开后保存并立即应用到菜单栏；范围随当前布局模式变化。
         </p>
         {layout === 2 ? (
           <div className="space-y-1 pt-1">
             <div className="flex items-center justify-between">
               <span className="text-sm text-ink-soft leading-none">等大字号</span>
-              <span className="font-mono text-xs text-muted">{top}pt</span>
+              <span className="font-mono text-xs text-muted">{equal}pt</span>
             </div>
             <Slider
-              value={[top]}
+              value={[equal]}
               min={range.top[0]}
               max={range.top[1]}
               step={1}
-              onValueChange={([v]) => setTop(v)}
-              onValueCommit={([v]) => void commitFont('top', v)}
+              onValueChange={([v]) => setEqual(v)}
+              onValueCommit={([v]) => void commitFont('equal', v)}
               aria-label="等大字号"
             />
             <p className="text-[11px] text-muted">

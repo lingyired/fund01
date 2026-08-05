@@ -31,6 +31,7 @@ pub fn default_config() -> AppConfig {
             menubar_layout: Some(0),
             menubar_top_font_size: Some(7.0),
             menubar_bottom_font_size: Some(12.0),
+            menubar_equal_font_size: Some(9.0),
         },
         holdings: HashMap::new(),
         watchlist: HashMap::new(),
@@ -285,26 +286,31 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             }
         }
     }
-    // menubarLayout：0|1|2，非法回落 0
+    // menubarLayout：仅 0|2 合法（1=上大下小已移除，回落 0）
     let menubar_layout: u8 = match settings_raw.and_then(|s| s.get("menubarLayout")).and_then(|v| v.as_u64()) {
-        Some(1) => 1,
         Some(2) => 2,
         _ => 0,
     };
-    // 字号（位置语义，clamp 5-16）；未设置时按布局默认（与插件原生默认一致 0:7/12 1:12/7 2:9/9）
-    let (d_top, d_bottom) = match menubar_layout {
-        1 => (12.0, 7.0),
-        2 => (9.0, 9.0),
-        _ => (7.0, 12.0),
-    };
-    let clampf = |v: Option<f64>, d: f64| v.map(|x| x.clamp(5.0, 16.0)).unwrap_or(d);
+    // 字号（位置语义，clamp 到布局对应范围）；未设置时按布局默认（与插件原生默认一致 0:7/12 2:9/9）
+    let (d_top, d_bottom) = if menubar_layout == 2 { (9.0, 9.0) } else { (7.0, 12.0) };
+    let clampf = |v: Option<f64>, d: f64, lo: f64, hi: f64| v.map(|x| x.clamp(lo, hi)).unwrap_or(d);
     let menubar_top_font_size = clampf(
         settings_raw.and_then(|s| s.get("menubarTopFontSize")).and_then(|v| v.as_f64()),
         d_top,
+        7.0,
+        10.0,
     );
     let menubar_bottom_font_size = clampf(
         settings_raw.and_then(|s| s.get("menubarBottomFontSize")).and_then(|v| v.as_f64()),
         d_bottom,
+        10.0,
+        14.0,
+    );
+    let menubar_equal_font_size = clampf(
+        settings_raw.and_then(|s| s.get("menubarEqualFontSize")).and_then(|v| v.as_f64()),
+        9.0,
+        8.0,
+        12.0,
     );
     let show_gold = settings_raw
         .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))
@@ -366,6 +372,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_layout: Some(menubar_layout),
             menubar_top_font_size: Some(menubar_top_font_size),
             menubar_bottom_font_size: Some(menubar_bottom_font_size),
+            menubar_equal_font_size: Some(menubar_equal_font_size),
         },
         holdings,
         watchlist,

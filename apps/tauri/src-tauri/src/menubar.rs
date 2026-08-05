@@ -149,23 +149,31 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
 
 /// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
 /// 布局/字号变更只能靠 rebuild 路径应用（update_menubar 只碰文字/颜色）。
+/// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
+/// 布局 2（等大）用 equal（8-12）并两行对称。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64)]) {
     let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
-    // 位置语义字号；未设置时按布局默认（与插件原生默认一致 0:7/12 1:12/7 2:9/9）
-    let top = config
-        .settings
-        .menubar_top_font_size
-        .unwrap_or(if layout == 1 { 12.0 } else { 7.0 })
-        .clamp(5.0, 16.0);
-    let mut bottom = config
-        .settings
-        .menubar_bottom_font_size
-        .unwrap_or(if layout == 1 { 7.0 } else { 12.0 })
-        .clamp(5.0, 16.0);
-    if layout == 2 {
-        bottom = top; // 等大强制对称兜底（插件会再 clamp 5-11，对称保持）
-    }
+    let (top, bottom) = if layout == 2 {
+        let eq = config
+            .settings
+            .menubar_equal_font_size
+            .unwrap_or(9.0)
+            .clamp(8.0, 12.0);
+        (eq, eq)
+    } else {
+        let t = config
+            .settings
+            .menubar_top_font_size
+            .unwrap_or(7.0)
+            .clamp(7.0, 10.0);
+        let b = config
+            .settings
+            .menubar_bottom_font_size
+            .unwrap_or(12.0)
+            .clamp(10.0, 14.0);
+        (t, b)
+    };
     for (id, _, _) in desired {
         let _ = mb.set_layout(id.clone(), layout);
         let _ = mb.set_font_sizes(id.clone(), top, bottom);

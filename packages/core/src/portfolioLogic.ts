@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarLayout, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarLayout: 0,
     menubarTopFontSize: 7,
     menubarBottomFontSize: 12,
+    menubarEqualFontSize: 9,
   },
   holdings: {},
   watchlist: {},
@@ -133,22 +134,36 @@ export function normalizeFundMap(
 /** 兼容旧版含 funds 字段的配置（导入旧导出文件时使用） */
 export type LegacyAppConfig = Partial<AppConfig> & {funds?: Record<string, FundRecord>}
 
-/** 菜单栏布局默认字号（pt，位置语义）：0=上7/下12，1=上12/下7，2=等大9/9（与插件原生默认一致） */
-const DEFAULT_MENUBAR_FONT: Record<0 | 1 | 2, readonly [number, number]> = {
+/** 菜单栏各布局模式的字号范围（pt，位置语义）：0=下大上小 上7-10/下10-14；2=等大 8-12 */
+export const MENUBAR_FONT_RANGES: Record<
+  MenubarLayout,
+  {top: readonly [number, number]; bottom: readonly [number, number]}
+> = {
+  0: {top: [7, 10], bottom: [10, 14]},
+  2: {top: [8, 12], bottom: [8, 12]},
+}
+
+/** 菜单栏布局默认字号（pt，位置语义）：0=上7/下12，2=等大9/9（与插件原生默认一致） */
+const DEFAULT_MENUBAR_FONT: Record<MenubarLayout, readonly [number, number]> = {
   0: [7, 12],
-  1: [12, 7],
   2: [9, 9],
 }
 
-/** 归一化菜单栏布局模式：非法值回落 0 */
-export function normalizeMenubarLayout(v: unknown): 0 | 1 | 2 {
-  return v === 1 || v === 2 ? v : 0
+/** 归一化菜单栏布局模式：仅 0|2 合法（1=上大下小已移除，回落 0） */
+export function normalizeMenubarLayout(v: unknown): MenubarLayout {
+  return v === 2 ? 2 : 0
 }
 
-/** 归一化菜单栏字号：clamp 5-16，非法值回落 fallback */
-export function normalizeMenubarFontSize(v: unknown, fallback: number): number {
+/** 归一化菜单栏字号：clamp 到布局对应范围，非法值回落 fallback */
+export function normalizeMenubarFontSize(
+  v: unknown,
+  fallback: number,
+  range: readonly [number, number],
+): number {
   const n = Number(v)
-  return Number.isFinite(n) && n > 0 ? Math.min(16, Math.max(5, n)) : fallback
+  return Number.isFinite(n) && n > 0
+    ? Math.min(range[1], Math.max(range[0], n))
+    : fallback
 }
 
 /** 归一化菜单栏隐藏分组：去重保序，仅保留 ''(未分组) 或存在于 holdingGroups 的名字 */
@@ -254,10 +269,17 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       menubarTopFontSize: normalizeMenubarFontSize(
         payload?.settings?.menubarTopFontSize,
         DEFAULT_MENUBAR_FONT[normalizeMenubarLayout(payload?.settings?.menubarLayout)][0],
+        MENUBAR_FONT_RANGES[normalizeMenubarLayout(payload?.settings?.menubarLayout)].top,
       ),
       menubarBottomFontSize: normalizeMenubarFontSize(
         payload?.settings?.menubarBottomFontSize,
         DEFAULT_MENUBAR_FONT[normalizeMenubarLayout(payload?.settings?.menubarLayout)][1],
+        MENUBAR_FONT_RANGES[normalizeMenubarLayout(payload?.settings?.menubarLayout)].bottom,
+      ),
+      menubarEqualFontSize: normalizeMenubarFontSize(
+        payload?.settings?.menubarEqualFontSize,
+        DEFAULT_MENUBAR_FONT[2][0],
+        MENUBAR_FONT_RANGES[2].top,
       ),
     },
     holdings,
