@@ -165,6 +165,14 @@ app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 可 Cmd+Tab 切换），窗口销毁（`WindowEvent::Destroyed`）后 `set_dock_visibility(false)` 恢复
 Accessory 不占 Dock。menubar 浮窗始终 Accessory，不参与切换。
 
+**Dock 右键「退出」/ Cmd+Q 拦截**（`window.rs::install_terminate_hook`）：tauri 的
+`ExitRequested`/`prevent_exit` 只覆盖「最后一个窗口销毁」与 `app.exit(code)`；macOS 系统级
+`NSApp terminate:`（Dock 右键退出、Cmd+Q）直接退出进程，tauri 拦不到（tao 0.35 的
+AppDelegate 未实现 `applicationShouldTerminate:`）。做法：setup 时用 objc2 给 AppDelegate
+类动态挂 `applicationShouldTerminate:` —— 有设置窗口 → 关闭它 + 恢复 Accessory + 返回
+`TerminateCancel`（取消退出，menubar 保持常驻）；无窗口（纯 menubar 态）→ 返回
+`TerminateNow` 放行真正退出。依赖 objc2 / objc2-app-kit（macOS-only，与 tauri 依赖链同版本）。
+
 ## 3. 后端定时任务（Rust）
 
 Rust 后端是常驻进程（不像 MV3 SW 30s 休眠）。用 `tauri::async_runtime::spawn` + `tokio::time::interval`：

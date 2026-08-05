@@ -10,6 +10,14 @@ use tauri::{
     WebviewWindowBuilder, WindowEvent,
 };
 
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+
+#[cfg(target_os = "macos")]
+use objc2::runtime::{AnyObject, Sel};
+#[cfg(target_os = "macos")]
+use objc2_app_kit::NSApplicationTerminateReply;
+
 use crate::state::AppState;
 
 pub const POPUP_LABEL: &str = "menubar";
@@ -155,4 +163,76 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
         }
         let _ = win.show();
     }
+}
+
+/// macOS：拦截 Dock 右键「退出」/ Cmd+Q（`NSApp terminate:`），把「退出」改写成
+/// 「只关闭设置窗口，menubar 保持常驻」。
+///
+/// 为什么需要原生 hook：tauri 的 `RunEvent::ExitRequested` + `prevent_exit()` 只覆盖
+/// 「最后一个窗口销毁」和 `app.exit(code)` 两条路径；macOS 系统级 `terminate:`（Dock
+/// 右键退出、Cmd+Q）直接走 `NSApplication` 默认行为退出进程，tao 0.35 的 AppDelegate
+/// 没有实现 `applicationShouldTerminate:`，tauri 拦不到。
+///
+/// 做法：给现有 AppDelegate 类动态挂 `applicationShouldTerminate:` ——
+/// 有设置窗口 → 关闭它 + 恢复 Accessory + 返回 `TerminateCancel`（取消退出）；
+/// 无窗口（纯 menubar 态）→ 返回 `TerminateNow` 放行真正退出。
+#[cfg(target_os = "macos")]
+static APP_HANDLE: Mutex<Option<AppHandle>> = Mutex::new(None);
+
+#[cfg(target_os = "macos")]
+pub fn install_terminate_hook(app: &AppHandle) {
+    use objc2::ffi::{class_addMethod, class_getInstanceMethod, object_getClass};
+    use objc2::runtime::{AnyClass, Imp};
+    use objc2::sel;
+    use objc2_app_kit::NSApplication;
+
+    *APP_HANDLE.lock().unwrap() = Some(app.clone());
+
+    let nsapp = NSApplication::sharedApplication(objc2::MainThreadMarker::new().unwrap());
+    let Some(delegate) = nsapp.delegate() else {
+        eprintln!("[fund01] 未拿到 NSApp delegate，跳过退出拦截");
+        return;
+    };
+    // ProtocolObject<dyn NSApplicationDelegate> 是 repr(C) 的 type-erased 对象，
+    // 首字段即 AnyObject，可安全取回对象指针
+    let obj: &AnyObject = unsafe { &*(&*delegate as *const _ as *const AnyObject) };
+    let cls = unsafe { object_getClass(obj as *const AnyObject) } as *mut AnyClass;
+    let should_terminate_sel: Sel = sel!(applicationShouldTerminate:);
+    unsafe {
+        // tao 已实现该方法则跳过（未来 tao/tauri 若原生支持退出拦截，走它们的路径）
+        if class_getInstanceMethod(cls as *const AnyClass, should_terminate_sel).is_null() {
+            // fn item 先转 fn pointer，再 transmute 成 Imp（objc2 内部 MethodImplementation::__imp 同款做法；
+            // trait 对 Option<&AnyObject> 参数签名的 impl 缺失，故手动 transmute，两者语义等价）
+            let impl_fn = application_should_terminate as unsafe extern "C-unwind" fn(
+                &AnyObject,
+                Sel,
+                Option<&AnyObject>,
+            ) -> NSApplicationTerminateReply;
+            let imp: Imp = std::mem::transmute(impl_fn);
+            let ok = class_addMethod(cls, should_terminate_sel, imp, c"L@:@".as_ptr());
+            if !ok.as_bool() {
+                eprintln!("[fund01] class_addMethod(applicationShouldTerminate:) 失败");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C-unwind" fn application_should_terminate(
+    _this: &AnyObject,
+    _sel: Sel,
+    _sender: Option<&AnyObject>,
+) -> NSApplicationTerminateReply {
+    let handle = APP_HANDLE.lock().unwrap().clone();
+    let Some(app) = handle else {
+        return NSApplicationTerminateReply::TerminateNow;
+    };
+    let Some(win) = app.get_webview_window(SETTINGS_LABEL) else {
+        // 无设置窗口（纯 menubar 态）→ 放行真正退出
+        return NSApplicationTerminateReply::TerminateNow;
+    };
+    eprintln!("[fund01] Dock/Cmd+Q 退出被拦截：仅关闭设置窗口，menubar 保持常驻");
+    let _ = app.set_dock_visibility(false);
+    let _ = win.close();
+    NSApplicationTerminateReply::TerminateCancel
 }

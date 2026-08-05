@@ -53,6 +53,10 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // macOS: 拦截 Dock 右键「退出」/ Cmd+Q → 只关设置窗口，menubar 保持常驻
+            #[cfg(target_os = "macos")]
+            window::install_terminate_hook(app.handle());
+
             // 加载持久化配置（无则用默认）
             load_config(app.handle())?;
 
