@@ -146,6 +146,27 @@ export interface EventPort {
 - 美股指数备用新浪 US `stock.finance.sina.com.cn`
 - 新浪黄金 `hq.sinajs.cn` 返回 GBK 编码，用 `TextDecoder('gbk')` 原生解码，**不要**引入 iconv-lite
 
+## 估值兜底规则（数据源 fallback 体系）
+
+> **约定（必须遵守）**：本仓库所有「估值/净值的兜底、近似、fallback」行为以此章节为唯一权威。**新增或修改任何兜底规则时，必须同步更新：① 本章节；② 设置界面文案 `packages/ui/src/OptionsApp.tsx` 数据源选项下方的「估值兜底规则」说明**（保证用户可在设置中知晓）。遗漏任一处视为未完成。
+
+完整链路（默认数据源 `quoteSource=fundmnfinfo`）：
+
+1. **FundMNFInfo**（移动 UA）盘中/空窗期均不返回 GSZ/GSZZL/GZTIME → 无官方盘中估值。
+2. **自算估值** `get_calc_gszzl`（Tauri `fundmnfinfo.rs` / Chrome `fund.ts`）：用 FundMNInverstPosition 重仓股当日涨跌幅加权（缓存 5 分钟）。
+3. **自算失败**（无股票重仓，如黄金/商品 ETF 联接、QDII）时的 fallback 分流：
+   - **非 QDII 基金**（黄金/商品 ETF 联接等）：fallback fund123 官方分时估值（`fund123_estimate_fallback` / `fund123EstimateFallback`，取 queryFundEstimateIntraday 末点，校验 finite + |growth|<30 + net>0）。
+   - **QDII 基金**（基金名含 "QDII"，识别函数 `is_qdii_name` / `isQdiiName`）：**跳过 fund123**。原因：fund123 对 QDII 无分时估值（实测 0 点），且其资料接口（matiaria）的 `dayOfGrowth` 是 T+1 披露的**昨日涨幅**，冒充今日涨幅会误导。QDII 保持 FundMNFInfo 原始口径：盘中 GSZ 正确；空窗期如实无当日收益，等 T+1 净值披露后的确认会话。
+4. **兜底仍失败** → 保持现状（无当日收益），晚间官方净值披露后 confirmed 分支自动显示当日涨跌幅。
+
+fund123 数据源（`quoteSource=fund123`，`get_fund_quote` / `getFundQuote`）的 QDII 口径：
+
+- QDII 的 percent **不使用 dayGrowth**（T+1 披露的昨日涨幅），confirmed 与兜底分支均跳过，只认 estimateGrowth（分时末点）；无分时估值时如实显示无当日涨幅。
+
+其他净值口径兜底：
+
+- `resolve_nav_pair`（Tauri `calc.rs`）/ `resolveNavPair`（`holdingsCalc.ts`）：仅确认净值、无昨净值/估值时，用 NAV 兜底 currNav → 金额 = 份额 × NAV 可显示（QDII 延迟净值、黄金联接、新基金均适用）。
+
 ## Service Worker 定时刷新
 
 `apps/chrome/src/background/index.ts` 的核心流程：
