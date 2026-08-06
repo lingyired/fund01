@@ -341,17 +341,22 @@ pub async fn get_fund_quote(fund: &FundQuoteInput) -> FundQuote {
     }
 
     // 5. 展示口径（resolveDisplayPercent）
+    // QDII：day_growth 是 T+1 披露的昨日涨幅（如 8/6 显示 8/5 的 -0.78%），
+    // 不能当今日涨幅 —— confirmed 与兜底分支都跳过，只认 estimate_growth；
+    // 无分时估值时如实显示无当日涨幅，等 T+1 净值披露后的确认会话。
     let now = chrono::Local::now();
     let nav_day = crate::calendar::normalize_net_value_date(&net_value_date, &now);
-    let in_confirm = day_growth.is_some()
+    let is_qdii = crate::providers::fundmnfinfo::is_qdii_name(&name);
+    let in_confirm = !is_qdii
+        && day_growth.is_some()
         && !nav_day.is_empty()
         && crate::calendar::is_confirmed_session_active(&nav_day, &now);
     let (percent, percent_source) = if in_confirm {
         (day_growth, Some("confirmed".to_string()))
     } else if let Some(eg) = estimate_growth {
         (Some(eg), Some("estimate".to_string()))
-    } else if let Some(dg) = day_growth {
-        (Some(dg), None)
+    } else if !is_qdii && day_growth.is_some() {
+        (day_growth, None)
     } else {
         (None, None)
     };

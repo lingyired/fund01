@@ -508,7 +508,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
 /// （实测 queryFundEstimateIntraday 0 点），且其资料接口会把 T+1 披露的
 /// 昨日涨幅冒充今日涨幅，混入会误导；QDII 的可靠估值只来自 FundMNFInfo
 /// 链路（盘中 GSZ 正确；空窗期如实无估值，等 T+1 净值确认）。
-fn is_qdii_name(name: &str) -> bool {
+pub(crate) fn is_qdii_name(name: &str) -> bool {
     name.to_uppercase().contains("QDII")
 }
 
