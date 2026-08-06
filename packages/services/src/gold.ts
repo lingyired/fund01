@@ -273,3 +273,30 @@ export async function getGoldRealtime({holding = 0, avgPrice = 0} = {}) {
     costPnlPercent,
   }
 }
+
+// ------------------------- 黄金涨跌幅缓存（基金估值兜底） -------------------------
+
+let goldPctCache: {pct: number; exp: number} | null = null
+const GOLD_PCT_TTL = 60_000
+
+/**
+ * AU9999 今日涨跌幅（%），带 60s 缓存。
+ * 供黄金主题基金（黄金/上海金 ETF 联接等）在无盘中估值、无重仓股可自算时
+ * 用黄金现货涨跌幅近似基金今日估值（联接基金跟踪上海金，与 AU9999 走势一致）。
+ * 失败返回 null 且不缓存（下次再试）。
+ */
+export async function getGoldPercentCached(): Promise<number | null> {
+  if (goldPctCache && Date.now() < goldPctCache.exp) return goldPctCache.pct
+  try {
+    const quote: any = await fetchQuote()
+    const pct = quote.percent
+    if (pct != null && Number.isFinite(pct)) {
+      goldPctCache = {pct, exp: Date.now() + GOLD_PCT_TTL}
+      return pct
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.warn('[fund01] getGoldPercent 获取 AU9999 行情失败', msg)
+  }
+  return null
+}

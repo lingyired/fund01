@@ -393,6 +393,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     let mut net_value_date = String::new();
     let mut mnf_time: Option<String> = None;
     let mut use_calc_needed = false;
+    // 板块（提前定义：黄金主题兜底需要它；后续板块推断在原位继续用同一变量）
+    let mut sectors = fund.sectors.clone();
 
     if let Some(item) = info {
         let p = parse_fund_mnfinfo_item(item);
@@ -449,13 +451,31 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
             } else {
                 eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
+        } else if is_gold_themed(&name, &sectors) {
+            // 黄金主题基金兜底：黄金/上海金 ETF 联接无重仓股（FundMNInverstPosition
+            // 返回 fundStocks 空且 ETFCODE=None），自算估值必然失败；
+            // 用 AU9999 现货涨跌幅近似今日估值（联接基金跟踪上海金，走势一致）。
+            if let Some(pct) = crate::gold::get_gold_percent_cached().await {
+                if pct.is_finite() && pct.abs() < 30.0 {
+                    let calc_gsz = round4(net_value.unwrap() * (1.0 + pct / 100.0));
+                    estimate_growth = Some(pct);
+                    estimate_net_value = Some(calc_gsz);
+                    percent = Some(pct);
+                    percent_source = Some("estimate".to_string());
+                    use_calc = true;
+                    eprintln!("[fund01] FundMNFInfo 黄金现货兜底估值成功 code={code} pct={pct} calc_gsz={calc_gsz}");
+                } else {
+                    eprintln!("[fund01] FundMNFInfo 黄金兜底估值异常值 code={code} pct={pct}");
+                }
+            } else {
+                eprintln!("[fund01] FundMNFInfo 黄金兜底估值失败 code={code}（AU9999 行情不可用）");
+            }
         } else {
             eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败）");
         }
     }
 
     // 板块推断
-    let mut sectors = fund.sectors.clone();
     if crate::theme::sectors_need_refresh(&sectors, &name) {
         let next = crate::theme::fetch_fund_sectors_queued(&code, &name).await;
         if !next.is_empty() {
@@ -493,6 +513,13 @@ pub async fn refresh_sectors_if_needed(code: &str, name: &str, sectors: &[String
         }
     }
     out
+}
+
+/// 黄金主题基金：名称含黄金/上海金/金ETF/贵金属，或板块含黄金/上海金。
+/// 用于无盘中估值且无重仓股可自算时，用 AU9999 现货涨跌幅兜底估值。
+fn is_gold_themed(name: &str, sectors: &[String]) -> bool {
+    const KW: [&str; 4] = ["黄金", "上海金", "金ETF", "贵金属"];
+    KW.iter().any(|k| name.contains(k) || sectors.iter().any(|s| s.contains(k)))
 }
 
 pub(crate) fn round2(n: f64) -> f64 {
