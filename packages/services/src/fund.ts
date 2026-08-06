@@ -1046,6 +1046,36 @@ export async function getCalcGszzl(code: string): Promise<number | null> {
   }
 }
 
+/** fund123 分时估值兜底：自算估值失败（无股票重仓）时，用该基金在蚂蚁基金的
+ *  官方分时估值（queryFundEstimateIntraday 末点）补估算净值与涨幅。
+ *  返回 {growth(%), netValue}；fundKey 缺失时用 searchFund 补查；失败返回 null。 */
+async function fund123EstimateFallback(
+  code: string,
+  fundKey?: string,
+): Promise<{growth: number; netValue: number} | null> {
+  let key = fundKey || ''
+  if (!key) {
+    try {
+      const s = await searchFund(code)
+      key = s.fundKey
+    } catch {
+      return null
+    }
+  }
+  if (!key) return null
+  try {
+    const {latest} = await getFundEstimateIntraday(key)
+    const g = latest?.growth
+    const n = latest?.netValue
+    if (g != null && n != null && Number.isFinite(g) && Number.isFinite(n) && n > 0 && Math.abs(g) < 30) {
+      return {growth: g, netValue: n}
+    }
+  } catch {
+    // fall through
+  }
+  return null
+}
+
 /** 解析单条 FundMNFInfo item 为标准化的行情字段。
  *  当日收益公式（与参考实现一致）：(今日净值 − 昨日净值) × 份额
  *
@@ -1236,6 +1266,19 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
         percent = calcGszzl
         percentSource = 'estimate'
         useCalc = true
+      } else {
+        // 自算失败（无重仓股可加权：黄金/商品/QDII 等）→ fallback fund123 官方分时估值
+        const est = await fund123EstimateFallback(code, fund.fundKey)
+        if (est) {
+          estimateGrowth = est.growth
+          estimateNetValue = est.netValue
+          percent = est.growth
+          percentSource = 'estimate'
+          useCalc = true
+          console.warn(
+            `[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code=${code} growth=${est.growth} est_net=${est.netValue}`,
+          )
+        }
       }
     }
 
