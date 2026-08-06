@@ -450,7 +450,20 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
         } else {
-            eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败）");
+            // 自算失败（无重仓股可加权：黄金/商品/QDII 等）→ fallback fund123 官方分时估值
+            match fund123_estimate_fallback(&code, fund).await {
+                Some((eg, en)) => {
+                    estimate_growth = Some(eg);
+                    estimate_net_value = Some(en);
+                    percent = Some(eg);
+                    percent_source = Some("estimate".to_string());
+                    use_calc = true;
+                    eprintln!("[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code={code} growth={eg} est_net={en}");
+                }
+                None => {
+                    eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用）");
+                }
+            }
         }
     }
 
@@ -483,9 +496,42 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     }
 }
 
+/// fund123 分时估值兜底：自算估值失败（无股票重仓）时，用该基金在蚂蚁基金的
+/// 官方分时估值（queryFundEstimateIntraday 末点）补估算净值与涨幅。
+/// 返回 (估算涨幅%, 估算净值)；fund_key 缺失时用 searchFund 补查；失败返回 None。
+async fn fund123_estimate_fallback(
+    code: &str,
+    fund: &FundQuoteInput,
+) -> Option<(f64, f64)> {
+    use crate::providers::fund123;
+    // 1. 确保 fund_key（config 已存则直接用，否则 searchFund 补查）
+    let mut fund_key = fund.fund_key.clone().unwrap_or_default();
+    if fund_key.is_empty() {
+        match fund123::search_fund(code).await {
+            Ok(s) => fund_key = s.fund_key,
+            Err(_) => return None,
+        }
+    }
+    if fund_key.is_empty() {
+        return None;
+    }
+    // 2. 拉分时估值，取末点
+    match fund123::get_fund_estimate_intraday(&fund_key).await {
+        Ok((_, Some(latest))) => {
+            let growth = latest.growth?;
+            let est_net = latest.net_value?;
+            if growth.is_finite() && est_net.is_finite() && est_net > 0.0 && growth.abs() < 30.0 {
+                Some((growth, est_net))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 // 供 fund123 provider 复用（getFundQuote 需要板块推断）
-pub async fn refresh_sectors_if_needed(code: &str, name: &str, sectors: &[String]) -> Vec<String> {
-    let mut out = sectors.to_vec();
+pub async fn refresh_sectors_if_needed(code: &str, name: &str, sectors: &[String]) -> Vec<String> {    let mut out = sectors.to_vec();
     if crate::theme::sectors_need_refresh(&out, name) {
         let next = crate::theme::fetch_fund_sectors_queued(code, name).await;
         if !next.is_empty() {
