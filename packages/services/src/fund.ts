@@ -1068,7 +1068,9 @@ function isQdiiName(name: string): boolean {
 /** fund123 分时估值兜底：自算估值失败（无股票重仓）时，用该基金在蚂蚁基金的
  *  官方分时估值（queryFundEstimateIntraday 末点）补估算净值与涨幅。
  *  返回 {growth(%), netValue}；fundKey 缺失时用 searchFund 补查；失败返回 null。
- *  ⚠️ 仅限非 QDII 基金调用（QDII 由调用方用 isQdiiName 过滤）。 */
+ *  ⚠️ 仅限非 QDII 基金调用（QDII 由调用方用 isQdiiName 过滤）。
+ *  ⚠️ 单向兜底（防循环）：本函数内部只调 fund123（searchFund / getFundEstimateIntraday），
+ *  不得再回调 FundMNFInfo 或触发其他数据源 fallback；每个基金最多走一次兜底。 */
 async function fund123EstimateFallback(
   code: string,
   fundKey?: string,

@@ -516,6 +516,8 @@ pub(crate) fn is_qdii_name(name: &str) -> bool {
 /// 官方分时估值（queryFundEstimateIntraday 末点）补估算净值与涨幅。
 /// 返回 (估算涨幅%, 估算净值)；fund_key 缺失时用 searchFund 补查；失败返回 None。
 /// ⚠️ 仅限非 QDII 基金调用（QDII 由调用方用 is_qdii_name 过滤）。
+/// ⚠️ 单向兜底（防循环）：本函数内部只调 fund123（searchFund / queryFundEstimateIntraday），
+/// 不得再回调 FundMNFInfo 或触发其他数据源 fallback；每个基金最多走一次兜底。
 async fn fund123_estimate_fallback(
     code: &str,
     fund: &FundQuoteInput,
