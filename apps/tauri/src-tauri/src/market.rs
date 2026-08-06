@@ -43,9 +43,25 @@ fn find_index_meta(code: &str) -> Option<&'static IndexMeta> {
         .find(|i| i.code == key || i.secid.ends_with(&format!(".{key}")))
 }
 
-/// 指数实时行情（对应 getIndices）
-pub async fn get_indices() -> Result<Vec<IndexItem>, String> {
-    let secids: Vec<String> = INDEX_LIST.iter().map(|i| i.secid.to_string()).collect();
+/// 该指数 code 是否美股指数（NDX/SPX）
+pub fn is_us_index_code(code: &str) -> bool {
+    INDEX_LIST.iter().any(|i| i.sina_us.is_some() && i.code == code)
+}
+
+/// 仅 A 股指数（上证/深证/北证/科创等，排除美股 NDX/SPX）
+pub async fn get_a_share_indices() -> Result<Vec<IndexItem>, String> {
+    let list: Vec<&IndexMeta> = INDEX_LIST.iter().filter(|i| i.sina_us.is_none()).collect();
+    fetch_indices(&list).await
+}
+
+/// 仅美股指数（NDX / SPX）
+pub async fn get_us_indices() -> Result<Vec<IndexItem>, String> {
+    let list: Vec<&IndexMeta> = INDEX_LIST.iter().filter(|i| i.sina_us.is_some()).collect();
+    fetch_indices(&list).await
+}
+
+async fn fetch_indices(list: &[&IndexMeta]) -> Result<Vec<IndexItem>, String> {
+    let secids: Vec<String> = list.iter().map(|i| i.secid.to_string()).collect();
     let query = http::params(&[
         ("fltt", "2"),
         ("invt", "2"),
@@ -62,8 +78,8 @@ pub async fn get_indices() -> Result<Vec<IndexItem>, String> {
                 .map(|c| (c.to_string(), d))
         })
         .collect();
-    let mut out = Vec::with_capacity(INDEX_LIST.len());
-    for item in INDEX_LIST {
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
         let row = by_code.get(item.code).copied().or_else(|| {
             by_code.get(item.secid.split('.').nth(1).unwrap_or("")).copied()
         });

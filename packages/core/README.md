@@ -9,7 +9,7 @@
 | `types.ts` | 共享类型定义：`FundRecord` / `AppConfig` / `HoldingsPayload` / `WatchlistPayload` / `IndexItem` / `MarketOverview` / `GoldPayload` / `QuoteUpdate` / `ResolveFundPayload` / `IntradayPoint` 等 |
 | `port.ts` | 三个 Port 接口：`DataPort` / `ConfigPort` / `EventPort` / `Ports` |
 | `holdingsCalc.ts` | 持仓收益计算：`calcHoldings` / `mergeWatchlist` / `truncPnl2` / `resolveNavPair` |
-| `tradingCalendar.ts` | 交易日判断：`nextTradingDay` / `isTradingDayStarted` / `isAnyMarketActive` / `shouldRefreshFund` / `shouldRefreshAShareMarket` / `shouldRefreshGold` / `isConfirmedSessionActive` |
+| `tradingCalendar.ts` | 交易日判断：`nextTradingDay` / `isTradingDayStarted` / `isAShareTradingTime` / `isGoldDaySession` / `isGoldNightSession` / `isDayMarketActive` / `isNightMarketActive` / `shouldRefreshFund` / `shouldRefreshAShareMarket` / `shouldRefreshUSIndex` / `isConfirmedSessionActive` |
 | `portfolioLogic.ts` | 配置归一化纯逻辑：`normalizeConfig` / `normalizeFund` / `normalizeFundMap` / `clampRefreshInterval` / `DEFAULT_CONFIG` / `DEFAULT_REFRESH_INTERVAL` / `MIN_REFRESH_INTERVAL` |
 | `utils.ts` | 工具函数：`cn`（clsx + tailwind-merge）/ `formatPct` / `formatMoney` / `fmtDate` 等 |
 | `index.ts` | 统一导出（`export *`） |
@@ -33,8 +33,9 @@ import {
   // 持仓计算
   calcHoldings, mergeWatchlist, truncPnl2,
   // 交易日
-  nextTradingDay, isTradingDayStarted, isAnyMarketActive,
-  shouldRefreshFund, shouldRefreshAShareMarket, shouldRefreshGold,
+  nextTradingDay, isTradingDayStarted, isAShareTradingTime,
+  isGoldDaySession, isGoldNightSession, isDayMarketActive, isNightMarketActive,
+  shouldRefreshFund, shouldRefreshAShareMarket, shouldRefreshUSIndex,
   isConfirmedSessionActive,
   // 配置归一化
   normalizeConfig, normalizeFund, clampRefreshInterval,

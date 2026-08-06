@@ -23,6 +23,7 @@ const MNFINFO_DEVICEID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
     let mut out = HashMap::new();
     for chunk in codes.chunks(200) {
+        #[cfg(debug_assertions)]
         eprintln!("[fund01] FundMNFInfo 请求 chunk={} codes={}", chunk.len(), chunk.join(","));
         let query = http::params(&[
             ("pageIndex", "1"),
@@ -67,14 +68,19 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
         }
         if let Some(data) = data {
             if let Some(list) = data.get("Datas").and_then(|v| v.as_array()) {
+                #[cfg(debug_assertions)]
                 let mut hit = 0;
                 for item in list {
                     let code = pad6(item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""));
                     if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
                         out.insert(code, item.clone());
-                        hit += 1;
+                        #[cfg(debug_assertions)]
+                        {
+                            hit += 1;
+                        }
                     }
                 }
+                #[cfg(debug_assertions)]
                 eprintln!("[fund01] FundMNFInfo 响应 Datas={} 有效命中={hit}", list.len());
             } else {
                 eprintln!(
@@ -87,6 +93,7 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
             eprintln!("[fund01] FundMNFInfo chunk 全部尝试失败（网络层）");
         }
     }
+    #[cfg(debug_assertions)]
     eprintln!("[fund01] FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
     out
 }
@@ -437,6 +444,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 percent = Some(calc_gszzl);
                 percent_source = Some("estimate".to_string());
                 use_calc = true;
+                #[cfg(debug_assertions)]
                 eprintln!("[fund01] FundMNFInfo 自算估值成功 code={code} calc_gszzl={calc_gszzl} calc_gsz={calc_gsz}");
             } else {
                 eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");

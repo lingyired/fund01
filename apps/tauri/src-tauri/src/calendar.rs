@@ -136,8 +136,18 @@ pub fn should_refresh_a_share_market(now: &DateTime<Local>) -> bool {
     is_a_share_trading_time(now)
 }
 
-/// 黄金 AU9999：周一 09:00 - 周六 03:00（日盘 + 夜盘放宽到 03:00 容错）
-pub fn should_refresh_gold(now: &DateTime<Local>) -> bool {
+/// 黄金 AU9999 日盘：周一至周五 09:00-15:30（归日盘循环）
+pub fn is_gold_day_session(now: &DateTime<Local>) -> bool {
+    let day = now.weekday();
+    if day == Weekday::Sat || day == Weekday::Sun {
+        return false;
+    }
+    let m = hms_to_minutes(now);
+    m >= 9 * 60 && m <= 15 * 60 + 30
+}
+
+/// 黄金 AU9999 夜盘：周一 20:00 - 周六 03:00（归夜盘循环；周一凌晨 0-3 点按原语义保留）
+pub fn is_gold_night_session(now: &DateTime<Local>) -> bool {
     let day = now.weekday();
     let m = hms_to_minutes(now);
     if day == Weekday::Sun {
@@ -146,7 +156,7 @@ pub fn should_refresh_gold(now: &DateTime<Local>) -> bool {
     if day == Weekday::Sat {
         return m <= 3 * 60;
     }
-    (m >= 9 * 60 && m <= 15 * 60 + 30) || m >= 20 * 60 || m <= 3 * 60
+    m >= 20 * 60 || m <= 3 * 60
 }
 
 /// 美股指数（NDX/SPX）：周一 21:30 - 周六 04:00（夏令时近似）
@@ -162,12 +172,14 @@ pub fn should_refresh_us_index(now: &DateTime<Local>) -> bool {
     m >= 21 * 60 + 30 || m <= 4 * 60
 }
 
-/// 当前是否有任一数据源处于可刷新时段（决定刷新间隔档位）
-pub fn is_any_market_active(now: &DateTime<Local>) -> bool {
-    should_refresh_fund(now)
-        || should_refresh_a_share_market(now)
-        || should_refresh_gold(now)
-        || should_refresh_us_index(now)
+/// 日盘市场活跃（决定日盘循环档位）：黄金日盘 09:00 或 A 股盘中 09:15 起，至 15:30
+pub fn is_day_market_active(now: &DateTime<Local>) -> bool {
+    is_gold_day_session(now) || is_a_share_trading_time(now)
+}
+
+/// 夜盘市场活跃（决定夜盘循环档位）：黄金夜盘 20:00 或 美股 21:30 起，至次日 04:00
+pub fn is_night_market_active(now: &DateTime<Local>) -> bool {
+    is_gold_night_session(now) || should_refresh_us_index(now)
 }
 
 /// 确认会话：净值日的下一交易日尚未开盘（09:15 前）

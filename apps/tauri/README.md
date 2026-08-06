@@ -175,50 +175,22 @@ AppDelegate 未实现 `applicationShouldTerminate:`）。做法：setup 时用 o
 
 ## 3. 后端定时任务（Rust）
 
-Rust 后端是常驻进程（不像 MV3 SW 30s 休眠）。用 `tauri::async_runtime::spawn` + `tokio::time::interval`：
+Rust 后端是常驻进程（不像 MV3 SW 30s 休眠）。`refresh.rs` 用两个独立
+`tauri::async_runtime::spawn` + `tokio::time::sleep` 循环，窗口不重叠、任意时刻至多一个走盘中档：
 
-```rust
-use tauri::async_runtime;
-use std::time::Duration;
+| 循环 | 负责数据 | 盘中窗口（用 trading 档，其余 non_trading 档） | 日志前缀 |
+|---|---|---|---|
+| 日盘 | 基金（持仓+自选）+ A 股指数 + 大盘 + 黄金日盘 | `is_day_market_active` 09:00–15:30 | 定时器日 |
+| 夜盘 | 美股指数（NDX/SPX）+ 黄金夜盘 | `is_night_market_active` 20:00–次日 04:00 | 定时器夜 |
 
-fn start_refresh_loop(app: AppHandle) {
-    async_runtime::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(60));
-        loop {
-            interval.tick().await;
-            if let Err(e) = refresh_all(&app).await {
-                eprintln!("[fund01] refresh failed: {:?}", e);
-            }
-        }
-    });
-}
-
-async fn refresh_all(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let config = load_config(app).await?;
-    let (holdings, watchlist, indices, market, gold) = tokio::join!(
-        fetch_funds_quotes(&config.holdings),
-        fetch_funds_quotes(&config.watchlist),
-        fetch_indices(),
-        fetch_market_overview(),
-        fetch_gold_realtime(&config.gold),
-    );
-    // 合并计算（Rust 重写或 sidecar 调 TS）
-    let holdings_result = calc_holdings(&config.holdings, &holdings?);
-    // ...
-    // 推送事件到前端
-    app.emit("quote-update", QuoteUpdate {
-        holdings: holdings_result,
-        watchlist: watchlist_result,
-        indices, market, gold,
-        time: chrono::Utc::now().timestamp_millis(),
-    })?;
-    // 更新托盘图标徽章
-    update_tray_badge(app, holdings_result.summary.total_pnl_pct);
-    Ok(())
-}
-```
-
-CSRF token、内存缓存都可常驻（Rust 全局变量或 `tauri::State`）。
+- 间隔取 `config.settings.refresh_interval`（trading / non_trading 共用一套），低于 5s 会被夹到 5s
+- 每轮醒来先打 `[fund01] ----------------------定时器日/夜` 日志（`trigger_refresh` 手动刷新不走）
+- **按需拉取**：指数看板无 NDX/SPX 不拉美股、`show_gold=false` 或持仓 0 不拉黄金；夜盘循环在
+  无美股指数且无黄金持仓时退化为低频空转（sleep 恒为 non_trading，醒来不拉不广播）
+- 黄金守卫用 `is_gold_day_session` / `is_gold_night_session`（日/夜窗口合起来覆盖全天，force 全量不重复拉）
+- 指数按市场分拉（`get_a_share_indices` / `get_us_indices`），写入 `QuoteUpdate.indices` 时与另一市场旧缓存合并
+- 刷新入口：循环走 `refresh_day` / `refresh_night`；`trigger_refresh` 走全量 `refresh_all`（依次调两个，force=true 基金/指数跳过时段过滤）
+- 每轮合并缓存 → `state.quote` → `app.emit("quote-update")` → `menubar::update_menubar_with`
 
 ## 4. 事件推送（后端 → 前端）
 

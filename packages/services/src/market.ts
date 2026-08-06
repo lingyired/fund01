@@ -58,8 +58,18 @@ async function eastmoneyGet(
   throw lastErr || new Error('eastmoney request failed')
 }
 
-export async function getIndices() {
-  const secids = INDEX_LIST.map((i) => i.secid).join(',')
+export type IndexScope = 'all' | 'ashare' | 'us'
+
+/** 该指数 code 是否美股指数（NDX/SPX） */
+export function isUsIndexCode(code: string): boolean {
+  return INDEX_LIST.some((i) => i.sinaUs && i.code === code)
+}
+
+export async function getIndices(scope: IndexScope = 'all') {
+  const list = INDEX_LIST.filter((i) =>
+    scope === 'all' ? true : scope === 'us' ? !!i.sinaUs : !i.sinaUs,
+  )
+  const secids = list.map((i) => i.secid).join(',')
   const data = await eastmoneyGet(
     '/api/qt/ulist.np/get',
     {
@@ -72,7 +82,7 @@ export async function getIndices() {
   )
   const diff = data?.data?.diff || []
   const byCode = new Map<string, any>(diff.map((d: any) => [String(d.f12), d]))
-  return INDEX_LIST.map((item) => {
+  return list.map((item) => {
     const row = byCode.get(item.code) || byCode.get(item.secid.split('.')[1])
     const percent = row?.f3
     const change = row?.f4

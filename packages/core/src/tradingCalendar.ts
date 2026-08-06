@@ -102,17 +102,24 @@ export function shouldRefreshAShareMarket(now = new Date()): boolean {
   return isAShareTradingTime(now)
 }
 
+/** 黄金 AU9999 日盘：周一至周五 09:00-15:30（归日盘循环） */
+export function isGoldDaySession(now = new Date()): boolean {
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+  const m = hmsToMinutes(now)
+  return m >= 9 * 60 && m <= 15 * 60 + 30
+}
+
 /**
- * 黄金 AU9999（上金所）：周一 09:00 - 周六 03:00
- * 日盘 09:00-15:30 + 夜盘 20:00 - 次日 02:30（这里放宽到 03:00 容错）
+ * 黄金 AU9999 夜盘：周一 20:00 - 周六 03:00（归夜盘循环；周一凌晨 0-3 点按原语义保留）
+ * 周日全天停；周六仅凌晨夜盘
  */
-export function shouldRefreshGold(now = new Date()): boolean {
+export function isGoldNightSession(now = new Date()): boolean {
   const day = now.getDay()
   const m = hmsToMinutes(now)
-  if (day === 0) return false // 周日全天停
-  if (day === 6) return m <= 3 * 60 // 周六仅凌晨夜盘
-  // 周一到周五
-  return (m >= 9 * 60 && m <= 15 * 60 + 30) || m >= 20 * 60 || m <= 3 * 60
+  if (day === 0) return false
+  if (day === 6) return m <= 3 * 60
+  return m >= 20 * 60 || m <= 3 * 60
 }
 
 /**
@@ -127,14 +134,14 @@ export function shouldRefreshUSIndex(now = new Date()): boolean {
   return m >= 21 * 60 + 30 || m <= 4 * 60
 }
 
-/** 当前是否有任一数据源处于可刷新时段（决定 alarm 用 trading 还是 nonTrading 间隔） */
-export function isAnyMarketActive(now = new Date()): boolean {
-  return (
-    shouldRefreshFund(now) ||
-    shouldRefreshAShareMarket(now) ||
-    shouldRefreshGold(now) ||
-    shouldRefreshUSIndex(now)
-  )
+/** 日盘市场活跃（决定日盘循环档位）：黄金日盘 09:00 或 A 股盘中 09:15 起，至 15:30 */
+export function isDayMarketActive(now = new Date()): boolean {
+  return isGoldDaySession(now) || isAShareTradingTime(now)
+}
+
+/** 夜盘市场活跃（决定夜盘循环档位）：黄金夜盘 20:00 或 美股 21:30 起，至次日 04:00 */
+export function isNightMarketActive(now = new Date()): boolean {
+  return isGoldNightSession(now) || shouldRefreshUSIndex(now)
 }
 
 /**

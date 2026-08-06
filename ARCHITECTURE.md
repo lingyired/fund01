@@ -296,7 +296,7 @@ tsconfig 的 `paths` 字段只对 TypeScript 类型检查生效，rsbuild 打包
 
 ### 9.6 市场时段过滤
 
-SW 的 `refreshAll` 不是每次都拉所有数据源，而是根据 `shouldRefreshFund` / `shouldRefreshAShareMarket` / `shouldRefreshGold` 跳过非交易时段的数据源（保留旧缓存）。仅当至少刷新了一个数据源时才写 `cache-time`，避免 UI 无谓重载。
+SW 的 `refreshAll` 不是每次都拉所有数据源，而是按日盘/夜盘两个 alarm 分源，并用 `shouldRefreshFund` / `shouldRefreshAShareMarket` / `isGoldDaySession` / `shouldRefreshUSIndex` / `isGoldNightSession` 跳过非交易时段的数据源（保留旧缓存）。仅当至少刷新了一个数据源时才写 `cache-time`，避免 UI 无谓重载。
 
 ### 9.7 Chrome popup 模式 vs dashboard 标签页模式（关键差异 + 待解决问题）
 

@@ -80,8 +80,8 @@ pub fn run() {
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
 
-            // 启动定时刷新循环 + 立即刷新一次
-            refresh::start_refresh_loop(handle.clone());
+            // 启动三个定时刷新循环（A股/美股/黄金）+ 立即刷新一次
+            refresh::start_refresh_loops(handle.clone());
             refresh::trigger_refresh(handle);
 
             Ok(())

@@ -4,20 +4,25 @@ import {
   resolveFund,
   fetchFundIntradayForDialog,
 } from '@fund01/services'
-import {getIndices, getIndexHistory, getMarketOverview} from '@fund01/services'
+import {getIndices, getIndexHistory, getMarketOverview, isUsIndexCode} from '@fund01/services'
 import {getGoldRealtime} from '@fund01/services'
 import {
-  isAnyMarketActive,
+  isGoldDaySession,
+  isGoldNightSession,
+  isDayMarketActive,
+  isNightMarketActive,
   shouldRefreshAShareMarket,
   shouldRefreshFund,
-  shouldRefreshGold,
+  shouldRefreshUSIndex,
   calcHoldings,
   mergeWatchlist,
   computeBadge,
 } from '@fund01/core'
 import type {AppConfig} from '@fund01/core'
 
-const REFRESH_ALARM = 'refresh-quotes'
+/** 两个独立 alarm：日盘（基金+A股指数+大盘+黄金日盘）、夜盘（美股指数+黄金夜盘），窗口不重叠 */
+const ALARM_DAY = 'refresh-day'
+const ALARM_NIGHT = 'refresh-night'
 const CONFIG_KEY = 'session-config'
 const CACHE_KEYS = {
   holdings: 'cache-holdings',
@@ -27,6 +32,9 @@ const CACHE_KEYS = {
   gold: 'cache-gold',
   time: 'cache-time',
 } as const
+
+/** 状态类日志开关：生产构建（rsbuild build）时 process.env.NODE_ENV='production'，常量折叠为 false，定时器日志不输出 */
+const IS_DEBUG = process.env.NODE_ENV !== 'production'
 
 /** 默认刷新间隔（秒），与 portfolioLogic 保持一致 */
 const DEFAULT_REFRESH_INTERVAL = {trading: 60, nonTrading: 600}
@@ -110,31 +118,63 @@ function mergeStaleEstimate(
 }
 
 /**
- * 按各数据源的市场时段刷新；非交易时段的数据源跳过（保留旧缓存）。
+ * 按数据源的市场时段刷新；非交易时段的数据源跳过（保留旧缓存）。
+ * kind 指定本次刷新哪些数据源：'day'（基金+A股指数+大盘+黄金日盘）/ 'night'（美股指数+黄金夜盘）/
+ * 'all'（全量，REFRESH 手动 / 导入后）。
  *
  * 调试期：所有 fallback / 重试 / 熔断全部禁用。每个任务失败即打印完整
  * 错误信息（含 stack / url / status），调通后再恢复多源 fallback。
  */
-async function refreshAll(force = false): Promise<void> {
+type RefreshKind = 'day' | 'night' | 'all'
+
+/** 配置是否需要美股指数（指数看板含 NDX/SPX） */
+function hasUS(config: AppConfig): boolean {
+  return (config.settings?.selectedIndices || []).some((c) => isUsIndexCode(String(c)))
+}
+
+/** 配置是否需要黄金（显示开关开启且持仓 > 0） */
+function hasGold(config: AppConfig): boolean {
+  return config.settings?.showGold !== false && (config.gold?.holding || 0) > 0
+}
+
+/** 指数数组按市场拆分：{a: A股, us: 美股} */
+function splitIndices(list: any[] | null | undefined): {a: any[]; us: any[]} {
+  const a: any[] = []
+  const us: any[] = []
+  for (const i of list || []) {
+    if (isUsIndexCode(String(i?.code))) us.push(i)
+    else a.push(i)
+  }
+  return {a, us}
+}
+
+async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<void> {
   const config = await getSessionConfig()
   if (!config) {
     console.warn('[fund01] refreshAll: session-config 为空，跳过')
     return
   }
   const now = new Date()
+  const wantDay = kind === 'all' || kind === 'day'
+  const wantNight = kind === 'all' || kind === 'night'
+  const usCfg = hasUS(config)
+  const goldCfg = hasGold(config)
   const holdFunds = Object.values(config.holdings || {})
   const watchFunds = Object.values(config.watchlist || {})
 
   // force=true 时（用户主动 REFRESH / 导入后刷新）跳过交易时段过滤，
-  // 确保用户操作后立即拉取数据，不受时段限制
-  const canRefreshFund = force || shouldRefreshFund(now)
-  const canRefreshAShare = force || shouldRefreshAShareMarket(now)
-  const canRefreshGold = force || shouldRefreshGold(now)
+  // 确保用户操作后立即拉取数据，不受时段限制（黄金除外：日/夜窗口合起来覆盖全天，
+  // 按 session 判定即可，避免 force 全量时日/夜重复拉同一份黄金）
+  const canRefreshFund = wantDay && (force || shouldRefreshFund(now))
+  const canRefreshAShare = wantDay && (force || shouldRefreshAShareMarket(now))
+  const canRefreshUS = wantNight && usCfg && (force || shouldRefreshUSIndex(now))
+  const canRefreshGold =
+    goldCfg && ((wantDay && isGoldDaySession(now)) || (wantNight && isGoldNightSession(now)))
 
   const quoteSource =
     config.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
 
-  type TaskKey = 'holdings' | 'watchlist' | 'indices' | 'market' | 'gold'
+  type TaskKey = 'holdings' | 'watchlist' | 'indicesA' | 'indicesUs' | 'market' | 'gold'
   const tasks: Promise<any>[] = []
   const taskKeys: TaskKey[] = []
 
@@ -158,12 +198,17 @@ async function refreshAll(force = false): Promise<void> {
   }
   // A 股指数 + 大盘
   if (canRefreshAShare) {
-    taskKeys.push('indices')
-    tasks.push(getIndices())
+    taskKeys.push('indicesA')
+    tasks.push(getIndices('ashare'))
     taskKeys.push('market')
     tasks.push(getMarketOverview())
   }
-  // 黄金
+  // 美股指数
+  if (canRefreshUS) {
+    taskKeys.push('indicesUs')
+    tasks.push(getIndices('us'))
+  }
+  // 黄金（日盘或夜盘命中时拉一次）
   if (canRefreshGold) {
     taskKeys.push('gold')
     tasks.push(
@@ -241,16 +286,27 @@ async function refreshAll(force = false): Promise<void> {
   const patch: Record<string, any> = {[CACHE_KEYS.time]: Date.now()}
   if (holdingsResult) patch[CACHE_KEYS.holdings] = holdingsResult
   if (watchlistResult) patch[CACHE_KEYS.watchlist] = watchlistResult.list
-  if (canRefreshAShare) {
-    const indicesValue = fulfilled('indices')
-    const marketValue = fulfilled('market')
-    if (indicesValue) patch[CACHE_KEYS.indices] = indicesValue
-    if (marketValue) patch[CACHE_KEYS.market] = marketValue
+
+  // 指数：新拉的市场部分 + 旧缓存另一市场部分合并，避免单市场刷新覆盖整份
+  const indicesAValue = fulfilled('indicesA')
+  const indicesUsValue = fulfilled('indicesUs')
+  if (indicesAValue || indicesUsValue) {
+    const cached = await chrome.storage.local.get(CACHE_KEYS.indices)
+    const prev = (cached[CACHE_KEYS.indices] as any[] | undefined) || []
+    const {a: prevA, us: prevUs} = splitIndices(prev)
+    const {a: newA, us: newUs} = splitIndices([
+      ...(indicesAValue || []),
+      ...(indicesUsValue || []),
+    ])
+    patch[CACHE_KEYS.indices] = [
+      ...(newA.length ? newA : prevA),
+      ...(newUs.length ? newUs : prevUs),
+    ]
   }
-  if (canRefreshGold) {
-    const goldValue = fulfilled('gold')
-    if (goldValue) patch[CACHE_KEYS.gold] = goldValue
-  }
+  const marketValue = fulfilled('market')
+  if (marketValue) patch[CACHE_KEYS.market] = marketValue
+  const goldValue = fulfilled('gold')
+  if (goldValue) patch[CACHE_KEYS.gold] = goldValue
 
   await chrome.storage.local.set(patch)
 
@@ -281,31 +337,63 @@ async function applyBadge(config: AppConfig | null): Promise<void> {
   chrome.action.setBadgeBackgroundColor({color})
 }
 
-/** 根据当前是否有任一市场开盘，重新设置下一次 alarm 的延迟 */
-function scheduleNextAlarm(config: AppConfig | null): void {
+/** 按循环盘中窗口调度 alarm：盘中用 trading 间隔，非盘中用 nonTrading */
+function scheduleAlarm(name: string, config: AppConfig | null, isActive: boolean): void {
   const {trading, nonTrading} = getRefreshInterval(config)
-  const active = isAnyMarketActive(new Date())
-  const delaySec = active ? trading : nonTrading
+  const delaySec = isActive ? trading : nonTrading
   // chrome.alarms 最小 0.5 分钟，转分钟时向上取整避免被截断
   const delayMin = Math.max(0.5, delaySec / 60)
-  chrome.alarms.create(REFRESH_ALARM, {delayInMinutes: delayMin})
+  chrome.alarms.create(name, {delayInMinutes: delayMin})
+}
+
+/** 夜盘是否「需要活跃」：有美股指数或黄金持仓，夜盘窗口才高频，否则低频空转 */
+function nightNeeded(config: AppConfig | null): boolean {
+  return !!config && (hasUS(config) || hasGold(config))
+}
+
+/** 根据当前各市场状态重排两个 alarm（配置变化 / 安装时调用） */
+function scheduleAllAlarms(config: AppConfig | null): void {
+  const now = new Date()
+  scheduleAlarm(ALARM_DAY, config, isDayMarketActive(now))
+  scheduleAlarm(ALARM_NIGHT, config, isNightMarketActive(now) && nightNeeded(config))
+}
+
+/** alarm 名 → 日志前缀 */
+const ALARM_TAGS: Record<string, string> = {
+  [ALARM_DAY]: '日盘',
+  [ALARM_NIGHT]: '夜盘',
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  // 首次安装：用默认间隔启动一次
-  scheduleNextAlarm(null)
+  // 首次安装：用默认间隔启动两个 alarm
+  scheduleAllAlarms(null)
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== REFRESH_ALARM) return
+  const tag = ALARM_TAGS[alarm.name]
+  if (!tag) return
   try {
-    await refreshAll()
+    // 定时器触发日志：便于观察各 alarm 的定时情况（手动 REFRESH 不走这里；生产构建不输出）
+    if (IS_DEBUG) {
+      const d = new Date()
+      const pad2 = (n: number) => String(n).padStart(2, '0')
+      console.log(
+        `[fund01] ----------------------定时器${tag} ${pad2(d.getHours())}：${pad2(d.getMinutes())}-----------------------`,
+      )
+    }
+    if (alarm.name === ALARM_DAY) await refreshAll(false, 'day')
+    else await refreshAll(false, 'night')
   } catch (e) {
     console.warn('[fund01] alarm refresh failed', e)
   }
-  // 根据当前时段与最新配置安排下一次
+  // 根据当前时段与最新配置重新安排本 alarm 的下一次触发
   const config = await getSessionConfig()
-  scheduleNextAlarm(config)
+  const now = new Date()
+  if (alarm.name === ALARM_DAY) {
+    scheduleAlarm(ALARM_DAY, config, isDayMarketActive(now))
+  } else {
+    scheduleAlarm(ALARM_NIGHT, config, isNightMarketActive(now) && nightNeeded(config))
+  }
 })
 
 // 监听配置变化：前端 ConfigPort.saveConfig 写 chrome.storage.local 后自动重排 alarm，
@@ -313,7 +401,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[CONFIG_KEY]) {
     const newConfig = changes[CONFIG_KEY].newValue as AppConfig | undefined
-    scheduleNextAlarm(newConfig || null)
+    scheduleAllAlarms(newConfig || null)
     void applyBadge(newConfig || null)
   }
 })
