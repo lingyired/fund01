@@ -37,13 +37,17 @@
 - 非 QDII 基金（含黄金 008987 / 商品等）：**不受影响**，保持「自算失败 → fund123 fallback」现状
 - QDII（名称含 QDII）：自算失败后不再发起 fund123 请求（省 searchFund + CSRF + POST），估值口径统一为 FundMNFInfo
 
-## 已知遗留（未在本分支处理）
+## 已知遗留（2026-08-06 已一并修复）
 
-- **fund123 数据源**（quoteSource=fund123 的 `getFundQuote` / `get_fund_quote`）：QDII 的 percent 会把 T+1 披露的昨日 dayOfGrowth 冒充今日涨幅显示（`resolveDisplayPercent` 对 QDII 净值的确认会话判断）。用户当前用 FundMNFInfo 源不受影响，是否修另行确认。
+- **fund123 数据源**（quoteSource=fund123 的 `getFundQuote` / `get_fund_quote`）：QDII 的 percent 会把 T+1 披露的昨日 dayOfGrowth 冒充今日涨幅显示（`resolveDisplayPercent` 对 QDII 净值的确认会话判断）——**已修复**（用户确认一并处理）：QDII 跳过 confirmed 与兜底 dayGrowth 分支，只认 estimate_growth；无分时估值时如实显示无当日涨幅，等 T+1 净值披露后的确认会话。
 
 ## 提交
 
 - `7d8366a` feat(tauri): QDII 自算失败跳过 fund123 fallback
 - `1fb9e10` feat(chrome): QDII 自算失败跳过 fund123 fallback
+- `66e1c5d` docs: QDII 跳过 fund123 fallback 实施记录（含调查实测结论）
+- `1cddd4f` feat(tauri): fund123 数据源 QDII 不再用昨日涨幅冒充今日涨幅
+- `ff53d42` feat(chrome): fund123 数据源 QDII 不再用昨日涨幅冒充今日涨幅
+- `4149c45` chore: bump services 1.0.2 / chrome 1.2.20 / tauri 1.0.8
 
-分支：`feat/qdii-mnfinfo-estimate`（基线 f5480e0，main）
+分支：`feat/qdii-mnfinfo-estimate`（基线 f5480e0，main），未 push。验证：typecheck 全绿、cargo check 0 警告、chrome build v1.2.20。
