@@ -1,8 +1,7 @@
 //! 黄金 AU9999 —— 对应 `packages/services/src/gold.ts` 迁移。
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use regex::Regex;
 use serde_json::Value;
@@ -335,40 +334,6 @@ pub async fn get_gold_realtime(holding: f64, avg_price: f64) -> Result<GoldPaylo
 
 fn round2(n: f64) -> f64 {
     (n * 100.0).round() / 100.0
-}
-
-// ------------------------- 黄金涨跌幅缓存（基金估值兜底） -------------------------
-
-static GOLD_PCT_CACHE: OnceLock<Mutex<Option<(f64, Instant)>>> = OnceLock::new();
-const GOLD_PCT_TTL: Duration = Duration::from_secs(60);
-
-/// AU9999 今日涨跌幅（%），带 60s 缓存。
-/// 供黄金主题基金（黄金/上海金 ETF 联接等）在无盘中估值、无重仓股可自算时
-/// 用黄金现货涨跌幅近似基金今日估值（联接基金跟踪上海金，与 AU9999 走势一致）。
-/// 失败返回 None 且不缓存（下次再试）。
-pub async fn get_gold_percent_cached() -> Option<f64> {
-    {
-        let cache = GOLD_PCT_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap();
-        if let Some((pct, exp)) = cache.as_ref() {
-            if Instant::now() < *exp {
-                return Some(*pct);
-            }
-        }
-    }
-    let pct = match fetch_quote().await {
-        Ok(q) => q.percent,
-        Err(e) => {
-            eprintln!("[fund01] get_gold_percent 获取 AU9999 行情失败: {e}");
-            None
-        }
-    };
-    if let Some(p) = pct.filter(|p| p.is_finite()) {
-        *GOLD_PCT_CACHE.get_or_init(|| Mutex::new(None)).lock().unwrap() =
-            Some((p, Instant::now() + GOLD_PCT_TTL));
-        Some(p)
-    } else {
-        None
-    }
 }
 
 fn round4(n: f64) -> f64 {

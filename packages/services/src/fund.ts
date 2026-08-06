@@ -1,5 +1,4 @@
 import {httpGet, httpPost, MOBILE_UA, fmtDate} from './http'
-import {getGoldPercentCached} from './gold'
 import {
   isConfirmedSessionActive,
   isLooseSameFundName,
@@ -274,16 +273,6 @@ function sectorsNeedRefresh(sectors: string[] | null, name = ''): boolean {
   if (sectors.includes('电力') && /绿色电力|绿电/.test(n)) return true
   if (sectors.includes('食品饮料') && /白酒/.test(n)) return true
   return false
-}
-
-/**
- * 黄金主题基金：名称含黄金/上海金/金ETF/贵金属，或板块含黄金/上海金。
- * 用于无盘中估值且无重仓股可自算时，用 AU9999 现货涨跌幅兜底估值。
- */
-function isGoldThemed(name: string, sectors: string[]): boolean {
-  const KW = ['黄金', '上海金', '金ETF', '贵金属']
-  const n = String(name)
-  return KW.some((k) => n.includes(k) || sectors.some((s) => s.includes(k)))
 }
 
 function themeFromIndexName(indexName = ''): string[] {
@@ -1194,8 +1183,6 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     let netValueDate = ''
     let mnfTime: string | null = null
     let useCalcNeeded = false
-    // 板块（提前定义：黄金主题兜底需要它；后续板块推断在原位继续用同一变量）
-    let sectors = Array.isArray(fund.sectors) ? [...fund.sectors] : []
 
     if (info) {
       const p = parseFundMNFInfoItem(info)
@@ -1249,26 +1236,11 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
         percent = calcGszzl
         percentSource = 'estimate'
         useCalc = true
-      } else if (isGoldThemed(name, sectors)) {
-        // 黄金主题基金兜底：黄金/上海金 ETF 联接无重仓股（FundMNInverstPosition
-        // 返回 fundStocks 空且 ETFCODE 缺失），自算估值必然失败；
-        // 用 AU9999 现货涨跌幅近似今日估值（联接基金跟踪上海金，走势一致）。
-        const pct = await getGoldPercentCached()
-        if (pct != null && Number.isFinite(pct) && Math.abs(pct) < 30) {
-          const calcGsz = Math.round(netValue * (1 + pct / 100) * 10000) / 10000
-          estimateGrowth = pct
-          estimateNetValue = calcGsz
-          percent = pct
-          percentSource = 'estimate'
-          useCalc = true
-          console.warn(`[fund01] FundMNFInfo 黄金现货兜底估值成功 code=${code} pct=${pct} calcGsz=${calcGsz}`)
-        } else {
-          console.warn(`[fund01] FundMNFInfo 黄金兜底估值失败 code=${code}（AU9999 行情不可用）`)
-        }
       }
     }
 
     // 板块推断（与 fund123 数据源一致，走东方财富持仓 + 基金信息）
+    let sectors = Array.isArray(fund.sectors) ? [...fund.sectors] : []
     if (sectorsNeedRefresh(sectors.length ? sectors : null, name)) {
       try {
         const next = await fetchFundSectorsQueued(code, name)
