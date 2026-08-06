@@ -1,7 +1,7 @@
 import type { AppConfig, EventPort, QuoteUpdate } from '@fund01/core'
 
 // popup 本地缓存的配置 key（与 chromeConfigPort 保持一致）
-const STORAGE_KEY = 'wzk-fund-config'
+const STORAGE_KEY = 'fund01-config'
 
 // storage key → QuoteUpdate 字段映射（onChanged 增量读取用）
 const CACHE_KEYS: Record<

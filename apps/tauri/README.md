@@ -38,7 +38,7 @@ pnpm tauri init
 {
   "productName": "fund01",
   "version": "1.0.0",
-  "identifier": "com.wzk.fund01",
+  "identifier": "com.lingyi.fund01",
   "build": {
     "frontendDist": "../chrome/dist",   // 复用 chrome 的 popup 产物（或独立构建）
     "devUrl": "http://localhost:1420",

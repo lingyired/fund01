@@ -1,6 +1,6 @@
 import type {AppThemePref} from '@fund01/core'
 
-const THEME_STORAGE_KEY = 'wzk-fund-theme'
+const THEME_STORAGE_KEY = 'fund01-theme'
 
 /** 读取用户主题偏好（默认 system） */
 export function getStoredThemePref(): AppThemePref {

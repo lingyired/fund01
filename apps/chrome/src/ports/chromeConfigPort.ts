@@ -2,7 +2,7 @@ import type { AppConfig, ConfigPort } from '@fund01/core'
 import { DEFAULT_CONFIG, normalizeConfig } from '@fund01/core'
 
 // popup 本地缓存（同步读避免 UI 闪烁）
-const STORAGE_KEY = 'wzk-fund-config'
+const STORAGE_KEY = 'fund01-config'
 
 // SW 端读取的配置 key（chrome.storage.local）
 const SW_CONFIG_KEY = 'session-config'
