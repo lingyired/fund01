@@ -584,6 +584,9 @@ function GeneralSection({
           <p className="text-[11px] text-muted">
             FundMNFInfo：批量请求东方财富接口（最多 200 只/次），速度更快；fund123：逐只请求蚂蚁基金 + 东方财富历史净值。
           </p>
+          <p className="text-[11px] text-muted">
+            估值兜底规则：FundMNFInfo 盘中无估值时，先用重仓股当日涨跌幅自算；自算失败（黄金/商品 ETF 联接、QDII 等无股票重仓）时，自动改用该基金的 fund123 官方分时估值；兜底仍失败则保持现状，晚间官方净值披露后自动显示当日收益。
+          </p>
         </div>
       </div>
 
