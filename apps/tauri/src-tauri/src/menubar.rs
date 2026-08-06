@@ -53,32 +53,28 @@ fn format_pct(pct: f64) -> String {
     }
 }
 
-/// 金额简写（对应 TS `formatShortAmount`：k/w/kw，带符号，保留 1 位小数、放不下再去）。
-/// 菜单栏行宽有限，收益额用简写 + 方向符号表达。
+/// 收益额显示（菜单栏专用，不受长度限制；与 format.rs 的 badge 简写规则不同）。
+/// - 绝对值 ≥ 10 万：w（万）缩写，最多 1 位小数（整数则不带小数）；
+/// - 绝对值 < 10 万：完整整数显示，无缩写、无小数点。
+/// 均带方向符号；符号由调用方颜色 + 前缀表达。
 fn format_amount(v: f64) -> String {
     if !v.is_finite() {
         return "+0".to_string();
     }
     let sign = if v < 0.0 { "-" } else { "+" };
     let abs = v.abs();
-    let (n, unit) = if abs >= 1e7 {
-        (abs / 1e7, "kw")
-    } else if abs >= 1e4 {
-        (abs / 1e4, "w")
-    } else if abs >= 1e3 {
-        (abs / 1e3, "k")
+    if abs >= 1e5 {
+        let n = abs / 1e4;
+        let is_int = (n - n.round()).abs() < 1e-9;
+        let s = if is_int {
+            format!("{n:.0}")
+        } else {
+            format!("{n:.1}")
+        };
+        format!("{sign}{s}w")
     } else {
-        (abs, "")
-    };
-    let is_int = (n - n.round()).abs() < 1e-9;
-    let cands: &[usize] = if is_int { &[0] } else { &[1, 0] };
-    for &d in cands {
-        let s = format!("{:.*}{}", d, n, unit);
-        if s.len() <= 4 {
-            return format!("{sign}{s}");
-        }
+        format!("{sign}{}", abs.round())
     }
-    format!("{sign}{}{}", n.round(), unit)
 }
 
 /// 行情行索引：code → quote 行（分组归属与份额以最新 config 为准，此处只取行情数值）
@@ -392,3 +388,46 @@ pub fn update_menubar_with(app: &AppHandle, quote: &Option<QuoteUpdate>) {
 
 #[allow(dead_code)]
 fn _unused(_: &Value) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amount_below_100k_full_integer() {
+        assert_eq!(format_amount(0.0), "+0");
+        assert_eq!(format_amount(856.0), "+856");
+        assert_eq!(format_amount(9999.0), "+9999");
+        assert_eq!(format_amount(12345.0), "+12345");
+        assert_eq!(format_amount(99999.4), "+99999");
+        assert_eq!(format_amount(-12345.0), "-12345");
+        // 四舍五入到整数，无小数点
+        assert_eq!(format_amount(99999.6), "+100000");
+    }
+
+    #[test]
+    fn amount_from_100k_uses_w() {
+        assert_eq!(format_amount(100000.0), "+10w");
+        assert_eq!(format_amount(100000.4), "+10.0w");
+        assert_eq!(format_amount(123456.0), "+12.3w");
+        assert_eq!(format_amount(1000000.0), "+100w");
+        // 超过千万不再用 kw，统一 w
+        assert_eq!(format_amount(12345678.0), "+1234.6w");
+        assert_eq!(format_amount(-123456.0), "-12.3w");
+        // 整数缩放后无小数
+        assert_eq!(format_amount(150000.0), "+15w");
+    }
+
+    #[test]
+    fn amount_non_finite() {
+        assert_eq!(format_amount(f64::NAN), "+0");
+        assert_eq!(format_amount(f64::INFINITY), "+0");
+    }
+
+    #[test]
+    fn pct_unchanged() {
+        assert_eq!(format_pct(12.345), "+12.35%");
+        assert_eq!(format_pct(-0.5), "-0.50%");
+        assert_eq!(format_pct(123.4), "+123%");
+    }
+}
