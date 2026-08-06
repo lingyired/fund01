@@ -70,7 +70,10 @@ export function resolveNavPair(quote: QuoteLike): {
   } else if (confirmedNav != null && prev != null) {
     result = {prevNav: prev, currNav: confirmedNav}
   } else {
-    result = {prevNav: null, currNav: null}
+    // 兜底：仅有确认净值（无昨净值/无盘中估值）时，用确认净值作为市值基准。
+    // 场景：QDII 延迟净值、黄金 ETF 联接等无 GSZ/无重仓股可自算估值的基金，
+    // 此时 prev 为 null → 当日收益算不出（pnl=0），但持仓金额 = 份额 × NAV 必须能显示。
+    result = {prevNav: null, currNav: confirmedNav}
   }
   return result
 }
