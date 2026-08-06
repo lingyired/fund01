@@ -461,17 +461,22 @@ function resolveDisplayPercent(opts: {
   estimateGrowth: number | null
   dayGrowth: number | null
   netValueDate: string
+  /** QDII：dayGrowth 是 T+1 披露的昨日涨幅，不能当今日涨幅（confirmed/兜底分支都跳过） */
+  isQdii?: boolean
 }): {percent: number | null; percentSource: 'confirmed' | 'estimate' | null} {
   const navDay = normalizeNetValueDate(opts.netValueDate)
   const inConfirmSession =
-    opts.dayGrowth != null && !!navDay && isConfirmedSessionActive(navDay)
+    !opts.isQdii &&
+    opts.dayGrowth != null &&
+    !!navDay &&
+    isConfirmedSessionActive(navDay)
   if (inConfirmSession) {
     return {percent: opts.dayGrowth, percentSource: 'confirmed'}
   }
   if (opts.estimateGrowth != null) {
     return {percent: opts.estimateGrowth, percentSource: 'estimate'}
   }
-  if (opts.dayGrowth != null) {
+  if (opts.dayGrowth != null && !opts.isQdii) {
     return {percent: opts.dayGrowth, percentSource: null}
   }
   return {percent: null, percentSource: null}
@@ -708,7 +713,12 @@ export async function getFundQuote(fund: {
     histIdx = -1
   }
 
-  const {percent, percentSource} = resolveDisplayPercent({estimateGrowth, dayGrowth, netValueDate})
+  const {percent, percentSource} = resolveDisplayPercent({
+    estimateGrowth,
+    dayGrowth,
+    netValueDate,
+    isQdii: isQdiiName(name),
+  })
   const hasEstimate = estimateNetValue != null || estimateGrowth != null
 
   let prevNetValue: number | null = null
