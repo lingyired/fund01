@@ -449,8 +449,15 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
             } else {
                 eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
+        } else if is_qdii_name(&name) {
+            // QDII 跳过 fund123 fallback：fund123 对 QDII 无分时估值（实测 0 点），
+            // 且其资料接口会把 T+1 披露的昨日涨幅冒充今日涨幅，混入会误导。
+            // 保持 FundMNFInfo 原始口径：盘中 GSZ 正确；空窗期如实无估值，等 T+1 净值确认。
+            eprintln!(
+                "[fund01] FundMNFInfo 自算失败 code={code} name={name} —— QDII 跳过 fund123 fallback（fund123 对 QDII 无可靠当日估值）"
+            );
         } else {
-            // 自算失败（无重仓股可加权：黄金/商品/QDII 等）→ fallback fund123 官方分时估值
+            // 自算失败（无重仓股可加权：黄金/商品等）→ fallback fund123 官方分时估值
             match fund123_estimate_fallback(&code, fund).await {
                 Some((eg, en)) => {
                     estimate_growth = Some(eg);
@@ -496,9 +503,19 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     }
 }
 
+/// QDII 基金名判断：证监会规定 QDII 基金名称必须含 "QDII"（兼容半角/全角括号）。
+/// 用于自算估值失败时跳过 fund123 fallback —— fund123 对 QDII 无分时估值
+/// （实测 queryFundEstimateIntraday 0 点），且其资料接口会把 T+1 披露的
+/// 昨日涨幅冒充今日涨幅，混入会误导；QDII 的可靠估值只来自 FundMNFInfo
+/// 链路（盘中 GSZ 正确；空窗期如实无估值，等 T+1 净值确认）。
+fn is_qdii_name(name: &str) -> bool {
+    name.to_uppercase().contains("QDII")
+}
+
 /// fund123 分时估值兜底：自算估值失败（无股票重仓）时，用该基金在蚂蚁基金的
 /// 官方分时估值（queryFundEstimateIntraday 末点）补估算净值与涨幅。
 /// 返回 (估算涨幅%, 估算净值)；fund_key 缺失时用 searchFund 补查；失败返回 None。
+/// ⚠️ 仅限非 QDII 基金调用（QDII 由调用方用 is_qdii_name 过滤）。
 async fn fund123_estimate_fallback(
     code: &str,
     fund: &FundQuoteInput,
