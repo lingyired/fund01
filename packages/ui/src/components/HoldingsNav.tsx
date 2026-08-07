@@ -30,6 +30,12 @@ export function HoldingsNav() {
       if (el.getBoundingClientRect().top <= spyLine) current = item.id
       else break
     }
+    // 兜底：页面已滚到最底部（无法继续下滚）时，最后一个区块即使顶部未越过
+    // spyLine 也应激活——否则末尾区块（如导入持仓）永远选不中。
+    const doc = document.documentElement
+    if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) {
+      current = HOLDINGS_NAV_ITEMS[HOLDINGS_NAV_ITEMS.length - 1].id
+    }
     setActiveId(current)
   }, [])
 
