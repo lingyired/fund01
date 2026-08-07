@@ -253,6 +253,8 @@
 @media (min-width:640px){.sm\:w-\[calc\(100\%-2rem\)\]{width:calc(100% - 2rem)}}
 .sticky{position:sticky}
 .scroll-mt-4{scroll-margin-top:16px}
+.appearance-none{-webkit-appearance:none;appearance:none}
+.border-0{border-width:0}
 .scroll-mt-20{scroll-margin-top:80px}
 .self-center{align-self:center}
 .table-fixed{table-layout:fixed}

@@ -64,7 +64,7 @@ export function HoldingsNav() {
             type="button"
             onClick={() => jumpTo(item.id)}
             aria-current={isActive ? 'true' : undefined}
-            className={`px-3 py-2 text-xs font-medium transition-colors ${
+            className={`appearance-none border-0 bg-transparent px-3 py-2 text-xs font-medium transition-colors ${
               isActive ? 'text-accent' : 'text-muted hover:text-ink'
             }`}
             style={
