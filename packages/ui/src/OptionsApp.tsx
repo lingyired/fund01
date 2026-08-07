@@ -32,7 +32,6 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
-  HoldingsNavPosition,
   MenubarLayout,
   SettingsTabId,
 } from '@fund01/core'
@@ -117,22 +116,6 @@ export function OptionsApp({
   const [holdingsReload, setHoldingsReload] = useState(0)
   // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
   const [groupsReload, setGroupsReload] = useState(0)
-  // 「持仓」tab 浮动导航位置（顶部吸顶 / 右侧悬浮）
-  const [navPosition, setNavPosition] = useState<HoldingsNavPosition>('top')
-
-  useEffect(() => {
-    const s = fetchSettings(ports)
-    setNavPosition(s.holdingsNavPosition === 'side' ? 'side' : 'top')
-  }, [ports])
-
-  async function handleNavPositionChange(next: HoldingsNavPosition) {
-    setNavPosition(next)
-    try {
-      await updateSettings(ports, {holdingsNavPosition: next})
-    } catch {
-      /* ignore */
-    }
-  }
 
   return (
     <Theme accentColor="blue" grayColor="gray" radius="small">
@@ -179,10 +162,7 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="holdings">
-            <HoldingsNav
-              position={navPosition}
-              onPositionChange={(p) => void handleNavPositionChange(p)}
-            />
+            <HoldingsNav />
             <div className="space-y-8">
               <HoldingGroupsSection
                 groupsReload={groupsReload}
