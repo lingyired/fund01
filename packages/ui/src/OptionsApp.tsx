@@ -39,8 +39,11 @@ import {
   AVAILABLE_INDICES,
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
+  MENUBAR_DEFAULTS,
   MENUBAR_FONT_RANGES,
+  MENUBAR_OVERVIEW_KEY,
   MIN_REFRESH_INTERVAL,
+  normalizeHexColor,
 } from '@fund01/core'
 import {cn, formatAmount} from '@fund01/core'
 import {
@@ -1952,6 +1955,14 @@ function MenubarSection() {
   const [equal, setEqual] = useState(9)
   const [showAmount, setShowAmount] = useState(false)
   const [hasUngrouped, setHasUngrouped] = useState(false)
+  const [topFont, setTopFont] = useState(MENUBAR_DEFAULTS.topFont)
+  const [bottomFont, setBottomFont] = useState(MENUBAR_DEFAULTS.bottomFont)
+  const [topBold, setTopBold] = useState(MENUBAR_DEFAULTS.topBold)
+  const [bottomBold, setBottomBold] = useState(MENUBAR_DEFAULTS.bottomBold)
+  const [topColor, setTopColor] = useState(MENUBAR_DEFAULTS.topColor)
+  const [groupColors, setGroupColors] = useState<Record<string, string>>({})
+  const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
+  const [fallColor, setFallColor] = useState(MENUBAR_DEFAULTS.fallColor)
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
@@ -1961,9 +1972,17 @@ function MenubarSection() {
     setHidden(s.menubarHiddenGroups ?? [])
     // 每种布局的字号独立存储：布局 0 用 top/bottom，布局 2 用 equal
     setTop(clampToRange(s.menubarTopFontSize, MENUBAR_FONT_RANGES[0].top, 7))
-    setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 12))
+    setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     setShowAmount(s.menubarShowAmount === true)
+    setTopFont(s.menubarTopFont ?? MENUBAR_DEFAULTS.topFont)
+    setBottomFont(s.menubarBottomFont ?? MENUBAR_DEFAULTS.bottomFont)
+    setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
+    setBottomBold(s.menubarBottomBold ?? MENUBAR_DEFAULTS.bottomBold)
+    setTopColor(normalizeHexColor(s.menubarTopColor, MENUBAR_DEFAULTS.topColor))
+    setGroupColors(s.menubarGroupColors ?? {})
+    setRiseColor(normalizeHexColor(s.menubarRiseColor, MENUBAR_DEFAULTS.riseColor))
+    setFallColor(normalizeHexColor(s.menubarFallColor, MENUBAR_DEFAULTS.fallColor))
     const gs = listHoldingGroups(ports)
     setGroups(gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
@@ -2030,6 +2049,86 @@ function MenubarSection() {
 
   const range = MENUBAR_FONT_RANGES[layout]
 
+  /** 字体族：失焦/回车才保存（避免每按键触发后端刷新） */
+  async function commitFontFamily(side: 'top' | 'bottom', v: string) {
+    try {
+      if (side === 'top') {
+        setTopFont(v.trim())
+        await updateSettings(ports, {menubarTopFont: v.trim()})
+      } else {
+        setBottomFont(v.trim())
+        await updateSettings(ports, {menubarBottomFont: v.trim()})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 加粗 Switch：即时保存 */
+  async function handleBoldChange(side: 'top' | 'bottom', next: boolean) {
+    try {
+      if (side === 'top') {
+        setTopBold(next)
+        await updateSettings(ports, {menubarTopBold: next})
+      } else {
+        setBottomBold(next)
+        await updateSettings(ports, {menubarBottomBold: next})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 颜色：input[type=color] 选择即保存（低频操作） */
+  async function commitColor(
+    key: 'top' | 'rise' | 'fall',
+    v: string,
+  ) {
+    const hex = normalizeHexColor(v, MENUBAR_DEFAULTS[key === 'top' ? 'topColor' : key === 'rise' ? 'riseColor' : 'fallColor'])
+    try {
+      if (key === 'top') {
+        setTopColor(hex)
+        await updateSettings(ports, {menubarTopColor: hex})
+      } else if (key === 'rise') {
+        setRiseColor(hex)
+        await updateSettings(ports, {menubarRiseColor: hex})
+      } else {
+        setFallColor(hex)
+        await updateSettings(ports, {menubarFallColor: hex})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 分组自定义上行颜色：开启时若无值则先取全局色作为初始，关闭则删除该分组颜色（回落全局） */
+  async function toggleGroupColor(g: string, on: boolean) {
+    const next = {...groupColors}
+    if (on) {
+      if (!next[g]) next[g] = topColor
+    } else {
+      delete next[g]
+    }
+    setGroupColors(next)
+    try {
+      await updateSettings(ports, {menubarGroupColors: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 分组自定义上行颜色：选色即保存 */
+  async function commitGroupColor(g: string, v: string) {
+    const hex = normalizeHexColor(v, topColor)
+    const next = {...groupColors, [g]: hex}
+    setGroupColors(next)
+    try {
+      await updateSettings(ports, {menubarGroupColors: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
   return (
     <SectionCard title="菜单栏">
       <p className="text-xs text-muted">
@@ -2056,37 +2155,109 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
-          可单独隐藏某个持仓分组在菜单栏中的实例；「总览」始终显示。
+          开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
         </p>
-        <div className="space-y-1.5 pt-1">
-          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
-            <span className="text-sm text-ink-soft">总览</span>
-            <Switch checked disabled aria-label="总览固定显示" />
-          </div>
-          {groups.map((g) => (
-            <div
-              key={g}
-              className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2"
-            >
-              <span className="truncate text-sm text-ink">{g}</span>
-              <Switch
-                checked={!hidden.includes(g)}
-                onCheckedChange={(c) => void toggleGroup(g, c)}
-                aria-label={`显示/隐藏分组 ${g}`}
-              />
-            </div>
-          ))}
-          {hasUngrouped ? (
-            <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
-              <span className="truncate text-sm text-ink">未分组</span>
-              <Switch
-                checked={!hidden.includes('')}
-                onCheckedChange={(c) => void toggleGroup('', c)}
-                aria-label="显示/隐藏未分组"
-              />
-            </div>
-          ) : null}
-        </div>
+        <table className="w-full pt-1 text-sm">
+          <thead>
+            <tr className="text-xs text-muted">
+              <th className="pb-1 text-left font-normal">分组</th>
+              <th className="pb-1 text-right font-normal">自定义颜色</th>
+              <th className="pb-1 pl-3 text-right font-normal">显示</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-line/50">
+              <td className="py-2 pr-2 text-ink">总览</td>
+              <td className="py-2">
+                <div className="flex items-center justify-end gap-1.5" title="自定义总览上行颜色">
+                  <input
+                    type="color"
+                    value={groupColors[MENUBAR_OVERVIEW_KEY] ?? topColor}
+                    disabled={!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    onChange={(e) => void commitGroupColor(MENUBAR_OVERVIEW_KEY, e.target.value)}
+                    aria-label="总览 上行颜色"
+                    className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                    style={{opacity: groupColors[MENUBAR_OVERVIEW_KEY] ? 1 : 0.3}}
+                  />
+                  <Switch
+                    checked={!!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    onCheckedChange={(c) => void toggleGroupColor(MENUBAR_OVERVIEW_KEY, c)}
+                    aria-label="总览 自定义颜色"
+                  />
+                </div>
+              </td>
+              <td className="py-2 pl-3">
+                <div className="flex justify-end">
+                  <Switch checked disabled aria-label="总览固定显示" />
+                </div>
+              </td>
+            </tr>
+            {groups.map((g) => (
+              <tr key={g} className="border-t border-line/50">
+                <td className="py-2 pr-2 text-ink">{g}</td>
+                <td className="py-2">
+                  <div className="flex items-center justify-end gap-1.5" title="自定义该分组上行颜色">
+                    <input
+                      type="color"
+                      value={groupColors[g] ?? topColor}
+                      disabled={!groupColors[g]}
+                      onChange={(e) => void commitGroupColor(g, e.target.value)}
+                      aria-label={`${g} 上行颜色`}
+                      className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                      style={{opacity: groupColors[g] ? 1 : 0.3}}
+                    />
+                    <Switch
+                      checked={!!groupColors[g]}
+                      onCheckedChange={(c) => void toggleGroupColor(g, c)}
+                      aria-label={`${g} 自定义颜色`}
+                    />
+                  </div>
+                </td>
+                <td className="py-2 pl-3">
+                  <div className="flex justify-end">
+                    <Switch
+                      checked={!hidden.includes(g)}
+                      onCheckedChange={(c) => void toggleGroup(g, c)}
+                      aria-label={`显示/隐藏分组 ${g}`}
+                    />
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {hasUngrouped ? (
+              <tr className="border-t border-line/50">
+                <td className="py-2 pr-2 text-ink">未分组</td>
+                <td className="py-2">
+                  <div className="flex items-center justify-end gap-1.5" title="自定义未分组上行颜色">
+                    <input
+                      type="color"
+                      value={groupColors[''] ?? topColor}
+                      disabled={!groupColors['']}
+                      onChange={(e) => void commitGroupColor('', e.target.value)}
+                      aria-label="未分组 上行颜色"
+                      className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                      style={{opacity: groupColors[''] ? 1 : 0.3}}
+                    />
+                    <Switch
+                      checked={!!groupColors['']}
+                      onCheckedChange={(c) => void toggleGroupColor('', c)}
+                      aria-label="未分组 自定义颜色"
+                    />
+                  </div>
+                </td>
+                <td className="py-2 pl-3">
+                  <div className="flex justify-end">
+                    <Switch
+                      checked={!hidden.includes('')}
+                      onCheckedChange={(c) => void toggleGroup('', c)}
+                      aria-label="显示/隐藏未分组"
+                    />
+                  </div>
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
       </div>
 
       {/* 布局模式 */}
@@ -2173,6 +2344,104 @@ function MenubarSection() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* 字体 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">字体</div>
+        <p className="text-xs text-muted">
+          上行默认 Hiragino Sans GB（分组名/总览），下行默认 Menlo（数值）。填 macOS 字体族名，留空=系统字体；失焦或回车保存。
+        </p>
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <label className="space-y-1">
+            <span className="text-sm text-ink-soft leading-none">上行字体</span>
+            <TextField.Root
+              type="text"
+              value={topFont}
+              placeholder={MENUBAR_DEFAULTS.topFont}
+              onChange={(e) => setTopFont(e.target.value)}
+              onBlur={(e) => void commitFontFamily('top', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              }}
+              className="mt-1"
+              aria-label="上行字体"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm text-ink-soft leading-none">下行字体</span>
+            <TextField.Root
+              type="text"
+              value={bottomFont}
+              placeholder={MENUBAR_DEFAULTS.bottomFont}
+              onChange={(e) => setBottomFont(e.target.value)}
+              onBlur={(e) => void commitFontFamily('bottom', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+              }}
+              className="mt-1"
+              aria-label="下行字体"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* 加粗 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">加粗</div>
+        <p className="text-xs text-muted">默认下行加粗（数值行）、上行不加粗（名称行）。</p>
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+            <span className="text-sm text-ink-soft">上行加粗</span>
+            <Switch
+              checked={topBold}
+              onCheckedChange={(c) => void handleBoldChange('top', c)}
+              aria-label="上行加粗"
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+            <span className="text-sm text-ink-soft">下行加粗</span>
+            <Switch
+              checked={bottomBold}
+              onCheckedChange={(c) => void handleBoldChange('bottom', c)}
+              aria-label="下行加粗"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 颜色 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">颜色</div>
+        <p className="text-xs text-muted">
+          上行（分组名/总览）固定色默认白色；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759，平盘灰色固定。
+        </p>
+        <div className="space-y-1.5 pt-1">
+          {(
+            [
+              {key: 'top', label: '上行颜色', value: topColor},
+              {key: 'rise', label: '下行涨色', value: riseColor},
+              {key: 'fall', label: '下行跌色', value: fallColor},
+            ] as const
+          ).map(({key, label, value}) => (
+            <div
+              key={key}
+              className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2"
+            >
+              <span className="text-sm text-ink-soft">{label}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-muted">{value}</span>
+                <input
+                  type="color"
+                  value={value}
+                  onChange={(e) => void commitColor(key, e.target.value)}
+                  aria-label={label}
+                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </SectionCard>
   )

@@ -196,6 +196,25 @@ export type AppSettings = {
   menubarEqualFontSize?: number
   /** 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）。仅 tauri 生效 */
   menubarShowAmount?: boolean
+  /** 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串/缺省=系统字体。仅 tauri 生效 */
+  menubarTopFont?: string
+  /** 菜单栏下行字体族名（macOS font family，如 Menlo）。空串/缺省=系统字体。仅 tauri 生效 */
+  menubarBottomFont?: string
+  /** 菜单栏上行是否加粗（默认 false）。仅 tauri 生效 */
+  menubarTopBold?: boolean
+  /** 菜单栏下行是否加粗（默认 true，与插件原生「强调行加粗」语义一致）。仅 tauri 生效 */
+  menubarBottomBold?: boolean
+  /** 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）。仅 tauri 生效 */
+  menubarTopColor?: string
+  /**
+   * 各持仓分组自定义的上行文字颜色（key=分组名，''=未分组；value=hex）。
+   * 未配置的分组回落到 menubarTopColor（全局）。仅 tauri 生效
+   */
+  menubarGroupColors?: Record<string, string>
+  /** 菜单栏下行涨色（hex，默认 #FF4F44）。仅 tauri 生效 */
+  menubarRiseColor?: string
+  /** 菜单栏下行跌色（hex，默认 #34C759）。仅 tauri 生效 */
+  menubarFallColor?: string
 }
 
 export type AppConfig = {

@@ -21,6 +21,7 @@
 .bg-gold\/10{background-color:color-mix(in oklab, var(--app-gold) 10%, transparent)}
 .bg-gradient-to-br{--tw-gradient-position:to bottom right;background-image:linear-gradient(var(--tw-gradient-position),var(--tw-gradient-stops))}
 .bg-app{background-color:var(--app-bg)}
+.bg-transparent{background-color:transparent}
 .bg-panel{background-color:var(--app-panel)}
 .bg-panel\/60{background-color:color-mix(in oklab, var(--app-panel) 60%, transparent)}
 .bg-panel\/85{background-color:color-mix(in oklab, var(--app-panel) 85%, transparent)}
@@ -102,6 +103,7 @@
 .h-3{height:12px}
 .h-3\.5{height:14px}
 .h-4{height:16px}
+.h-6{height:24px}
 .h-7{height:28px}
 .h-8{height:32px}
 .h-9{height:36px}
@@ -173,6 +175,7 @@
 .overflow-x-auto{overflow-x:auto}
 .overflow-x-hidden{overflow-x:hidden}
 .overflow-y-auto{overflow-y:auto}
+.p-0{padding:0}
 .p-2{padding:8px}
 .p-3{padding:12px}
 .p-4{padding:16px}
@@ -185,6 +188,7 @@
 .placeholder\:text-muted::placeholder{color:var(--gray-10)}
 .pointer-events-none{pointer-events:none}
 .pr-1{padding-right:4px}
+.pr-2{padding-right:8px}
 .pr-3{padding-right:12px}
 .pr-6{padding-right:24px}
 .pt-1{padding-top:4px}

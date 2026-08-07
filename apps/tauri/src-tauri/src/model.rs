@@ -92,6 +92,31 @@ pub struct AppSettings {
     /// 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_show_amount: Option<bool>,
+    /// 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串=系统字体
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_top_font: Option<String>,
+    /// 菜单栏下行字体族名（macOS font family，如 Menlo）。空串=系统字体
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_bottom_font: Option<String>,
+    /// 菜单栏上行是否加粗（默认 false）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_top_bold: Option<bool>,
+    /// 菜单栏下行是否加粗（默认 true）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_bottom_bold: Option<bool>,
+    /// 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_top_color: Option<String>,
+    /// 各持仓分组自定义的上行文字颜色（key=分组名，''=未分组；value=hex）。
+    /// 未配置的分组回落 menubar_top_color（全局）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_group_colors: Option<HashMap<String, String>>,
+    /// 菜单栏下行涨色（hex，默认 #FF4F44）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_rise_color: Option<String>,
+    /// 菜单栏下行跌色（hex，默认 #34C759）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_fall_color: Option<String>,
 }
 
 fn default_show_gold() -> bool {
@@ -115,6 +140,14 @@ impl Default for AppSettings {
             menubar_bottom_font_size: None,
             menubar_equal_font_size: None,
             menubar_show_amount: None,
+            menubar_top_font: None,
+            menubar_bottom_font: None,
+            menubar_top_bold: None,
+            menubar_bottom_bold: None,
+            menubar_top_color: None,
+            menubar_group_colors: None,
+            menubar_rise_color: None,
+            menubar_fall_color: None,
         }
     }
 }

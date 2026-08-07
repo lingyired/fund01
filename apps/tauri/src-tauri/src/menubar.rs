@@ -16,9 +16,10 @@ use crate::window::{open_settings_window, show_popup};
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
 const MAX_INSTANCES: usize = 6;
 
-const COLOR_RISE: &str = "#e5484d"; // 涨/红
-const COLOR_FALL: &str = "#46a758"; // 跌/绿
-const COLOR_FLAT: &str = "#8e8e93"; // 平/灰
+const COLOR_RISE_DEFAULT: &str = "#FF4F44"; // 涨/红（默认，可配置 menubarRiseColor）
+const COLOR_FALL_DEFAULT: &str = "#34C759"; // 跌/绿（默认，可配置 menubarFallColor）
+const COLOR_FLAT: &str = "#8e8e93"; // 平/灰（固定）
+const COLOR_TOP_DEFAULT: &str = "#ffffff"; // 上行固定色默认（可配置 menubarTopColor）
 
 static INSTANCE_TRACKED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 /// 实例 id → click 事件 EventId；实例销毁时 app.unlisten(id) 移除监听，避免闭包永久持有 AppHandle
@@ -32,13 +33,13 @@ fn listeners() -> &'static Mutex<HashMap<String, tauri::EventId>> {
     CLICK_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn color_for(pct: f64) -> &'static str {
+fn color_for(pct: f64, rise: &str, fall: &str) -> String {
     if pct > 0.0 {
-        COLOR_RISE
+        rise.to_string()
     } else if pct < 0.0 {
-        COLOR_FALL
+        fall.to_string()
     } else {
-        COLOR_FLAT
+        COLOR_FLAT.to_string()
     }
 }
 
@@ -248,10 +249,11 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
     map.insert(id.to_string(), event_id);
 }
 
-/// 应用布局模式与上下行字号（对所有 desired 实例统一设置，含已存在实例）。
+/// 应用布局模式、上下行字号、字体族与加粗（对所有 desired 实例统一设置，含已存在实例）。
 /// rebuild（布局/字号/隐藏变更）与 update（刷新兜底）路径都会调用，幂等。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
 /// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
+/// 字体/加粗与布局无关，上下行独立（默认上行 Hiragino Sans GB 不加粗 / 下行 Menlo 加粗）。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, String, f64, f64)]) {
     let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
@@ -271,13 +273,28 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
         let b = config
             .settings
             .menubar_bottom_font_size
-            .unwrap_or(12.0)
+            .unwrap_or(11.0)
             .clamp(10.0, 14.0);
         (t, b)
     };
+    // 字体族：空串/None → 系统字体（插件原生回退）
+    let top_font = config
+        .settings
+        .menubar_top_font
+        .clone()
+        .filter(|s| !s.trim().is_empty());
+    let bottom_font = config
+        .settings
+        .menubar_bottom_font
+        .clone()
+        .filter(|s| !s.trim().is_empty());
+    let top_bold = config.settings.menubar_top_bold.unwrap_or(false);
+    let bottom_bold = config.settings.menubar_bottom_bold.unwrap_or(true);
     for (id, _, _, _) in desired {
         let _ = mb.set_layout(id.clone(), layout);
         let _ = mb.set_font_sizes(id.clone(), top, bottom);
+        let _ = mb.set_font_family(id.clone(), top_font.clone(), bottom_font.clone());
+        let _ = mb.set_bold(id.clone(), top_bold, bottom_bold);
     }
 }
 
@@ -351,19 +368,67 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）
     let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
+    // 颜色：上行固定色（默认白色）；下行按涨跌（涨色/跌色可配置，平盘灰固定）
+    let top_color = config
+        .settings
+        .menubar_top_color
+        .clone()
+        .unwrap_or_else(|| COLOR_TOP_DEFAULT.to_string());
+    let rise_color = config
+        .settings
+        .menubar_rise_color
+        .clone()
+        .unwrap_or_else(|| COLOR_RISE_DEFAULT.to_string());
+    let fall_color = config
+        .settings
+        .menubar_fall_color
+        .clone()
+        .unwrap_or_else(|| COLOR_FALL_DEFAULT.to_string());
     let desired = desired_instances(&config, quote);
-    // 刷新后分组/持仓可能已变化：先收敛实例集合 + 应用布局字号，再更新文字
+    // 刷新后分组/持仓可能已变化：先收敛实例集合 + 应用布局字号/字体/加粗，再更新文字
     sync_instances(app, &desired);
     apply_menubar_style(app, &config, &desired);
     let mb = app.multiline_menubar();
     for (id, top, pct, amount) in desired {
         let (bottom, color) = if show_amount {
-            (format_amount(amount), color_for(amount))
+            (format_amount(amount), color_for(amount, &rise_color, &fall_color))
         } else {
-            (format_pct(pct), color_for(pct))
+            (format_pct(pct), color_for(pct, &rise_color, &fall_color))
         };
+        // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
+        // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''
+        let group_key = if id == INSTANCE_OVERVIEW {
+            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+        } else if id == "menubar-ungrouped" {
+            Some(String::new())
+        } else {
+            id.strip_prefix("menubar-group-")
+                .and_then(|s| s.parse::<usize>().ok())
+                .and_then(|i| {
+                    config
+                        .settings
+                        .holding_groups
+                        .as_ref()
+                        .and_then(|g| g.get(i))
+                })
+                .map(|g| g.clone())
+        };
+        let instance_top_color = group_key
+            .and_then(|k| {
+                config
+                    .settings
+                    .menubar_group_colors
+                    .as_ref()
+                    .and_then(|m| m.get(&k))
+            })
+            .cloned()
+            .unwrap_or_else(|| top_color.clone());
         let _ = mb.set_text(id.clone(), top.clone(), bottom.clone());
-        let _ = mb.set_colors(id.clone(), ColorStyle::Default, ColorStyle::Solid { value: color.to_string() });
+        let _ = mb.set_colors(
+            id.clone(),
+            ColorStyle::Solid { value: instance_top_color },
+            ColorStyle::Solid { value: color },
+        );
         let _ = mb.set_tooltip(id.clone(), format!("{top} {bottom}"));
     }
 }

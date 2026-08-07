@@ -112,12 +112,28 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_bottom_font_size = None;
     a.settings.menubar_equal_font_size = None;
     a.settings.menubar_show_amount = None;
+    a.settings.menubar_top_font = None;
+    a.settings.menubar_bottom_font = None;
+    a.settings.menubar_top_bold = None;
+    a.settings.menubar_bottom_bold = None;
+    a.settings.menubar_top_color = None;
+    a.settings.menubar_group_colors = None;
+    a.settings.menubar_rise_color = None;
+    a.settings.menubar_fall_color = None;
     b.settings.menubar_hidden_groups = None;
     b.settings.menubar_layout = None;
     b.settings.menubar_top_font_size = None;
     b.settings.menubar_bottom_font_size = None;
     b.settings.menubar_equal_font_size = None;
     b.settings.menubar_show_amount = None;
+    b.settings.menubar_top_font = None;
+    b.settings.menubar_bottom_font = None;
+    b.settings.menubar_top_bold = None;
+    b.settings.menubar_bottom_bold = None;
+    b.settings.menubar_top_color = None;
+    b.settings.menubar_group_colors = None;
+    b.settings.menubar_rise_color = None;
+    b.settings.menubar_fall_color = None;
     a == b
 }
 

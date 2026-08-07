@@ -8,6 +8,44 @@ import {
 export const DEFAULT_REFRESH_INTERVAL: RefreshInterval = {trading: 60, nonTrading: 600}
 export const MIN_REFRESH_INTERVAL: RefreshInterval = {trading: 30, nonTrading: 300}
 
+/** 菜单栏展示自定义项默认值（core 导出，UI 与 normalize 共用）：
+ * 上行 Hiragino Sans GB（分组名/总览，默认白色、不加粗），下行 Menlo（数值，默认加粗），
+ * 下行涨色 #FF4F44 / 跌色 #34C759，平盘灰 #8e8e93（固定）。 */
+export const MENUBAR_DEFAULTS: {
+  topFont: string
+  bottomFont: string
+  topBold: boolean
+  bottomBold: boolean
+  topColor: string
+  riseColor: string
+  fallColor: string
+  flatColor: string
+} = {
+  topFont: 'Hiragino Sans GB',
+  bottomFont: 'Menlo',
+  topBold: false,
+  bottomBold: true,
+  topColor: '#ffffff',
+  riseColor: '#FF4F44',
+  fallColor: '#34C759',
+  flatColor: '#8e8e93',
+}
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/
+
+/** 总览实例在 menubarGroupColors 中的固定 key（下划线前缀避免与用户分组名冲突） */
+export const MENUBAR_OVERVIEW_KEY = '__overview__'
+
+/** 归一化 hex 颜色：仅接受 #rrggbb，非法回落 fallback */
+export function normalizeHexColor(v: unknown, fallback: string): string {
+  return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : fallback
+}
+
+/** 归一化字体族名：trim 后返回（空串=系统字体），非字符串回落 fallback */
+export function normalizeFontFamily(v: unknown, fallback: string): string {
+  return typeof v === 'string' ? v.trim() : fallback
+}
+
 export const DEFAULT_CONFIG: AppConfig = {
   settings: {
     showGold: true,
@@ -20,9 +58,17 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarHiddenGroups: [],
     menubarLayout: 0,
     menubarTopFontSize: 7,
-    menubarBottomFontSize: 12,
+    menubarBottomFontSize: 11,
     menubarEqualFontSize: 9,
     menubarShowAmount: false,
+    menubarTopFont: MENUBAR_DEFAULTS.topFont,
+    menubarBottomFont: MENUBAR_DEFAULTS.bottomFont,
+    menubarTopBold: MENUBAR_DEFAULTS.topBold,
+    menubarBottomBold: MENUBAR_DEFAULTS.bottomBold,
+    menubarTopColor: MENUBAR_DEFAULTS.topColor,
+    menubarGroupColors: {},
+    menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
+    menubarFallColor: MENUBAR_DEFAULTS.fallColor,
   },
   holdings: {},
   watchlist: {},
@@ -145,9 +191,9 @@ export const MENUBAR_FONT_RANGES: Record<
   2: {top: [8, 11], bottom: [8, 11]},
 }
 
-/** 菜单栏布局默认字号（pt，位置语义）：0=上7/下12，2=等大9/9（与插件原生默认一致） */
+/** 菜单栏布局默认字号（pt，位置语义）：0=上7/下11，2=等大9/9（与插件原生默认一致） */
 const DEFAULT_MENUBAR_FONT: Record<MenubarLayout, readonly [number, number]> = {
-  0: [7, 12],
+  0: [7, 11],
   2: [9, 9],
 }
 
@@ -179,6 +225,26 @@ export function normalizeMenubarHiddenGroups(
   for (const g of v) {
     const key = String(g ?? '').trim()
     if ((key === '' || valid.has(key)) && !next.includes(key)) next.push(key)
+  }
+  return next
+}
+
+/** 归一化各分组自定义上行颜色：仅保留 ''(未分组)、总览或存在于 holdingGroups 的 key，value 校验 hex */
+export function normalizeMenubarGroupColors(
+  v: unknown,
+  groups: string[],
+  fallback: string,
+): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  const valid = new Set(groups)
+  const next: Record<string, string> = {}
+  for (const [g, color] of Object.entries(v)) {
+    const key = String(g ?? '').trim()
+    if (key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) {
+      const hex = normalizeHexColor(color, fallback)
+      // 只保留合法 hex（normalizeHexColor 非法会回落 fallback，此时视同未配置，跳过）
+      if (typeof color === 'string' && hex === color.trim()) next[key] = hex
+    }
   }
   return next
 }
@@ -287,6 +353,39 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         typeof payload?.settings?.menubarShowAmount === 'boolean'
           ? payload.settings.menubarShowAmount
           : DEFAULT_CONFIG.settings.menubarShowAmount,
+      menubarTopFont: normalizeFontFamily(
+        payload?.settings?.menubarTopFont,
+        MENUBAR_DEFAULTS.topFont,
+      ),
+      menubarBottomFont: normalizeFontFamily(
+        payload?.settings?.menubarBottomFont,
+        MENUBAR_DEFAULTS.bottomFont,
+      ),
+      menubarTopBold:
+        typeof payload?.settings?.menubarTopBold === 'boolean'
+          ? payload.settings.menubarTopBold
+          : MENUBAR_DEFAULTS.topBold,
+      menubarBottomBold:
+        typeof payload?.settings?.menubarBottomBold === 'boolean'
+          ? payload.settings.menubarBottomBold
+          : MENUBAR_DEFAULTS.bottomBold,
+      menubarTopColor: normalizeHexColor(
+        payload?.settings?.menubarTopColor,
+        MENUBAR_DEFAULTS.topColor,
+      ),
+      menubarGroupColors: normalizeMenubarGroupColors(
+        payload?.settings?.menubarGroupColors,
+        holdingGroups,
+        MENUBAR_DEFAULTS.topColor,
+      ),
+      menubarRiseColor: normalizeHexColor(
+        payload?.settings?.menubarRiseColor,
+        MENUBAR_DEFAULTS.riseColor,
+      ),
+      menubarFallColor: normalizeHexColor(
+        payload?.settings?.menubarFallColor,
+        MENUBAR_DEFAULTS.fallColor,
+      ),
     },
     holdings,
     watchlist,

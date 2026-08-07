@@ -12,6 +12,7 @@ import type {
 import {
   clampRefreshInterval,
   MAX_SELECTED_INDICES,
+  MENUBAR_OVERVIEW_KEY,
   normalizeConfig,
   normalizeFund,
   normalizeNetValueDate,
@@ -552,6 +553,44 @@ export function updateSettings(
   }
   if (typeof patch.menubarShowAmount === 'boolean') {
     config.settings.menubarShowAmount = patch.menubarShowAmount
+  }
+  if (typeof patch.menubarTopFont === 'string') {
+    config.settings.menubarTopFont = patch.menubarTopFont.trim()
+  }
+  if (typeof patch.menubarBottomFont === 'string') {
+    config.settings.menubarBottomFont = patch.menubarBottomFont.trim()
+  }
+  if (typeof patch.menubarTopBold === 'boolean') {
+    config.settings.menubarTopBold = patch.menubarTopBold
+  }
+  if (typeof patch.menubarBottomBold === 'boolean') {
+    config.settings.menubarBottomBold = patch.menubarBottomBold
+  }
+  if (typeof patch.menubarTopColor === 'string') {
+    config.settings.menubarTopColor = patch.menubarTopColor
+  }
+  if (patch.menubarGroupColors && typeof patch.menubarGroupColors === 'object') {
+    // 整体替换 menubarGroupColors：仅保留 ''(未分组)、总览或现有分组名，value 校验 hex
+    const valid = new Set(config.settings.holdingGroups || [])
+    const next: Record<string, string> = {}
+    for (const [g, color] of Object.entries(patch.menubarGroupColors)) {
+      const key = String(g ?? '').trim()
+      if (typeof color !== 'string') continue
+      const hex = color.trim()
+      if (
+        (key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) &&
+        /^#[0-9a-fA-F]{6}$/.test(hex)
+      ) {
+        next[key] = hex
+      }
+    }
+    config.settings.menubarGroupColors = next
+  }
+  if (typeof patch.menubarRiseColor === 'string') {
+    config.settings.menubarRiseColor = patch.menubarRiseColor
+  }
+  if (typeof patch.menubarFallColor === 'string') {
+    config.settings.menubarFallColor = patch.menubarFallColor
   }
   ports.config.saveConfig(config)
   return config.settings

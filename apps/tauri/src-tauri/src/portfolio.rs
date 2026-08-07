@@ -30,9 +30,17 @@ pub fn default_config() -> AppConfig {
             menubar_hidden_groups: Some(vec![]),
             menubar_layout: Some(0),
             menubar_top_font_size: Some(7.0),
-            menubar_bottom_font_size: Some(12.0),
+            menubar_bottom_font_size: Some(11.0),
             menubar_equal_font_size: Some(9.0),
             menubar_show_amount: Some(false),
+            menubar_top_font: Some("Hiragino Sans GB".to_string()),
+            menubar_bottom_font: Some("Menlo".to_string()),
+            menubar_top_bold: Some(false),
+            menubar_bottom_bold: Some(true),
+            menubar_top_color: Some("#ffffff".to_string()),
+            menubar_group_colors: Some(HashMap::new()),
+            menubar_rise_color: Some("#FF4F44".to_string()),
+            menubar_fall_color: Some("#34C759".to_string()),
         },
         holdings: HashMap::new(),
         watchlist: HashMap::new(),
@@ -292,9 +300,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         Some(2) => 2,
         _ => 0,
     };
-    // 字号（位置语义，clamp 到布局对应范围）；未设置时按布局默认（与插件原生默认一致 0:7/12 2:9/9）。
+    // 字号（位置语义，clamp 到布局对应范围）；未设置时按布局默认（与插件原生默认一致 0:7/11 2:9/9）。
     // 等大上限 11 受插件 v1.2.0 原生 equal clamp 限制，勿改插件
-    let (d_top, d_bottom) = if menubar_layout == 2 { (9.0, 9.0) } else { (7.0, 12.0) };
+    let (d_top, d_bottom) = if menubar_layout == 2 { (9.0, 9.0) } else { (7.0, 11.0) };
     let clampf = |v: Option<f64>, d: f64, lo: f64, hi: f64| v.map(|x| x.clamp(lo, hi)).unwrap_or(d);
     let menubar_top_font_size = clampf(
         settings_raw.and_then(|s| s.get("menubarTopFontSize")).and_then(|v| v.as_f64()),
@@ -317,6 +325,52 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_show_amount = settings_raw
         .and_then(|s| s.get("menubarShowAmount").and_then(|v| v.as_bool()))
         .unwrap_or(false);
+    // 菜单栏展示自定义项：字体（trim，空串=系统字体）、加粗（bool）、颜色（#rrggbb hex，非法回落默认）
+    let font_of = |key: &str, d: &str| {
+        settings_raw
+            .and_then(|s| s.get(key).and_then(|v| v.as_str()))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| d.to_string())
+    };
+    let color_of = |key: &str, d: &str| {
+        settings_raw
+            .and_then(|s| s.get(key).and_then(|v| v.as_str()))
+            .map(|s| s.trim().to_string())
+            .filter(|s| is_hex_color(s))
+            .unwrap_or_else(|| d.to_string())
+    };
+    let bool_of = |key: &str, d: bool| {
+        settings_raw
+            .and_then(|s| s.get(key).and_then(|v| v.as_bool()))
+            .unwrap_or(d)
+    };
+    let menubar_top_font = font_of("menubarTopFont", "Hiragino Sans GB");
+    let menubar_bottom_font = font_of("menubarBottomFont", "Menlo");
+    let menubar_top_bold = bool_of("menubarTopBold", false);
+    let menubar_bottom_bold = bool_of("menubarBottomBold", true);
+    let menubar_top_color = color_of("menubarTopColor", "#ffffff");
+    let menubar_group_colors: HashMap<String, String> = settings_raw
+        .and_then(|s| s.get("menubarGroupColors"))
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            let mut map = HashMap::new();
+            for (k, v) in obj {
+                let key = k.trim().to_string();
+                if key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key) {
+                    if let Some(hex) = v
+                        .as_str()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| is_hex_color(s))
+                    {
+                        map.insert(key, hex);
+                    }
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+    let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
+    let menubar_fall_color = color_of("menubarFallColor", "#34C759");
     let show_gold = settings_raw
         .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))
         .unwrap_or(true);
@@ -379,9 +433,27 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_bottom_font_size: Some(menubar_bottom_font_size),
             menubar_equal_font_size: Some(menubar_equal_font_size),
             menubar_show_amount: Some(menubar_show_amount),
+            menubar_top_font: Some(menubar_top_font),
+            menubar_bottom_font: Some(menubar_bottom_font),
+            menubar_top_bold: Some(menubar_top_bold),
+            menubar_bottom_bold: Some(menubar_bottom_bold),
+            menubar_top_color: Some(menubar_top_color),
+            menubar_group_colors: Some(menubar_group_colors),
+            menubar_rise_color: Some(menubar_rise_color),
+            menubar_fall_color: Some(menubar_fall_color),
         },
         holdings,
         watchlist,
         gold,
     }
 }
+
+/// 校验 hex 颜色（#rrggbb，忽略大小写）
+fn is_hex_color(s: &str) -> bool {
+    s.len() == 7
+        && s.starts_with('#')
+        && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// 总览实例在 menubarGroupColors 中的固定 key（与 TS MENUBAR_OVERVIEW_KEY 对应）
+pub const MENUBAR_OVERVIEW_KEY: &str = "__overview__";
