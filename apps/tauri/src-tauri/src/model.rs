@@ -66,6 +66,9 @@ pub struct AppSettings {
     pub quote_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub badge_mode: Option<String>,
+    /// 设置页「持仓」tab 浮动导航位置：top=顶部吸顶(默认) side=右侧悬浮
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub holdings_nav_position: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub holding_groups: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -130,6 +133,7 @@ impl Default for AppSettings {
             refresh_interval: None,
             quote_source: None,
             badge_mode: None,
+            holdings_nav_position: None,
             holding_groups: None,
             holding_group_orders: None,
             theme: None,

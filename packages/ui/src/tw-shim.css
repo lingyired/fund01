@@ -9,6 +9,7 @@
 @media (min-width:1536px){.2xl\:grid-cols-10{grid-template-columns:repeat(10,minmax(0,1fr))}}
 .absolute{position:absolute}
 .active\:scale-\[0\.98\]:active{transform:scale(0.98)}
+.-translate-y-1\/2{transform:translateY(-50%)}
 .align-baseline{vertical-align:baseline}
 .align-middle{vertical-align:middle}
 .animate-pulse{animation:pulse 2s cubic-bezier(.4,0,.6,1) infinite}
@@ -160,6 +161,7 @@
 .min-w-\[560px\]{min-width:560px}
 .ml-0\.5{margin-left:2px}
 .ml-1{margin-left:4px}
+.ml-auto{margin-left:auto}
 .mx-auto{margin-left:auto;margin-right:auto}
 .ml-1\.5{margin-left:6px}
 .mr-1{margin-right:4px}
@@ -215,6 +217,7 @@
 .py-8{padding-top:32px;padding-bottom:32px}
 .relative{position:relative}
 .right-0{right:0px}
+.right-4{right:16px}
 .rounded{border-radius:4px}
 .rounded-full{border-radius:9999px}
 .rounded-lg{border-radius:8px}
@@ -250,6 +253,7 @@
 @media (min-width:640px){.sm\:w-\[calc\(100\%-2rem\)\]{width:calc(100% - 2rem)}}
 .sticky{position:sticky}
 .scroll-mt-4{scroll-margin-top:16px}
+.scroll-mt-20{scroll-margin-top:80px}
 .table-fixed{table-layout:fixed}
 .tabular-nums{font-variant-numeric:tabular-nums}
 .text-2xl{font-size:24px;line-height:2rem}
@@ -286,6 +290,7 @@
 .rounded-none{border-radius:0}
 .z-50{z-index:50}
 .top-0{top:0px}
+.top-1\/2{top:50%}
 .tracking-tight{letter-spacing:-0.025em}
 .tracking-wide{letter-spacing:0.025em}
 .transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:150ms}

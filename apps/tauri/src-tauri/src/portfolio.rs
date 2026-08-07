@@ -23,6 +23,7 @@ pub fn default_config() -> AppConfig {
             refresh_interval: Some(DEFAULT_REFRESH_INTERVAL),
             quote_source: Some("fundmnfinfo".to_string()),
             badge_mode: Some("percent".to_string()),
+            holdings_nav_position: Some("top".to_string()),
             holding_groups: Some(vec![]),
             holding_group_orders: Some(HashMap::new()),
             theme: Some("system".to_string()),
@@ -383,6 +384,11 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         Some("amount") | Some("hidden") => settings_raw.unwrap().get("badgeMode").unwrap().as_str().unwrap().to_string(),
         _ => "percent".to_string(),
     };
+    let holdings_nav_position = if settings_raw.and_then(|s| s.get("holdingsNavPosition").and_then(|v| v.as_str())) == Some("side") {
+        "side".to_string()
+    } else {
+        "top".to_string()
+    };
     let theme = match settings_raw.and_then(|s| s.get("theme").and_then(|v| v.as_str())) {
         Some("light") | Some("dark") | Some("system") => settings_raw.unwrap().get("theme").unwrap().as_str().unwrap().to_string(),
         _ => "system".to_string(),
@@ -423,6 +429,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             refresh_interval: Some(refresh_interval),
             quote_source: Some(quote_source),
             badge_mode: Some(badge_mode),
+            holdings_nav_position: Some(holdings_nav_position),
             holding_groups: Some(holding_groups),
             holding_group_orders: Some(holding_group_orders),
             theme: Some(theme),

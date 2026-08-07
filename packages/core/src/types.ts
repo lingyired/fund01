@@ -161,6 +161,9 @@ export type BadgeMode = 'percent' | 'amount' | 'hidden'
 /** 菜单栏布局模式：0=下大上小（默认，上行小字/下行大字）2=等大。仅 tauri 生效 */
 export type MenubarLayout = 0 | 2
 
+/** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
+export type HoldingsNavPosition = 'top' | 'side'
+
 export type AppSettings = {
   showGold: boolean
   /** 定时刷新间隔配置（秒） */
@@ -169,6 +172,8 @@ export type AppSettings = {
   quoteSource?: QuoteSource
   /** 扩展角标显示方式：收益率百分比 / 收益额 / 隐藏。默认 percent */
   badgeMode?: BadgeMode
+  /** 设置页「持仓」tab 浮动导航位置，默认 top（顶部吸顶） */
+  holdingsNavPosition?: HoldingsNavPosition
   /** 持仓分组名称列表（按顺序展示，未在此列表的 groups 视为未分组） */
   holdingGroups?: string[]
   /**

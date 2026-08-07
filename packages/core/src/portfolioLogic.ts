@@ -52,6 +52,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     refreshInterval: {...DEFAULT_REFRESH_INTERVAL},
     quoteSource: 'fundmnfinfo',
     badgeMode: 'percent',
+    holdingsNavPosition: 'top',
     holdingGroups: [],
     theme: 'system',
     selectedIndices: [...DEFAULT_SELECTED_INDICES],
@@ -310,6 +311,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.badgeMode === 'hidden'
           ? payload.settings.badgeMode
           : DEFAULT_CONFIG.settings.badgeMode,
+      holdingsNavPosition:
+        payload?.settings?.holdingsNavPosition === 'side'
+          ? 'side'
+          : DEFAULT_CONFIG.settings.holdingsNavPosition,
       holdingGroups,
       holdingGroupOrders,
       theme:

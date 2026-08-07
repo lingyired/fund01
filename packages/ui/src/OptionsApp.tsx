@@ -32,6 +32,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  HoldingsNavPosition,
   MenubarLayout,
   SettingsTabId,
 } from '@fund01/core'
@@ -63,6 +64,7 @@ import {
 import {loadEditRows, type EditRow} from './lib/batchEdit'
 import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings'
 import {FundFormBody} from './components/FundFormDialog'
+import {HoldingsNav} from './components/HoldingsNav'
 import {applyTheme} from './theme'
 import {usePorts} from './context'
 import importPromptMd from '../../../docs/import-prompt.md?raw'
@@ -115,6 +117,22 @@ export function OptionsApp({
   const [holdingsReload, setHoldingsReload] = useState(0)
   // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
   const [groupsReload, setGroupsReload] = useState(0)
+  // 「持仓」tab 浮动导航位置（顶部吸顶 / 右侧悬浮）
+  const [navPosition, setNavPosition] = useState<HoldingsNavPosition>('top')
+
+  useEffect(() => {
+    const s = fetchSettings(ports)
+    setNavPosition(s.holdingsNavPosition === 'side' ? 'side' : 'top')
+  }, [ports])
+
+  async function handleNavPositionChange(next: HoldingsNavPosition) {
+    setNavPosition(next)
+    try {
+      await updateSettings(ports, {holdingsNavPosition: next})
+    } catch {
+      /* ignore */
+    }
+  }
 
   return (
     <Theme accentColor="blue" grayColor="gray" radius="small">
@@ -161,6 +179,10 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="holdings">
+            <HoldingsNav
+              position={navPosition}
+              onPositionChange={(p) => void handleNavPositionChange(p)}
+            />
             <div className="space-y-8">
               <HoldingGroupsSection
                 groupsReload={groupsReload}
@@ -199,14 +221,17 @@ export function OptionsApp({
 
 /* ── 通用卡片外壳 ─────────────────────────────────────────── */
 function SectionCard({
+  id,
   title,
   children,
 }: {
+  /** 滚动锚点 id（浮动导航跳转目标） */
+  id?: string
   title?: string
   children: React.ReactNode
 }) {
   return (
-    <section>
+    <section id={id} className="scroll-mt-20">
       {title ? (
         <h1 className="mb-3 font-display text-xl font-bold tracking-tight text-ink">
           {title}
@@ -751,7 +776,7 @@ function HoldingGroupsSection({
   }
 
   return (
-    <SectionCard title="持仓分组">
+    <SectionCard id="holdings-groups" title="持仓分组">
       <p className="text-xs text-muted">
         管理持仓的分组。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
@@ -863,7 +888,7 @@ function AddFundSection({groupsReload}: {groupsReload: number}) {
   }, [ports, groupsReload])
 
   return (
-    <SectionCard title="添加持仓">
+    <SectionCard id="add-fund" title="添加持仓">
       <p className="text-xs text-muted">
         录入基金代码与金额即可添加。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
       </p>
@@ -1111,7 +1136,7 @@ function EditHoldingsSection({
   )
 
   return (
-    <SectionCard title="编辑持仓">
+    <SectionCard id="edit-holdings" title="编辑持仓">
       <p className="text-xs text-muted">
         可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；「持仓金额」按最新净值实时估算、仅供查看不可编辑；删除分组会连带删除组内所有基金。记得点保存。
       </p>
@@ -1463,7 +1488,7 @@ function ImportSection({
   }
 
   return (
-    <SectionCard title="导入持仓">
+    <SectionCard id="import-holdings" title="导入持仓">
       {/* 用 AI 助手生成 JSON（教程） */}
       <div className="rounded-lg border border-line/70 bg-paper-deep/40 text-xs text-muted">
         <div className="flex items-center gap-1.5 border-b border-line/30 px-3 py-2">

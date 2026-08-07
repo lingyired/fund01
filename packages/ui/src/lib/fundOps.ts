@@ -480,6 +480,9 @@ export function updateSettings(
   ) {
     config.settings.badgeMode = patch.badgeMode
   }
+  if (patch.holdingsNavPosition === 'top' || patch.holdingsNavPosition === 'side') {
+    config.settings.holdingsNavPosition = patch.holdingsNavPosition
+  }
   if (Array.isArray(patch.selectedIndices)) {
     const next = Array.from(
       new Set(
