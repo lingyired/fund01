@@ -24,8 +24,8 @@ chrono = "0.4"
 regex = "1"
 encoding_rs = "0.8"
 futures = "0.3"
-# 多行 menubar 插件（用户自研）：固定 GitHub v1.3.0（setFontFamily 新功能，原生 clamp 与 v1.2.0 一致），与本地工作区解耦
-tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.3.0" }
+# 多行 menubar 插件（用户自研）：固定 GitHub v1.4.0（新增 setMonospaced 等宽数字渲染 + render dedup 缓存，现有 API 向后兼容），与本地工作区解耦
+tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.4.0" }
 
 # macOS: 拦截 Dock 右键「退出」/ Cmd+Q（NSApp terminate:），给 AppDelegate 动态挂 applicationShouldTerminate:
 # 实现「退出 = 只关设置窗口，menubar 保持常驻」。版本与 tauri 依赖链 objc2 0.6.x 一致。

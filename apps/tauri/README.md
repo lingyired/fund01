@@ -12,7 +12,7 @@
 - **刷新**：`refresh.rs` tokio 循环，按 `tradingCalendar` 分档（交易 60s / 非交易 600s）；完成后 `emit('quote-update')` + 更新 menubar
 - **浮窗**：680×600 无装饰窗口（`window.rs`），失焦 hide + 闲置 5min 销毁（`POPUP_DESTROY_DELAY_SECS`），点击重建；`?tab=` 设置窗口 1200×800
 - **存储**：`tauri-plugin-store`（config.json）+ `AppState` 内存镜像；`save_config` 归一化落盘 + 广播 `config-change`
-- **插件**：`tauri-plugin-multiline-menubar` 1.0.0 已内置 `set_colors`（Rust API + command），本地 path 依赖 `../../../../tauri-plugin-multiline-menubar`，无需改动
+- **插件**：`tauri-plugin-multiline-menubar`（用户自研，GitHub git 依赖 `tag = "v1.4.0"`；`set_colors` 原生 hex 着色，v1.4.0 新增 `setMonospaced` 等宽数字渲染，现有 API 向后兼容）
 
 未来基于同一份 `packages/ui` + `packages/core` 实现 macOS menubar app（也可扩展 Windows / Linux）。本文档说明实现路径、关键架构点、Rust 后端需要实现的命令与事件清单。
 

@@ -251,7 +251,7 @@ fundOps.updateSettings(ports, patch)   [packages/ui/src/lib/fundOps.ts]
 
 **架构要点**（详见 `apps/tauri/README.md`）：
 - macOS menubar 常驻（`ActivationPolicy::Accessory`），多实例 = 每持仓分组一个 NSStatusItem（两行：分组名 + 涨跌%，涨红跌绿着色）
-- 菜单栏插件：`tauri-plugin-multiline-menubar`（用户自研，crates.io 1.0.0，本地 path 依赖；`set_colors` 原生支持 hex 着色）
+- 菜单栏插件：`tauri-plugin-multiline-menubar`（用户自研，GitHub git 依赖 tag v1.4.0；`set_colors` 原生支持 hex 着色）
 - 定时刷新：`tokio` 循环按交易日历分档间隔（交易 60s / 非交易 600s）；刷新后 `emit('quote-update')` + 更新 menubar 文字
 - 浮窗：680×600 无装饰窗口（与 Chrome popup 同尺寸，UI 零改动），失焦 hide + 闲置 5min 销毁（可配置），点击重建
 - 数据源双全：fund123（CSRF + cookie_store）+ fundmnfinfo（桌面 UA 批量），quoteSource 切换
