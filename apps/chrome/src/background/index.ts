@@ -31,6 +31,8 @@ const CACHE_KEYS = {
   market: 'cache-market',
   gold: 'cache-gold',
   time: 'cache-time',
+  // 内部 meta：最近一次基金刷新使用的数据源，用于 mergeStaleEstimate 同源判断
+  source: 'cache-source',
 } as const
 
 /** 状态类日志开关：生产构建（rsbuild build）时 process.env.NODE_ENV='production'，常量折叠为 false，定时器日志不输出 */
@@ -257,13 +259,27 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
   // 参考项目靠 GZTIME=null 时 substr 抛错中断回调，保留上一次有效估算。
   // 这里用显式逻辑：新 quote 无估算时，从上次缓存合并旧 estimate 字段，
   // 使空窗期 UI 仍能看到 15:00 最后估值，等 20:00 官方净值披露后自动覆盖。
+  // 注意：仅当旧缓存与本次刷新同一数据源时才合并。切源后缓存是旧源口径，
+  // 混入会让 percent 与净值差来自不同源（曾出现 QDII +150.53 / -0.06% 方向矛盾）。
   if (holdingsQuotes || watchlistQuotes) {
     const cached = await chrome.storage.local.get([
       CACHE_KEYS.holdings,
       CACHE_KEYS.watchlist,
+      CACHE_KEYS.source,
     ])
-    if (holdingsQuotes) mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
-    if (watchlistQuotes) mergeStaleEstimate(watchlistQuotes, cached[CACHE_KEYS.watchlist])
+    const cachedSource = cached[CACHE_KEYS.source]
+    const sameSource = !cachedSource || cachedSource === quoteSource
+    if (!sameSource) {
+      console.warn(
+        `[fund01] 缓存数据源 ${cachedSource} ≠ 当前 ${quoteSource}，跳过空窗期估算合并，避免跨源混用`,
+      )
+    }
+    if (sameSource && holdingsQuotes) {
+      mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
+    }
+    if (sameSource && watchlistQuotes) {
+      mergeStaleEstimate(watchlistQuotes, cached[CACHE_KEYS.watchlist])
+    }
   }
 
   let holdingsResult: ReturnType<typeof calcHoldings> | null = null
@@ -286,6 +302,8 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
   const patch: Record<string, any> = {[CACHE_KEYS.time]: Date.now()}
   if (holdingsResult) patch[CACHE_KEYS.holdings] = holdingsResult
   if (watchlistResult) patch[CACHE_KEYS.watchlist] = watchlistResult.list
+  // 记录本次基金刷新使用的数据源（供 mergeStaleEstimate 同源判断）
+  patch[CACHE_KEYS.source] = quoteSource
 
   // 指数：新拉的市场部分 + 旧缓存另一市场部分合并，避免单市场刷新覆盖整份
   const indicesAValue = fulfilled('indicesA')
@@ -397,12 +415,22 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 })
 
 // 监听配置变化：前端 ConfigPort.saveConfig 写 chrome.storage.local 后自动重排 alarm，
-// 并在角标显示方式变化时立即按新配置重算角标
+// 并在角标显示方式变化时立即按新配置重算角标。
+// 切换数据源（quoteSource）时：清掉旧源口径的基金行情缓存并立即强制刷新，
+// 避免 UI 继续展示旧源数据、也避免 mergeStaleEstimate 跨源混用（percent 与净值差来源不一致）。
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[CONFIG_KEY]) {
+    const oldCfg = changes[CONFIG_KEY].oldValue as AppConfig | undefined
     const newConfig = changes[CONFIG_KEY].newValue as AppConfig | undefined
+    const oldSource = oldCfg?.settings?.quoteSource ?? 'fundmnfinfo'
+    const newSource = newConfig?.settings?.quoteSource ?? 'fundmnfinfo'
     scheduleAllAlarms(newConfig || null)
     void applyBadge(newConfig || null)
+    if (oldSource !== newSource) {
+      void chrome.storage.local
+        .remove([CACHE_KEYS.holdings, CACHE_KEYS.watchlist, CACHE_KEYS.source])
+        .then(() => refreshAll(true))
+    }
   }
 })
 
