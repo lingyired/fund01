@@ -254,6 +254,7 @@
 .sticky{position:sticky}
 .scroll-mt-4{scroll-margin-top:16px}
 .scroll-mt-20{scroll-margin-top:80px}
+.self-center{align-self:center}
 .table-fixed{table-layout:fixed}
 .tabular-nums{font-variant-numeric:tabular-nums}
 .text-2xl{font-size:24px;line-height:2rem}

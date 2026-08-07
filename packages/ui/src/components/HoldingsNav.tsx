@@ -1,8 +1,7 @@
 import {useCallback, useEffect, useState} from 'react'
 import {PanelRight, PanelTop} from 'lucide-react'
-import {SegmentedControl} from '@radix-ui/themes'
+import {Button, SegmentedControl} from '@radix-ui/themes'
 import type {HoldingsNavPosition} from '@fund01/core'
-import {cn} from '@fund01/core'
 
 /* ── 持仓 tab 的锚点区块 ─────────────────────────────────── */
 export const HOLDINGS_NAV_ITEMS = [
@@ -15,7 +14,9 @@ export const HOLDINGS_NAV_ITEMS = [
 type NavItemId = (typeof HOLDINGS_NAV_ITEMS)[number]['id']
 
 /**
- * 设置页「持仓」tab 的浮动导航：顶部吸顶横向胶囊 / 右侧悬浮竖向胶囊。
+ * 设置页「持仓」tab 的浮动导航：顶部吸顶横向 / 右侧悬浮竖向。
+ * 视觉跟随 Radix Themes 组件语言（Button soft/ghost + SegmentedControl），
+ * 不再使用手写胶囊/毛玻璃，避免与页面其他 Radix 控件割裂。
  * - 点击项平滑滚动到对应区块（顶部模式额外补偿吸顶导航高度）
  * - 滚动时自动高亮当前区块（scroll-spy）
  * - 自带位置切换控件（顶部/侧边），持久化走 settings.holdingsNavPosition
@@ -62,13 +63,20 @@ export function HoldingsNav({
     window.scrollTo({top, behavior: 'smooth'})
   }
 
-  const itemCls = (id: NavItemId) =>
-    cn(
-      'cursor-pointer rounded-full px-3 py-1.5 text-xs whitespace-nowrap transition-colors',
-      activeId === id
-        ? 'bg-accent text-white'
-        : 'text-muted hover:bg-paper-deep hover:text-ink',
-    )
+  const navButtons = HOLDINGS_NAV_ITEMS.map((item) => (
+    <Button
+      key={item.id}
+      type="button"
+      size="1"
+      variant={activeId === item.id ? 'soft' : 'ghost'}
+      color={activeId === item.id ? 'blue' : 'gray'}
+      onClick={() => jumpTo(item.id)}
+      aria-current={activeId === item.id ? 'true' : undefined}
+      className="whitespace-nowrap"
+    >
+      {item.label}
+    </Button>
+  ))
 
   const switchControl = (
     <SegmentedControl.Root
@@ -91,20 +99,11 @@ export function HoldingsNav({
     return (
       <nav
         aria-label="持仓区块导航"
-        className="fixed right-4 top-1/2 z-50 flex -translate-y-1/2 flex-col items-stretch gap-1 rounded-full border border-line/60 bg-panel/85 p-1 shadow-card backdrop-blur"
+        className="fixed right-4 top-1/2 z-50 flex -translate-y-1/2 flex-col items-start gap-1 rounded-md border border-line/60 bg-panel/85 p-1 shadow-card"
       >
-        {HOLDINGS_NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className={itemCls(item.id)}
-            onClick={() => jumpTo(item.id)}
-            aria-current={activeId === item.id ? 'true' : undefined}
-          >
-            {item.label}
-          </button>
-        ))}
-        <div className="flex justify-center pt-1">{switchControl}</div>
+        {navButtons}
+        <div className="w-full border-t border-line/40" />
+        <div className="flex justify-center self-center">{switchControl}</div>
       </nav>
     )
   }
@@ -112,20 +111,10 @@ export function HoldingsNav({
   return (
     <nav
       aria-label="持仓区块导航"
-      className="sticky top-0 z-10 mb-4 flex items-center gap-1 rounded-full border border-line/60 bg-panel/85 p-1 shadow-card backdrop-blur"
+      className="sticky top-0 z-10 mb-4 flex items-center gap-1 rounded-md border border-line/60 bg-panel/85 p-1 shadow-sm"
     >
-      {HOLDINGS_NAV_ITEMS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={itemCls(item.id)}
-          onClick={() => jumpTo(item.id)}
-          aria-current={activeId === item.id ? 'true' : undefined}
-        >
-          {item.label}
-        </button>
-      ))}
-      <span className="ml-auto pl-1">{switchControl}</span>
+      {navButtons}
+      <span className="ml-auto">{switchControl}</span>
     </nav>
   )
 }
