@@ -16,12 +16,15 @@ export function groupAmount(row: FundQuoteRow, group: string): number {
   return Math.round((row.amount * (gs / total)) * 100) / 100
 }
 
-/** 该基金在某分组的收益（按总收益比例拆分） */
-export function groupPnl(row: FundQuoteRow, group: string): number {
+/** 该基金在某分组的收益（按总收益比例拆分）。
+ *  当日收益为空（QDII 盘中 pnl=null）时返回 null，聚合时跳过该成员（§六：分组当日
+ *  收益额不把空值按 0 计入，避免既少算又误导；盘后 QDII pnl 有值则正常计入）。 */
+export function groupPnl(row: FundQuoteRow, group: string): number | null {
   const gs = groupShares(row, group)
   const total = row.shares || 0
   if (gs <= 0 || total <= 0) return 0
-  return Math.round(((row.pnl ?? 0) * (gs / total)) * 100) / 100
+  if (row.pnl == null) return null
+  return Math.round((row.pnl * (gs / total)) * 100) / 100
 }
 
 /** 该基金在某分组的持仓成本 = 成本单价 × 分组份额 */
@@ -100,7 +103,12 @@ export function summarizeGroup(list: FundQuoteRow[], groupKey: GroupKey): GroupS
     ? list.filter((r) => groupShares(r, groupKey) > 0)
     : list.filter((r) => groupShares(r, '') > 0)
   const amount = rows.reduce((s, r) => s + groupAmount(r, groupKey), 0)
-  const pnl = rows.reduce((s, r) => s + groupPnl(r, groupKey), 0)
+  // 当日收益聚合：跳过当日收益为空的成员（QDII 盘中 pnl=null → groupPnl 返回 null），
+  // 不按 0 计入（§六）；盘后 QDII 有值自动补回
+  const pnl = rows.reduce((s, r) => {
+    const p = groupPnl(r, groupKey)
+    return p == null ? s : s + p
+  }, 0)
   const pnlPercent = amount > 0 ? (pnl / amount) * 100 : null
 
   let cost = 0
@@ -122,6 +130,7 @@ export function summarizeGroup(list: FundQuoteRow[], groupKey: GroupKey): GroupS
   let down = 0
   for (const r of rows) {
     const p = groupPnl(r, groupKey)
+    if (p == null) continue
     if (p > 0) up++
     else if (p < 0) down++
   }
@@ -183,7 +192,8 @@ export interface DisplayRow {
   row: FundQuoteRow
   shares: number
   amount: number
-  pnl: number
+  /** 当日收益额；当日收益为空（QDII 盘中）时为 null，UI 渲染「-」 */
+  pnl: number | null
   cumPnl: number | null
   cumPnlPercent: number | null
   group: GroupKey
@@ -206,7 +216,7 @@ export function buildDisplayRows(
         row,
         shares: row.shares || 0,
         amount: row.amount,
-        pnl: row.pnl ?? 0,
+        pnl: row.pnl ?? null,
         cumPnl: row.totalCumPnl ?? null,
         cumPnlPercent: row.totalCumPnlPercent ?? null,
         group: '',

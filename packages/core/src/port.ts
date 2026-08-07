@@ -18,6 +18,11 @@ import type {
 export interface DataPort {
   /** 触发后端立即刷新（异步，不等待结果） */
   triggerRefresh(): Promise<void>
+  /**
+   * 清除缓存并重新加载（Chrome：清 chrome.storage.local 全部 cache-* + 强制刷新；
+   * 用于「改动代码后缓存不失效」场景）。Tauri 无 SW 缓存概念，可不实现（UI 回退 triggerRefresh）。
+   */
+  clearCache?(): Promise<void>
   /** 持仓汇总（后端已合并行情 + 配置） */
   fetchHoldings(): Promise<HoldingsPayload>
   fetchWatchlist(): Promise<WatchlistPayload>
@@ -59,7 +64,7 @@ export interface EventPort {
 }
 
 /** 设置页一级 tab 标识（OptionsApp 与 openSettings 共用） */
-export type SettingsTabId = 'general' | 'holdings' | 'data' | 'menubar'
+export type SettingsTabId = 'general' | 'holdings' | 'data' | 'menubar' | 'docs'
 
 /** 窗口 / 导航操作抽象 —— 各 app 必须提供实现（Chrome 扩展 API / Tauri 窗口 API） */
 export interface WindowPort {

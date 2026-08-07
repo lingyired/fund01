@@ -30,6 +30,7 @@ export type QuoteLike = {
   time?: string | null
   trend?: {time: string; growth: number | null; netValue?: number | null}[]
   sectors?: string[]
+  isQdii?: boolean
 }
 
 /** 从估值分时末点取净值（比涨幅更精确） */
@@ -101,7 +102,11 @@ export function calcHoldings(
 
   for (const raw of localFunds) {
     const q = quoteMap.get(raw.code) || ({} as QuoteLike)
-    const percent = q.percent ?? q.estimateGrowth ?? q.dayGrowth ?? null
+    // percent 只认 provider 的展示口径（confirmed/estimate/兜底已由 provider 决定）。
+    // ⚠️ 不回退到 q.dayGrowth：QDII 未披露日 provider 有意给 percent=null（当日收益
+    // 显示「-」），回退 dayGrowth 会把东财 hist 滞后净值日涨幅冒充「当日」（fund123 源
+    // 实测 005698 被回退成 +0.90% 的根因，2026-08-07）。
+    const percent = q.percent ?? q.estimateGrowth ?? null
     const {prevNav, currNav} = resolveNavPair(q)
 
     const navDay = normalizeNetValueDate(q.netValueDate)
@@ -127,10 +132,14 @@ export function calcHoldings(
       q.percentSource === 'estimate' ||
       (q.percentSource !== 'confirmed' && latestEstimateNav(q) != null)
 
-    let pnl = 0
+    let pnl: number | null = null
     if (shares > 0 && prevNav != null && currNav != null) {
       pnl = truncPnl2(shares * (currNav - prevNav))
     }
+    // percent 为空（QDII 未披露日/新基金等）→ 当日收益无展示意义，pnl 置 null
+    // （UI 渲染「-」、分组聚合跳过），避免滞后净值差被计入「当日」（fund123 源
+    // 005698 曾把 08-05 净值差 +161.53 算进当日收益，2026-08-07）
+    if (percent == null) pnl = null
 
     // 展示用市值实时计算：估值期看最新确认净值；确认期看当日确认净值。
     let displayAmount = 0
@@ -148,7 +157,7 @@ export function calcHoldings(
       shares > 0 && currNav != null ? round2(shares * currNav) : displayAmount
 
     totalAmount += displayAmount
-    totalPnl += pnl
+    totalPnl += pnl ?? 0
     if (hasCost) {
       hasAnyCost = true
       totalCost += totalCostRow
@@ -206,6 +215,7 @@ export function calcHoldings(
       totalCumPnlPercent: hasCost && totalCostRow > 0
         ? round2(((liveAmount - totalCostRow) / totalCostRow) * 100)
         : null,
+      isQdii: q.isQdii,
     })
   }
 
@@ -264,12 +274,14 @@ export function mergeWatchlist(
     return {
       ...f,
       name: q.name || f.name,
-      percent: q.percent ?? q.estimateGrowth ?? q.dayGrowth ?? null,
+      // 同 calcHoldings：不回退 dayGrowth（QDII 未披露日 percent 有意为 null → 显示「-」）
+      percent: q.percent ?? q.estimateGrowth ?? null,
       estimateGrowth: q.estimateGrowth,
       dayGrowth: q.dayGrowth,
       time: q.time,
       trend: q.trend || [],
       sectors,
+      isQdii: q.isQdii,
     } as FundQuoteRow
   })
   return {list, persistPatches}

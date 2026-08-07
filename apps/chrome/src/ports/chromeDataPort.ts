@@ -16,6 +16,7 @@ import type {
 // SW 消息协议（与 background/index.ts 的 Message 类型保持一致）
 type Message =
   | { type: 'REFRESH' }
+  | { type: 'CLEAR_CACHE' }
   | { type: 'FETCH_QUOTES'; funds: any[]; quoteType: 'hold' | 'watch' }
   | { type: 'FETCH_FUND_HISTORY'; code: string; range: string }
   | { type: 'FETCH_INDEX_HISTORY'; code: string; range: string }
@@ -53,6 +54,11 @@ function sendMessage<T>(msg: Message): Promise<T> {
 export class ChromeDataPort implements DataPort {
   async triggerRefresh(): Promise<void> {
     await sendMessage({ type: 'REFRESH' })
+  }
+
+  /** 清空全部缓存（cache-*）并强制刷新 —— 改代码后缓存不失效时一键重置 */
+  async clearCache(): Promise<void> {
+    await sendMessage({ type: 'CLEAR_CACHE' })
   }
 
   async fetchHoldings(): Promise<HoldingsPayload> {

@@ -1,5 +1,6 @@
 import {httpGet, httpPost, MOBILE_UA, fmtDate} from './http'
 import {
+  isAShareTradingTime,
   isConfirmedSessionActive,
   isLooseSameFundName,
   isSameFundName,
@@ -461,21 +462,27 @@ function resolveDisplayPercent(opts: {
   estimateGrowth: number | null
   dayGrowth: number | null
   netValueDate: string
-  /** QDII：dayGrowth 是 T+1 披露的昨日涨幅，不能当今日涨幅（confirmed/兜底分支都跳过） */
+  /** QDII 标记：仅用于兜底分支判定，不再用于 confirmed 窗口放行 */
   isQdii?: boolean
+  /** 兼容旧调用方（fund123 fetchOne 传 dayGrowthFromHist）——保留但不再被引用 */
+  dayGrowthFromHist?: boolean
 }): {percent: number | null; percentSource: 'confirmed' | 'estimate' | null} {
   const navDay = normalizeNetValueDate(opts.netValueDate)
+  // **披露日窗口**：境内走标准确认窗口；QDII 走 delayed 窗口（披露日 = PDATE 下一交易日
+  // ≥ 今天 才算「今日已更新」）——QDII 今天披露的净值（PDATE=昨天）才显示，昨天披露的
+  // （PDATE=前天）保持 `-`，避免把未更新的滞后涨幅累计到「当日」标签下。
   const inConfirmSession =
-    !opts.isQdii &&
     opts.dayGrowth != null &&
     !!navDay &&
-    isConfirmedSessionActive(navDay)
+    isConfirmedSessionActive(navDay, undefined, opts.isQdii ?? false)
   if (inConfirmSession) {
     return {percent: opts.dayGrowth, percentSource: 'confirmed'}
   }
   if (opts.estimateGrowth != null) {
     return {percent: opts.estimateGrowth, percentSource: 'estimate'}
   }
+  // dayGrowth 兜底：非 QDII 允许（东财 hist 已给日期明确的 dayGrowth）；
+  // QDII 不走兜底（避免 hist 滞后日涨幅或 matiaria 昨日涨幅冒充当日）
   if (opts.dayGrowth != null && !opts.isQdii) {
     return {percent: opts.dayGrowth, percentSource: null}
   }
@@ -532,6 +539,40 @@ export async function fetchFundNavHistory(code: string, pageSize = 5, pageIndex 
     pageSize,
   })
   return mapHisNetRows(list)
+}
+
+/**
+ * 历史净值对齐（P0-2）：取 FundMNHisNetList 对齐 netValue / dayGrowth / netValueDate，
+ * 并按需填真实前一日净值 —— **禁止用 NAVCHGRT 两位涨幅反推**（有 4 元级系统误差，
+ * 实测 040046 反推 8.303409 vs 真实 8.3030，持 10000 份收益额偏差 +4.09 元）。
+ * `withPrev=true` 仅用于「确认会话（盘后）」场景；盘中/空窗不填 prev，
+ * 避免 resolveNavPair 的兜底分支用滞后净值算出盘中收益。
+ * 性能：仅在自算估值失败（QDII / 黄金等无重仓股）或 QDII 盘后确认时调用，
+ * 少数基金按需单只拉取，不复用 FundMNFInfo 批量优势。
+ * ⚠️ 入参为可变 state（fetchOne 局部变量包装），调用后由调用方同步回局部变量。
+ */
+async function fillHistAligned(
+  code: string,
+  s: {netValue: number | null; dayGrowth: number | null; prevNetValue: number | null; netValueDate: string},
+  withPrev: boolean,
+): Promise<void> {
+  try {
+    const hist = await fetchFundNavHistory(code, 5)
+    if (!hist.length) return
+    const navDay = normalizeNetValueDate(s.netValueDate)
+    let idx = navDay ? hist.findIndex((h) => h.date === navDay) : 0
+    if (idx < 0) idx = 0
+    const match = hist[idx]
+    if (!match) return
+    if (match.netValue != null) s.netValue = match.netValue
+    if (match.dayGrowth != null) s.dayGrowth = match.dayGrowth
+    if (match.date) s.netValueDate = match.date
+    if (withPrev && hist[idx + 1]?.netValue != null) {
+      s.prevNetValue = hist[idx + 1].netValue
+    }
+  } catch {
+    // keep previous（网络失败时保留 parse 反推值）
+  }
 }
 
 async function fetchFundNavHistoryPaged(
@@ -718,6 +759,8 @@ export async function getFundQuote(fund: {
     dayGrowth,
     netValueDate,
     isQdii: isQdiiName(name),
+    // dayGrowth 是否来自东财 hist（日期明确、可信）：hist 匹配行存在且有涨幅才算
+    dayGrowthFromHist: histIdx >= 0 && hist[histIdx]?.dayGrowth != null,
   })
   const hasEstimate = estimateNetValue != null || estimateGrowth != null
 
@@ -759,6 +802,7 @@ export async function getFundQuote(fund: {
     time: trend.length ? trend[trend.length - 1].time : null,
     trend,
     sectors,
+    isQdii: isQdiiName(name),
   }
 }
 
@@ -792,6 +836,8 @@ export type FundQuote = {
   /** true 表示 estimateNetValue/estimateGrowth/percent 来自重仓股加权自算
    *  （非 FundMNFInfo 直接返回）。空窗期（15:00-20:00 GSZ 缺失）时为 true。 */
   useCalc?: boolean
+  /** 是否为 QDII/海外延迟披露基金（UI 区分：盘中「-」、基金列次行净值日期） */
+  isQdii?: boolean
 }
 
 export interface FundQuoteProvider {
@@ -876,10 +922,12 @@ async function fetchFundMNFInfo(codes: string[]): Promise<Map<string, any>> {
             deviceid: MNFINFO_DEVICEID,
             Fcodes: chunk.join(','),
           },
-          // 关键：必须用桌面 UA。东方财富 FundMNFInfo 接口对移动 UA 不返回
-          // GSZ 估算值（盘中 + 15:00-20:00 空窗期均无），导致今日估算收益不显示。
-          // 参考项目（funds）用浏览器 axios 直发，默认桌面 UA，故能拿到 GSZ。
-          // httpGet 默认 UA 即桌面 Chrome UA，这里不覆盖。
+          // ⚠️ 必须用 MOBILE_UA（与 Tauri fundmnfinfo.rs 一致）：东财 FundMNFInfo
+          // 对桌面 UA（含 httpGet 默认 Windows Chrome 128）风控拒绝 61136403「网络繁忙」，
+          // 实测（2026-08-07）Mac 桌面 UA 放行、Windows 桌面 UA 拒绝、移动 UA 放行。
+          // 副作用：移动 UA 不返回 GSZ/GSZZL/GZTIME → 盘中估算靠自算（getCalcGszzl），
+          // QDII 盘中「-」、境内盘后官方净值均不受影响（与既有架构一致）。
+          headers: {'User-Agent': MOBILE_UA},
           timeout: 12000,
         })
         break
@@ -1141,13 +1189,31 @@ function parseFundMNFInfoItem(item: any): {
 
   // hasReplace：当日净值已披露（净值日期 == 估值日期）。
   // 参考实现：if (val.PDATE != "--" && val.PDATE == val.GZTIME.substr(0, 10)) { hasReplace = true }
+  // ⚠️ GZTIME 已对全部场外基金停返（实测恒 null，2026-08-07）→ 原判定恒 false，
+  // confirmed 分支成为死代码。替代判定：GZTIME 缺失时改用「确认会话」——
+  //   - 境内（delayed=false）：PDATE 下一交易日开盘前（PDATE=今天 即当日已披露）
+  //   - QDII（delayed=true，披露日窗口）：披露日 = PDATE 下一交易日 ≥ 今天 才算「今日已更新」
+  //     （QDII T+1：今天披露昨天净值 → PDATE=今天-1 → 显示；PDATE=前天 = 昨天披露的 → 保持 `-`）
   const gztimeDay = gztime.length >= 10 ? gztime.slice(0, 10) : ''
+  const qdiiName = String(item?.SHORTNAME || '')
   const hasReplace =
-    pdate !== '--' && pdate !== '' && gztimeDay !== '' && pdate === gztimeDay
+    gztimeDay !== ''
+      ? pdate !== '--' && pdate !== '' && pdate === gztimeDay
+      : (() => {
+          const navDay = normalizeNetValueDate(pdate)
+          return (
+            navDay !== '' && isConfirmedSessionActive(navDay, undefined, isQdiiName(qdiiName))
+          )
+        })()
 
   // 估值过期：GZTIME 日期 < PDATE 日期（线上版 numDate(gztime) < numDate(jzrq)）
   const estimateStale =
     gztimeDay !== '' && pdate !== '' && pdate !== '--' && gztimeDay < pdate
+
+  // 诊断日志（chrome SW 控制台可见）：核对 hasReplace / 披露日窗口判定
+  console.log(
+    `[fund01] parse item code=${String(item?.FCODE || '')} name=${String(item?.SHORTNAME || '')} pdate=${pdate} gztimeDay=${gztimeDay} qdii=${isQdiiName(qdiiName)} hasReplace=${hasReplace}`,
+  )
 
   let netValue: number | null = null
   let prevNetValue: number | null = null
@@ -1254,62 +1320,88 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     // 分时走势曲线（trend）留空，由 FundTrendDialog 懒加载。
     const trend: FundQuote['trend'] = []
 
-    // 直接按 API 文档的确认标志决定展示口径，不走 resolveDisplayPercent
-    // （后者基于交易日历，与 PDATE/GZTIME 可能不一致，导致估算期误判为确认期）
+    const now = new Date()
+    const qdii = isQdiiName(name)
+    const aShareTrading = isAShareTradingTime(now)
+
     let percent: number | null = null
     let percentSource: 'confirmed' | 'estimate' | null = null
+
+    // 自算估值 fallback（参考线上版 useCalc / getCalcGszzl）——先于 percent 判定，
+    // 因为它可能产出 estimate（自算/fund123 兜底）或 confirmed（QDII/黄金盘后历史净值）口径：
+    // 空窗期（15:00 后 ~ 20:00 前 GSZ 缺失）或估值过期（GZTIME < PDATE）时，
+    // FundMNFInfo 不再返回有效盘中估算。此时用前十大重仓股的当日涨跌幅加权自算
+    // 估算涨跌幅；自算失败（无持仓/无行情/请求失败）时保持空，由 background 的
+    // mergeStaleEstimate 从上次缓存恢复今日 15:00 最后估算。
+    let useCalc = false
+    const histState = {netValue, dayGrowth, prevNetValue, netValueDate}
+    if (useCalcNeeded && estimateGrowth == null && netValue != null && netValue > 0) {
+      if (qdii) {
+        // QDII：**跳过自算估值** —— 其重仓为美股，自算口径是「上一美股交易日」涨跌，
+        // 在 A 股交易日会被误当成「今日」收益（用户反对点：15:30-20:00 空窗期把美股
+        // 08-06 涨跌当今日）。严格走披露日窗口：东财披露 PDATE 更新后才 confirmed 显示，
+        // 否则保持 `-`（且 fund123 无 QDII 分时估值、matiaria 昨日涨幅冒充今日，均不可用）。
+        console.warn(
+          `[fund01] FundMNFInfo 自算失败 code=${code} name=${name} —— QDII 跳过自算估值，严格按披露日窗口（PDATE=${netValueDate} 今日未更新则当日收益保持 -）`,
+        )
+      } else {
+        const calcGszzl = await getCalcGszzl(code)
+        if (calcGszzl != null && Number.isFinite(calcGszzl)) {
+          const calcGsz = Math.round(netValue * (1 + calcGszzl / 100) * 10000) / 10000
+          estimateGrowth = calcGszzl
+          estimateNetValue = calcGsz
+          percent = calcGszzl
+          percentSource = 'estimate'
+          useCalc = true
+        } else {
+          // 自算失败（无重仓股可加权：黄金/商品等）→ fallback fund123 官方分时估值
+          const est = await fund123EstimateFallback(code, fund.fundKey)
+          if (est) {
+            estimateGrowth = est.growth
+            estimateNetValue = est.netValue
+            percent = est.growth
+            percentSource = 'estimate'
+            useCalc = true
+            console.warn(
+              `[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code=${code} growth=${est.growth} est_net=${est.netValue}`,
+            )
+          } else {
+            // 黄金等：fund123 兜底亦不可用 → 历史净值对齐（盘后 confirmed 时填真实 prev）
+            await fillHistAligned(code, histState, confirmed)
+            console.warn(
+              `[fund01] FundMNFInfo 自算估值失败 code=${code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用，改走历史净值对齐）`,
+            )
+          }
+        }
+      }
+    } else if (confirmed && qdii && !aShareTrading) {
+      // QDII 已确认（delayed 放行，盘后）：parse 反推的 prev 有 4 元级系统误差，
+      // 用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+      await fillHistAligned(code, histState, true)
+    }
+    // 历史净值对齐结果同步回局部变量
+    netValue = histState.netValue
+    dayGrowth = histState.dayGrowth
+    prevNetValue = histState.prevNetValue
+    netValueDate = histState.netValueDate
+
+    // 展示口径：confirmed（PDATE=今天）当日涨幅 = NAVCHGRT；
+    // 其他时候（盘中/收盘后未更新）保留 percent=null → UI 渲染「-」灰色
     if (confirmed) {
-      // 确认期：当日涨幅 = NAVCHGRT
       if (dayGrowth != null) {
         percent = dayGrowth
         percentSource = 'confirmed'
       }
-    } else {
+    } else if (estimateGrowth != null) {
       // 估算期：当日涨幅 = GSZZL；GSZ 缺失时不回退到 NAVCHGRT（那是昨日涨幅）
-      if (estimateGrowth != null) {
-        percent = estimateGrowth
-        percentSource = 'estimate'
-      }
+      percent = estimateGrowth
+      percentSource = 'estimate'
     }
 
-    // 自算估值 fallback（参考线上版 useCalc / getCalcGszzl）：
-    // 空窗期（15:00 后 ~ 20:00 前GSZ 缺失）或估值过期（GZTIME < PDATE）时，
-    // FundMNFInfo 不再返回有效盘中估算。此时用前十大重仓股的当日涨跌幅加权自算
-    // 估算涨跌幅，覆盖空的 estimate 字段；calcGsz = NAV × (1 + calcGszzl%)。
-    // 自算失败（无持仓/无行情/请求失败）时保持空，由 background 的
-    // mergeStaleEstimate 从上次缓存恢复今日 15:00 最后估算。
-    let useCalc = false
-    if (useCalcNeeded && estimateGrowth == null && netValue != null && netValue > 0) {
-      const calcGszzl = await getCalcGszzl(code)
-      if (calcGszzl != null && Number.isFinite(calcGszzl)) {
-        const calcGsz = Math.round(netValue * (1 + calcGszzl / 100) * 10000) / 10000
-        estimateGrowth = calcGszzl
-        estimateNetValue = calcGsz
-        percent = calcGszzl
-        percentSource = 'estimate'
-        useCalc = true
-      } else if (isQdiiName(name)) {
-        // QDII 跳过 fund123 fallback：fund123 对 QDII 无分时估值（实测 0 点），
-        // 且其资料接口会把 T+1 披露的昨日涨幅冒充今日涨幅，混入会误导。
-        // 保持 FundMNFInfo 原始口径：盘中 GSZ 正确；空窗期如实无估值，等 T+1 净值确认。
-        console.warn(
-          `[fund01] FundMNFInfo 自算失败 code=${code} name=${name} —— QDII 跳过 fund123 fallback（fund123 对 QDII 无可靠当日估值）`,
-        )
-      } else {
-        // 自算失败（无重仓股可加权：黄金/商品等）→ fallback fund123 官方分时估值
-        const est = await fund123EstimateFallback(code, fund.fundKey)
-        if (est) {
-          estimateGrowth = est.growth
-          estimateNetValue = est.netValue
-          percent = est.growth
-          percentSource = 'estimate'
-          useCalc = true
-          console.warn(
-            `[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code=${code} growth=${est.growth} est_net=${est.netValue}`,
-          )
-        }
-      }
-    }
+    // 诊断日志（chrome SW 控制台可见）：核对最终展示口径
+    console.log(
+      `[fund01] FundMNFInfo 展示 code=${code} name=${name} confirmed=${confirmed} dayGrowth=${dayGrowth} estimateGrowth=${estimateGrowth} percent=${percent} src=${percentSource} useCalc=${useCalc} net=${netValue} prev=${prevNetValue} date=${netValueDate}`,
+    )
 
     // 板块推断（与 fund123 数据源一致，走东方财富持仓 + 基金信息）
     let sectors = Array.isArray(fund.sectors) ? [...fund.sectors] : []
@@ -1338,6 +1430,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
       trend,
       sectors,
       useCalc,
+      isQdii: qdii,
     }
     return quote
   }
@@ -1522,7 +1615,7 @@ export async function resolveFund(payload: {
     netValue,
     prevNetValue,
     netValueDate,
-    confirmedSession: isConfirmedSessionActive(netValueDate),
+    confirmedSession: isConfirmedSessionActive(netValueDate, undefined, isQdiiName(meta?.name || name)),
   })
 
   return {
@@ -1536,7 +1629,7 @@ export async function resolveFund(payload: {
     prevNetValue: prevNetValue ?? null,
     prevNetValueDate,
     netValueDate,
-    confirmedSession: isConfirmedSessionActive(netValueDate),
+    confirmedSession: isConfirmedSessionActive(netValueDate, undefined, isQdiiName(meta?.name || name)),
     officialName: officialName || undefined,
     nameMismatch,
     codeCorrected,

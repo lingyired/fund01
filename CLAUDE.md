@@ -160,13 +160,13 @@ export interface EventPort {
 2. **自算估值** `get_calc_gszzl`（Tauri `fundmnfinfo.rs` / Chrome `fund.ts`）：用 FundMNInverstPosition 重仓股当日涨跌幅加权（缓存 5 分钟）。
 3. **自算失败**（无股票重仓）时的 fallback 分流（fundmnfinfo.rs `fetch_one` / fund.ts `fetchOne`）：
    - **非 QDII 基金**（黄金/商品 ETF 联接等）：fallback fund123 官方分时估值（`fund123_estimate_fallback` / `fund123EstimateFallback`，取 queryFundEstimateIntraday 末点，校验 finite + |growth|<30 + net>0；fund_key 缺失时 searchFund 补查一次）。
-   - **QDII 基金**（基金名含 "QDII"，识别函数 `is_qdii_name` / `isQdiiName`）：**跳过 fund123**。原因：fund123 对 QDII 无分时估值（实测 0 点），且其资料接口（matiaria）的 `dayOfGrowth` 是 T+1 披露的**昨日涨幅**，冒充今日涨幅会误导。QDII 保持 FundMNFInfo 原始口径：盘中 GSZ 正确；空窗期如实无当日收益，等 T+1 净值披露后的确认会话。
-4. **兜底仍失败**（含 QDII）→ 保持现状（无当日收益），晚间官方净值披露后 confirmed 分支自动显示当日涨跌幅。
+   - **QDII 基金**（识别函数 `is_qdii_name` / `isQdiiName` 或 `FTYPE` 含 QDII/海外）：盘中无分时估值（fund123 实测 0 点、无重仓股无法自算）→ **当日收益显示「-」（灰色）**；**「披露日窗口」判定今日是否已更新**：QDII 披露日 = PDATE 的下一交易日（T+1），`next_trading_day(PDATE) ≥ 今天` 才算「今日已更新」→ 才显示当日收益（`NAV`+`NAVCHGRT`，收益额 = 份额×(NAV−前一日NAV)−费用）。即：**今天披露的净值（PDATE=昨天，如 08-06）显示；昨天披露的（PDATE=前天，如 08-05）保持 `-`**——避免把未更新的滞后涨幅累计到「当日」标签下（天天基金全天挂旧净值会让 6 只 QDII 的当日收益互相抵消成误导性数字）。净值日期恒标注在基金列次行（如「净值08-05」）以便知晓滞后性。**盘中任何时候都跳过 fund123 兜底**（其对 QDII 无分时估值、`matiaria.dayOfGrowth` 是 T+1 昨日涨幅冒充今日）。
+4. **QDII 披露日窗口**：`has_replace` 用 `is_confirmed_session_active(pdate, now, delayed=is_qdii)`——QDII 走 delayed 分支（披露日 = PDATE 下一交易日 ≥ 今天），境内走标准窗口（PDATE 下一交易日 09:15 前）。今天披露（QDII PDATE=昨天）→ `confirmed` → 显示；昨天披露的（PDATE=前天）→ 保持 `-`。盘后填真实 prev 经 `FundMNHisNetList`（P0-2，禁止用涨幅反推）。
 
 ### 数据源 = fund123（`quoteSource=fund123`，`get_fund_quote` / `getFundQuote`）
 
 - 逐只拉取 fund123（searchFund + matiaria + 分时走势 + 东财历史净值），**不触发 FundMNFInfo 兜底**。
-- **QDII 口径**：percent **不使用 dayGrowth**（T+1 披露的昨日涨幅），confirmed 与兜底分支均跳过，只认 estimateGrowth（分时末点）；无分时估值时如实显示无当日涨幅，等 T+1 净值披露后的确认会话（识别函数同上 `is_qdii_name` / `isQdiiName`）。
+- **QDII 口径**：盘中 percent 不显示（显示「-」，灰色），**「披露日窗口」**判定今日是否已更新（披露日 = PDATE 下一交易日 ≥ 今天）；QDII 今天披露的净值（PDATE=昨天）显示当日收益，昨天披露的（PDATE=前天）保持 `-`；不认 fund123 `matiaria.dayOfGrowth`（T+1 昨日涨幅冒充今日）与东财 hist 滞后日涨幅。净值日期恒标注在基金列次行。
 
 ### 其他净值口径兜底
 

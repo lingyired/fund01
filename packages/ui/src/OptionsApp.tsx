@@ -6,6 +6,7 @@ import {
   Download,
   FolderTree,
   GripVertical,
+  Info,
   Menu,
   Plus,
   Settings2,
@@ -72,6 +73,7 @@ const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
   {id: 'holdings', label: '持仓', icon: FolderTree},
   {id: 'menubar', label: '菜单栏', icon: Menu},
   {id: 'data', label: '备份', icon: Database},
+  {id: 'docs', label: '数据说明', icon: Info},
 ]
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
@@ -177,6 +179,10 @@ export function OptionsApp({
 
           <Tabs.Content value="data">
             <DataBackupSection />
+          </Tabs.Content>
+
+          <Tabs.Content value="docs">
+            <DataDocsSection />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -585,10 +591,10 @@ function GeneralSection({
             FundMNFInfo：批量请求东方财富接口（最多 200 只/次），速度更快；fund123：逐只请求蚂蚁基金 + 东方财富历史净值。
           </p>
           <p className="text-[11px] text-muted">
-            估值兜底规则 · FundMNFInfo 源：盘中无估值时先用重仓股当日涨跌幅自算；自算失败时，非 QDII（黄金/商品 ETF 联接等）自动改用该基金的 fund123 官方分时估值，QDII 不兜底（fund123 无其当日估值），等 T+1 净值披露。
+            估值兜底规则 · FundMNFInfo 源：盘中无估值时先用重仓股当日涨跌幅自算；自算失败时，非 QDII（黄金/商品 ETF 联接等）自动改用该基金的 fund123 官方分时估值。QDII 用「披露日窗口」判定今日是否已更新（披露日 = 净值日下一交易日）：QDII 今天披露的净值（净值日=昨天）才显示当日收益，昨天披露的（净值日=前天）显示「-」（灰色）——避免把未更新的滞后涨幅累计到「当日」标签下。净值日期恒标注在基金名下，便于知晓滞后性。
           </p>
           <p className="text-[11px] text-muted">
-            估值兜底规则 · fund123 源：QDII 不显示昨日涨幅冒充今日（净值 T+1 披露），只认当日分时估值；无当日估值时如实显示无涨跌幅。
+            估值兜底规则 · fund123 源：QDII 不显示昨日涨幅冒充今日（净值 T+1 披露），只认当日分时估值；该数据源下 QDII 同样用「披露日窗口」（今天披露的净值才显示当日收益，昨天披露的显示「-」灰色），不认 fund123 `matiaria.dayOfGrowth` 与东财 hist 滞后日涨幅。
           </p>
           <p className="text-[11px] text-muted">
             说明：不同数据源的预估收益计算方式不同，实际当日收益可能存在差异；一般当日 20:00 后开始更新真实净值，以官方净值为准。
@@ -1693,6 +1699,116 @@ function ImportSection({
   )
 }
 
+/* ── 数据说明 ─────────────────────────────────────────────── */
+function DocItem({
+  q,
+  children,
+}: {
+  q: string
+  children: React.ReactNode
+}) {
+  return (
+    <details className="rounded-lg border border-line/70 bg-paper">
+      <summary
+        className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-ink"
+        style={{cursor: 'pointer', listStyle: 'none'}}
+      >
+        <span>{q}</span>
+        <span className="text-xs text-muted">展开 / 收起</span>
+      </summary>
+      <div className="space-y-2 border-t border-line/60 px-4 py-3 text-sm leading-relaxed text-muted">
+        {children}
+      </div>
+    </details>
+  )
+}
+
+function DataDocsSection() {
+  return (
+    <SectionCard title="数据说明">
+      <div className="space-y-3">
+        <DocItem q="数据来源与口径">
+          <p>
+            基金净值、估值、涨跌幅来自两个数据源：<b className="text-ink">FundMNFInfo</b>（天天基金移动接口）与 <b className="text-ink">fund123</b>（蚂蚁基金）。
+          </p>
+          <p>两种数据源的<b className="text-ink">盘中分时走势</b>均走 fund123。</p>
+          <p>
+            「预估收益」与「实际收益」计算方式不同，同一基金在两个源下可能不同；<b className="text-ink">实际当日收益以官方披露净值为准</b>（一般当日 20:00 后开始更新）。
+          </p>
+        </DocItem>
+
+        <DocItem q="盘中估值 vs 官方净值">
+          <p>境内偏股基金通常有两条口径：</p>
+          <p>
+            <b className="text-ink">盘中估值</b>：交易时段根据持仓估算，数字随行情变动，不是最终官方净值。
+          </p>
+          <p>
+            <b className="text-ink">官方确认净值</b>：收盘后由管理人公布，才是「确认」口径。
+          </p>
+          <p>
+            时间线：09:30–15:00 看估算；当晚起官方净值陆续披露，切换为确认口径；确认会话保留到下一交易日 09:15 前。
+          </p>
+        </DocItem>
+
+        <DocItem q="估值兜底规则">
+          <p>
+            <b className="text-ink">FundMNFInfo 源</b>：盘中无估值时先用重仓股当日涨跌幅自算；自算失败时，非 QDII（黄金/商品 ETF 联接等）自动改用该基金 fund123 官方分时估值。
+          </p>
+          <p>
+            <b className="text-ink">QDII</b>：无重仓股也无 fund123 分时估值，盘中与未更新期间当日收益均显示「-」（灰色）；<b className="text-ink">「披露日窗口」判定今日是否已更新</b>（QDII 披露日 = 净值日的下一交易日，T+1）——今天披露的净值（净值日=昨天）才显示当日收益，昨天披露的（净值日=前天）保持「-」，避免把未更新的滞后涨幅累计到「当日」标签下。净值日期恒标注在基金名下。
+          </p>
+          <p>
+            <b className="text-ink">fund123 源</b>：QDII 同样用「披露日窗口」，不认 fund123 `matiaria.dayOfGrowth` 与东财 hist 滞后日涨幅。
+          </p>
+        </DocItem>
+
+        <DocItem q="QDII 为什么慢一天">
+          <p>
+            「QDII·海外」指投向海外、净值延迟披露的品种。净值日 T 的官方净值通常要到 <b className="text-ink">T+1（有的接近 T+2）晚上</b> 才披露，白天往往没有可靠「今估值」，只能等官方数。
+          </p>
+          <p>
+            QDII 用「披露日窗口」判断：净值日的<b className="text-ink">下一交易日还没过</b> = 该净值是今天（或最近）披露的 → 显示当日收益；否则（净值是昨天更早披露的，今天还没更新）保持「-」。示例：周五下午看到净值日 08-05 是「周四披露的旧数」→ 显示「-」；周五晚东财披露 08-06 净值 → 立即显示。
+          </p>
+        </DocItem>
+
+        <DocItem q="QDII 当日收益怎么算">
+          <p>
+            与支付宝一致：有份额时按相邻两期<b className="text-ink">官方净值差</b>计算，不是盘中实时估。
+          </p>
+          <p>
+            公式：<b className="text-ink">当日收益 ≈ 份额 ×（最新净值 − 上一净值）</b>
+          </p>
+          <p>
+            对 QDII，「当日」= <b className="text-ink">今天披露的那一跳</b>（净值日通常是昨天，T+1 披露）——今天披露才显示；昨天披露的旧净值一律「-」，不把跨日涨幅累计到「当日」标签。
+          </p>
+          <p>示例：持有 1000 份，周一晚东财披露周一净值 1.28→1.30 → 显示当日收益 +20；周二若东财未更新（净值日仍为周一），周二全天保持「-」，直到周三东财披露周二净值才显示新一日的收益。</p>
+        </DocItem>
+
+        <DocItem q="分组收益额怎么算">
+          <p>
+            组合「当日收益额」≈ <b className="text-ink">Σ 每只各自的当日收益</b>。
+          </p>
+          <p>
+            聚合时<b className="text-ink">跳过当日收益为空的成员</b>（如 QDII 今日未更新），避免把缺失计成 0；QDII 今日披露后自动计入。
+          </p>
+          <p>
+            多只基金净值日可能不同，加总是一个数，但是各基金「最新已披露那一跳」的拼合——不是同一个海外交易日的收益（支付宝持仓汇总同理）。
+          </p>
+        </DocItem>
+
+        <DocItem q="刷新与更新时间">
+          <p>
+            刷新间隔按交易时段切换：任一市场开盘用「盘中」间隔，所有市场休市用「非开市」间隔，非交易时段对应数据源自动跳过刷新。
+          </p>
+          <p>
+            官方净值一般当日 <b className="text-ink">20:00 后</b> 开始更新；美股 QDII 多为美东交易日行情 → 净值日多为该日 → 常见北京时间次日晚约 20:00 后陆续看到（非固定钟点，港股/亚太往往更早）。
+          </p>
+        </DocItem>
+      </div>
+    </SectionCard>
+  )
+}
+
 /* ── 数据备份 ─────────────────────────────────────────────── */
 function DataBackupSection() {
   const ports = usePorts()
@@ -1748,6 +1864,23 @@ function DataBackupSection() {
     }
   }
 
+  async function handleClearCache() {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      // Chrome：清 chrome.storage.local 全部 cache-* + 强制刷新（改代码后缓存不失效时用）；
+      // Tauri 无 SW 缓存概念 → 回退仅强制刷新
+      if (ports.data.clearCache) await ports.data.clearCache()
+      else await ports.data.triggerRefresh()
+      setMessage('缓存已清除，正在重新加载…')
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '清除缓存失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <SectionCard title="数据备份">
       <p className="text-xs text-muted">
@@ -1765,6 +1898,17 @@ function DataBackupSection() {
         >
           <Upload className="h-4 w-4" />
           导入配置
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          color="red"
+          disabled={busy}
+          onClick={handleClearCache}
+          title="清除扩展的行情缓存并强制重新拉取（改动代码后界面仍是旧数据时使用）"
+        >
+          <Trash2 className="h-4 w-4" />
+          清除缓存并重新加载
         </Button>
         <input
           ref={fileRef}

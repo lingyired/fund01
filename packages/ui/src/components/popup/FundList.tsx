@@ -30,7 +30,8 @@ function sortValue(row: DisplayRow, key: SortKey): number {
     case 'amount':
       return row.amount
     case 'pnl':
-      return row.pnl
+      // 当日收益为空（QDII 盘中）排到最后
+      return row.pnl ?? Number.NEGATIVE_INFINITY
     case 'cumPnl':
       // 未录入成本的行缺乏可比数据，排到最后
       return row.cumPnl ?? Number.NEGATIVE_INFINITY
@@ -284,6 +285,14 @@ export function FundList({
                         >
                           ¥{formatAmount(amount)}
                         </span>
+                        {row.isQdii && row.netValueDate ? (
+                          <span
+                            className="shrink-0 font-mono text-[10px] text-muted"
+                            title="最新已披露净值日期（QDII 延迟披露）"
+                          >
+                            净值{row.netValueDate.slice(5)}
+                          </span>
+                        ) : null}
                         <ConfirmedUpdatedBadge
                           show={row.confirmedUpdated}
                           percent={row.dayGrowth ?? row.percent}
@@ -294,24 +303,33 @@ export function FundList({
                   </div>
                 </Table.Cell>
 
-                {/* 当日收益 */}
+                {/* 当日收益（无当日涨跌幅时显示「-」灰色：QDII 盘中/新基金/错误态） */}
                 <Table.Cell className="text-right" style={{width: COL_W.day}}>
-                  <div
-                    className={cn(
-                      'font-mono text-[13px] font-semibold tabular-nums',
-                      pctClass(pnl),
-                    )}
-                  >
-                    {formatMoney(pnl)}
-                  </div>
-                  <div
-                    className={cn(
-                      'font-mono text-[11px] tabular-nums',
-                      pctClass(row.percent),
-                    )}
-                  >
-                    {formatPct(row.percent)}
-                  </div>
+                  {row.percent == null ? (
+                    <>
+                      <div className="font-mono text-[13px] font-semibold text-muted">-</div>
+                      <div className="font-mono text-[11px] text-muted">-</div>
+                    </>
+                  ) : (
+                    <>
+                      <div
+                        className={cn(
+                          'font-mono text-[13px] font-semibold tabular-nums',
+                          pctClass(pnl),
+                        )}
+                      >
+                        {formatMoney(pnl)}
+                      </div>
+                      <div
+                        className={cn(
+                          'font-mono text-[11px] tabular-nums',
+                          pctClass(row.percent),
+                        )}
+                      >
+                        {formatPct(row.percent)}
+                      </div>
+                    </>
+                  )}
                 </Table.Cell>
 
                 {/* 持有收益 */}
@@ -344,10 +362,10 @@ export function FundList({
                   <div
                     className={cn(
                       'font-mono text-[11px] tabular-nums',
-                      pctClass(row.percent),
+                      row.percent == null ? 'text-muted' : pctClass(row.percent),
                     )}
                   >
-                    {formatPct(row.percent)}
+                    {row.percent == null ? '-' : formatPct(row.percent)}
                   </div>
                 </Table.Cell>
               </Table.Row>

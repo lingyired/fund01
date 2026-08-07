@@ -42,7 +42,8 @@ export type FundQuoteRow = FundRecord & {
   time?: string | null
   trend: {time: string; growth: number | null; netValue?: number | null}[]
   liveAmount?: number
-  pnl?: number
+  /** 当日收益额（元）；null/undefined = 当日收益无意义（QDII 未披露日等，UI 渲染「-」、分组聚合跳过） */
+  pnl?: number | null
   weight?: number
   confirmedUpdated?: boolean
   /** 累计投入成本合计（各分组 cost 之和）；为 0 表示未录入 */
@@ -51,6 +52,8 @@ export type FundQuoteRow = FundRecord & {
   totalCumPnl?: number | null
   /** 累计收益率(%) = 累计收益 / 总成本 × 100；null 表示未录入成本 */
   totalCumPnlPercent?: number | null
+  /** 是否为 QDII/海外延迟披露基金（UI 区分：盘中「-」、基金列次行净值日期） */
+  isQdii?: boolean
 }
 
 export type HoldingsPayload = {

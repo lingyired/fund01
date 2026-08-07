@@ -172,6 +172,8 @@ pub struct FundQuote {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_calc: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_qdii: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -223,6 +225,8 @@ pub struct FundQuoteRow {
     pub total_cum_pnl: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_cum_pnl_percent: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_qdii: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

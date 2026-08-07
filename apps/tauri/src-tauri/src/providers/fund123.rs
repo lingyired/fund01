@@ -340,22 +340,26 @@ pub async fn get_fund_quote(fund: &FundQuoteInput) -> FundQuote {
         }
     }
 
-    // 5. 展示口径（resolveDisplayPercent）
-    // QDII：day_growth 是 T+1 披露的昨日涨幅（如 8/6 显示 8/5 的 -0.78%），
-    // 不能当今日涨幅 —— confirmed 与兜底分支都跳过，只认 estimate_growth；
-    // 无分时估值时如实显示无当日涨幅，等 T+1 净值披露后的确认会话。
+    // 5. 展示口径（resolveDisplayPercent 同构）
+    // dayGrowth 来源：hist 匹配成功 = 东财历史净值（日期明确、可信）；
+    // 否则来自 fund123 matiaria —— QDII 的 dayOfGrowth 是 T+1 披露的昨日涨幅，禁止当今日。
+    // **披露日窗口**：境内走标准确认窗口；QDII 走 delayed 窗口（披露日 = PDATE 下一交易日
+    // ≥ 今天 才算「今日已更新」）——QDII 今天披露的净值（PDATE=昨天）才显示，昨天披露的
+    // （PDATE=前天）保持 `-`，避免把未更新的滞后涨幅累计到「当日」标签下。
     let now = chrono::Local::now();
     let nav_day = crate::calendar::normalize_net_value_date(&net_value_date, &now);
-    let is_qdii = crate::providers::fundmnfinfo::is_qdii_name(&name);
-    let in_confirm = !is_qdii
-        && day_growth.is_some()
+    let qdii = crate::providers::fundmnfinfo::is_qdii_name(&name);
+    let in_confirm = day_growth.is_some()
         && !nav_day.is_empty()
-        && crate::calendar::is_confirmed_session_active(&nav_day, &now);
+        && crate::calendar::is_confirmed_session_active(&nav_day, &now, qdii)
+        && !(qdii && crate::calendar::is_a_share_trading_time(&now));
     let (percent, percent_source) = if in_confirm {
         (day_growth, Some("confirmed".to_string()))
     } else if let Some(eg) = estimate_growth {
         (Some(eg), Some("estimate".to_string()))
-    } else if !is_qdii && day_growth.is_some() {
+    } else if !qdii && day_growth.is_some() {
+        // 非 QDII：东财 hist dayGrowth 兜底（日期明确、可信）；
+        // QDII 不走兜底（避免 hist 滞后日涨幅冒充当日）
         (day_growth, None)
     } else {
         (None, None)
@@ -389,6 +393,7 @@ pub async fn get_fund_quote(fund: &FundQuoteInput) -> FundQuote {
         time: trend.last().map(|t| t.time.clone()),
         trend,
         sectors,
+        is_qdii: Some(qdii),
         ..Default::default()
     }
 }

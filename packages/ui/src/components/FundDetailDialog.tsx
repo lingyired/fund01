@@ -9,8 +9,8 @@ import type {FundQuoteRow} from '@fund01/core'
 export type FundDetailStats = {
   /** 持仓金额（分组 tab 为分组金额） */
   amount: number
-  /** 当日收益（元） */
-  dayPnl: number
+  /** 当日收益（元）；当日收益为空（QDII 盘中）时为 null，UI 渲染「--」 */
+  dayPnl: number | null
   /** 持有收益（元，null 表示未录入成本） */
   cumPnl: number | null
   /** 持有收益率(%) */

@@ -77,7 +77,11 @@ pub fn calc_holdings(
 
     for raw in local_funds {
         let q = quote_map.get(raw.code.as_str()).copied().unwrap_or(&EMPTY_QUOTE);
-        let percent = q.percent.or(q.estimate_growth).or(q.day_growth);
+        // percent 只认 provider 的展示口径（confirmed/estimate/兜底已由 provider 决定）。
+        // ⚠️ 不回退到 q.day_growth：QDII 未披露日 provider 有意给 percent=None（当日收益
+        // 显示「-」），回退 day_growth 会把东财 hist 滞后净值日涨幅冒充「当日」（fund123 源
+        // 实测 005698 被回退成 +0.90% 的根因，2026-08-07）。
+        let percent = q.percent.or(q.estimate_growth);
         let (prev_nav, curr_nav) = resolve_nav_pair(q);
 
         let nav_day = normalize_net_value_date(&q.net_value_date, &now);
@@ -103,9 +107,15 @@ pub fn calc_holdings(
         let using_estimate = q.percent_source.as_deref() == Some("estimate")
             || (q.percent_source.as_deref() != Some("confirmed") && latest_estimate_nav(q).is_some());
 
-        let mut pnl = 0.0f64;
+        let mut pnl: Option<f64> = None;
         if shares > 0.0 && prev_nav.is_some() && curr_nav.is_some() {
-            pnl = trunc_pnl2(shares * (curr_nav.unwrap() - prev_nav.unwrap()));
+            pnl = Some(trunc_pnl2(shares * (curr_nav.unwrap() - prev_nav.unwrap())));
+        }
+        // percent 为空（QDII 未披露日/新基金等）→ 当日收益无展示意义，pnl 置 None
+        // （UI 渲染「-」、分组/角标聚合跳过），避免滞后净值差被计入「当日」（fund123 源
+        // 005698 曾把 08-05 净值差 +161.53 算进当日收益，2026-08-07）
+        if percent.is_none() {
+            pnl = None;
         }
 
         let mut display_amount = 0.0f64;
@@ -125,7 +135,7 @@ pub fn calc_holdings(
         };
 
         total_amount += display_amount;
-        total_pnl += pnl;
+        total_pnl += pnl.unwrap_or(0.0);
         if has_cost {
             has_any_cost = true;
             total_cost += total_cost_row;
@@ -177,7 +187,7 @@ pub fn calc_holdings(
             trend: q.trend.clone(),
             amount: round2(display_amount),
             live_amount: Some(round2(live_amount)),
-            pnl: Some(pnl),
+            pnl,
             confirmed_updated: Some(confirmed_updated),
             total_cost: Some(round2(total_cost_row)),
             total_cum_pnl: if has_cost { Some(round2(live_amount - total_cost_row)) } else { None },
@@ -187,6 +197,7 @@ pub fn calc_holdings(
                 None
             },
             weight: None,
+            is_qdii: q.is_qdii,
         });
     }
 
@@ -267,6 +278,7 @@ pub fn merge_watchlist(
                 day_growth: q.day_growth,
                 time: q.time.clone(),
                 trend: q.trend.clone(),
+                is_qdii: q.is_qdii,
                 ..Default::default()
             }
         })
@@ -291,4 +303,5 @@ static EMPTY_QUOTE: FundQuote = FundQuote {
     sectors: Vec::new(),
     error: None,
     use_calc: None,
+    is_qdii: None,
 };

@@ -112,10 +112,31 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
     let gsz_valid = gsz.is_some_and(|g| g > 0.0);
 
     let gztime_day = if gztime.len() >= 10 { gztime[..10].to_string() } else { String::new() };
-    let has_replace = pdate != "--" && !pdate.is_empty() && !gztime_day.is_empty() && pdate == gztime_day;
+    let now = chrono::Local::now();
+    // has_replace：当日净值已披露（估值时间 == 净值日期）。
+    // ⚠️ GZTIME 已对全部场外基金停返（实测恒 null，2026-08-07）→ 原判定恒 false，
+    // confirmed 分支成为死代码（境内基金盘后不显官方净值、QDII 彻底裸奔）。
+    // 替代判定：GZTIME 缺失时改用「确认会话」——
+    //   - 境内（delayed=false）：PDATE 下一交易日开盘前（PDATE=今天 即当日已披露）
+    //   - QDII（delayed=true，披露日窗口）：披露日 = PDATE 下一交易日 ≥ 今天 才算「今日已更新」
+    //     （QDII T+1：今天披露昨天净值 → PDATE=今天-1 → 显示；PDATE=前天 = 昨天披露的 → 保持 `-`）
+    let nav_qdii = crate::calendar::is_delayed_nav_fund(
+        item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
+    );
+    let has_replace = if !gztime_day.is_empty() {
+        pdate != "--" && !pdate.is_empty() && pdate == gztime_day
+    } else {
+        let nav_day = crate::calendar::normalize_net_value_date(&pdate, &now);
+        !nav_day.is_empty() && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
+    };
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "[fund01] parse item code={code} name={name} pdate={pdate} gztime_day={gztime_day} qdii={nav_qdii} has_replace={has_replace}",
+        code = item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""),
+        name = item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
+    );
     let estimate_stale = !gztime_day.is_empty() && !pdate.is_empty() && pdate != "--" && gztime_day < pdate;
 
-    let now = chrono::Local::now();
     let mut parsed = ParsedMnf {
         name: item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         confirmed: false,
@@ -379,6 +400,50 @@ impl QuoteProvider for FundMNFInfoQuoteProvider {
     }
 }
 
+/// 历史净值对齐（P0-2）：取 FundMNHisNetList 对齐 netValue / dayGrowth / netValueDate，
+/// 并按需填真实前一日净值 —— **禁止用 NAVCHGRT 两位涨幅反推**（有 4 元级系统误差，
+/// 实测 040046 反推 8.303409 vs 真实 8.3030，持 10000 份收益额偏差 +4.09 元）。
+/// `with_prev=true` 仅用于「确认会话（盘后）」场景；盘中/空窗不填 prev，
+/// 避免 resolve_nav_pair 的兜底分支用滞后净值算出盘中收益。
+/// 性能：本函数仅在自算估值失败（QDII / 黄金等无重仓股）或 QDII 盘后确认时调用，
+/// 是少数基金按需单只拉取，不复用 FundMNFInfo 批量优势。
+async fn fill_hist_aligned(
+    code: &str,
+    net_value: &mut Option<f64>,
+    day_growth: &mut Option<f64>,
+    prev_net_value: &mut Option<f64>,
+    net_value_date: &mut String,
+    with_prev: bool,
+) {
+    let Ok(hist) = crate::history::fetch_fund_nav_history(code, 5, 1).await else { return };
+    if hist.is_empty() {
+        return;
+    }
+    let now = chrono::Local::now();
+    let nav_day = crate::calendar::normalize_net_value_date(net_value_date, &now);
+    let idx = if nav_day.is_empty() {
+        0
+    } else {
+        hist.iter().position(|h| h.date == nav_day).unwrap_or(0)
+    };
+    if let Some(r) = hist.get(idx) {
+        if r.net_value.is_some() {
+            *net_value = r.net_value;
+        }
+        if r.day_growth.is_some() {
+            *day_growth = r.day_growth;
+        }
+        if !r.date.is_empty() {
+            *net_value_date = r.date.clone();
+        }
+        if with_prev {
+            if let Some(r1) = hist.get(idx + 1) {
+                *prev_net_value = r1.net_value;
+            }
+        }
+    }
+}
+
 async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> FundQuote {
     let code = pad6(&fund.code);
     let info = info_map.get(&code);
@@ -393,6 +458,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     let mut net_value_date = String::new();
     let mut mnf_time: Option<String> = None;
     let mut use_calc_needed = false;
+    let mut percent: Option<f64> = None;
+    let mut percent_source: Option<String> = None;
 
     if let Some(item) = info {
         let p = parse_fund_mnfinfo_item(item);
@@ -420,23 +487,23 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     // FundMNFInfo 已批量提供行情，分时走势留空由前端懒加载
     let trend: Vec<TrendPoint> = vec![];
 
-    // 展示口径直接按 API 确认标志（不走 resolveDisplayPercent）
-    let mut percent: Option<f64> = None;
-    let mut percent_source: Option<String> = None;
-    if confirmed {
-        if let Some(dg) = day_growth {
-            percent = Some(dg);
-            percent_source = Some("confirmed".to_string());
-        }
-    } else if let Some(eg) = estimate_growth {
-        percent = Some(eg);
-        percent_source = Some("estimate".to_string());
-    }
+    let now = chrono::Local::now();
+    let qdii = is_qdii_name(&name);
+    let a_share_trading = crate::calendar::is_a_share_trading_time(&now);
 
-    // 自算估值 fallback（空窗期/估值过期）
+    // 自算估值 fallback（空窗期/估值过期）——先于 percent 判定，
+    // 因为它可能产出 estimate（自算/fund123 兜底）或 confirmed（QDII/黄金盘后历史净值）口径
     let mut use_calc = false;
     if use_calc_needed && estimate_growth.is_none() && net_value.is_some_and(|n| n > 0.0) {
-        if let Some(calc_gszzl) = get_calc_gszzl(&code).await {
+        if qdii {
+            // QDII：**跳过自算估值** —— 其重仓为美股，自算口径是「上一美股交易日」涨跌，
+            // 在 A 股交易日会被误当成「今日」收益（用户反对点：15:30-20:00 空窗期把美股
+            // 08-06 涨跌当今日）。严格走披露日窗口：东财披露 PDATE 更新后才 confirmed 显示，
+            // 否则保持 `-`（且 fund123 无 QDII 分时估值、matiaria 昨日涨幅冒充今日，均不可用）。
+            eprintln!(
+                "[fund01] FundMNFInfo 自算失败 code={code} name={name} —— QDII 跳过自算估值，严格按披露日窗口（PDATE={net_value_date} 今日未更新则当日收益保持 -）"
+            );
+        } else if let Some(calc_gszzl) = get_calc_gszzl(&code).await {
             if calc_gszzl.is_finite() {
                 let calc_gsz = round4(net_value.unwrap() * (1.0 + calc_gszzl / 100.0));
                 estimate_growth = Some(calc_gszzl);
@@ -449,13 +516,6 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
             } else {
                 eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
-        } else if is_qdii_name(&name) {
-            // QDII 跳过 fund123 fallback：fund123 对 QDII 无分时估值（实测 0 点），
-            // 且其资料接口会把 T+1 披露的昨日涨幅冒充今日涨幅，混入会误导。
-            // 保持 FundMNFInfo 原始口径：盘中 GSZ 正确；空窗期如实无估值，等 T+1 净值确认。
-            eprintln!(
-                "[fund01] FundMNFInfo 自算失败 code={code} name={name} —— QDII 跳过 fund123 fallback（fund123 对 QDII 无可靠当日估值）"
-            );
         } else {
             // 自算失败（无重仓股可加权：黄金/商品等）→ fallback fund123 官方分时估值
             match fund123_estimate_fallback(&code, fund).await {
@@ -468,11 +528,48 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                     eprintln!("[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code={code} growth={eg} est_net={en}");
                 }
                 None => {
-                    eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用）");
+                    // 黄金等：fund123 兜底亦不可用 → 历史净值对齐（盘后 confirmed 时填真实 prev）
+                    fill_hist_aligned(
+                        &code,
+                        &mut net_value,
+                        &mut day_growth,
+                        &mut prev_net_value,
+                        &mut net_value_date,
+                        confirmed,
+                    )
+                    .await;
+                    eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用，改走历史净值对齐）");
                 }
             }
         }
+    } else if confirmed && qdii && !a_share_trading {
+        // QDII 真正「当日」更新后（PDATE=今天，盘后）：parse 反推的 prev 有 4 元级
+        // 系统误差，用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+        fill_hist_aligned(
+            &code,
+            &mut net_value,
+            &mut day_growth,
+            &mut prev_net_value,
+            &mut net_value_date,
+            true,
+        )
+        .await;
     }
+
+    // 展示口径：confirmed（今日已披露）当日涨幅 = NAVCHGRT；
+    // 其他时候（盘中估算 / QDII 今日无新披露）保持 percent=null → UI 渲染「-」灰色
+    if confirmed {
+        if let Some(dg) = day_growth {
+            percent = Some(dg);
+            percent_source = Some("confirmed".to_string());
+        }
+    } else if let Some(eg) = estimate_growth {
+        percent = Some(eg);
+        percent_source = Some("estimate".to_string());
+    }
+    eprintln!(
+        "[fund01] FundMNFInfo 展示 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} estimate_growth={estimate_growth:?} percent={percent:?} src={percent_source:?} use_calc={use_calc} net={net_value:?} prev={prev_net_value:?} date={net_value_date}"
+    );
 
     // 板块推断
     let mut sectors = fund.sectors.clone();
@@ -499,6 +596,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         trend,
         sectors,
         use_calc: Some(use_calc),
+        is_qdii: Some(qdii),
         ..Default::default()
     }
 }

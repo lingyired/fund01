@@ -44,6 +44,7 @@ const MIN_REFRESH_INTERVAL = {trading: 30, nonTrading: 300}
 
 type Message =
   | {type: 'REFRESH'}
+  | {type: 'CLEAR_CACHE'}
   | {type: 'FETCH_QUOTES'; funds: any[]; quoteType: 'hold' | 'watch'}
   | {type: 'FETCH_FUND_HISTORY'; code: string; range: string}
   | {type: 'FETCH_INDEX_HISTORY'; code: string; range: string}
@@ -151,6 +152,9 @@ function splitIndices(list: any[] | null | undefined): {a: any[]; us: any[]} {
 }
 
 async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<void> {
+  // 无条件入口日志：便于在 SW 控制台确认「SW 是否在跑、跑的是不是新代码」
+  // （chrome MV3 SW 按需启动，扩展卡片不打开时可能一直休眠，此日志可定位「没刷新」的原因）
+  console.log(`[fund01] SW refreshAll 开始 force=${force} kind=${kind} now=${new Date().toISOString()}`)
   const config = await getSessionConfig()
   if (!config) {
     console.warn('[fund01] refreshAll: session-config 为空，跳过')
@@ -447,6 +451,14 @@ chrome.runtime.onMessage.addListener(
       try {
         switch (msg.type) {
           case 'REFRESH': {
+            await refreshAll(true)
+            sendResponse({ok: true})
+            return
+          }
+          case 'CLEAR_CACHE': {
+            // 清除全部缓存（含持仓/自选/指数/大盘/黄金/时间戳/数据源 meta）并强制刷新：
+            // 用于「改了代码后 SW 仍在跑旧逻辑、缓存不失效」的场景，点击即清 + 重拉
+            await chrome.storage.local.remove(Object.values(CACHE_KEYS))
             await refreshAll(true)
             sendResponse({ok: true})
             return

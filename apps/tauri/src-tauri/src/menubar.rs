@@ -92,6 +92,7 @@ fn quote_rows(quote: Option<&QuoteUpdate>) -> QuoteRows<'_> {
 /// 不用 quote 行内的 allocations：那是「上次刷新时」的 config 快照，
 /// 重命名/调整分组后两者会错位，导致实例集合误判、数值显示旧份额。
 /// 收益用「每份收益 × 最新份额」分摊：修改持仓后即使行情未刷新，数值也立即贴合新份额。
+/// 当日收益为空的成员（QDII 盘中 pnl=None）分子分母同步排除，避免 0 占位稀释（§六）。
 fn group_percent(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
     let mut pnl = 0.0f64;
     let mut bod = 0.0f64;
@@ -100,9 +101,14 @@ fn group_percent(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
         if sh_g <= 0.0 {
             continue;
         }
-        let row = rows.get(fund.code.as_str()).copied();
-        pnl += per_share_pnl(row) * sh_g;
-        bod += sh_g * row.and_then(|r| r.prev_net_value).unwrap_or(0.0);
+        let Some(row) = rows.get(fund.code.as_str()).copied() else { continue };
+        let Some(row_pnl) = row.pnl else { continue };
+        let total = row.fund.total_shares();
+        if total <= 0.0 {
+            continue;
+        }
+        pnl += (row_pnl / total) * sh_g;
+        bod += sh_g * row.prev_net_value.unwrap_or(0.0);
     }
     if bod > 0.0 {
         pnl / bod * 100.0
@@ -112,6 +118,7 @@ fn group_percent(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
 }
 
 /// 分组收益额：Σ(组内份额分摊的 pnl)（份额取最新 config，每份收益口径同上）
+/// 当日收益为空的成员（QDII 盘中 pnl=None）不参与求和（§六，与 UI 分组口径一致）。
 fn group_pnl(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
     let mut pnl = 0.0f64;
     for fund in config.holdings.values() {
@@ -119,26 +126,14 @@ fn group_pnl(config: &AppConfig, rows: &QuoteRows<'_>, group: &str) -> f64 {
         if sh_g <= 0.0 {
             continue;
         }
-        let row = rows.get(fund.code.as_str()).copied();
-        pnl += per_share_pnl(row) * sh_g;
+        let Some(row) = rows.get(fund.code.as_str()).copied() else { continue };
+        let Some(row_pnl) = row.pnl else { continue };
+        let total = row.fund.total_shares();
+        if total > 0.0 {
+            pnl += (row_pnl / total) * sh_g;
+        }
     }
     pnl
-}
-
-/// 每份收益 = 行内 pnl / 行内总份额（pnl 是「刷新时份额」的整基金收益，
-/// 除以旧份额得到每份 Δ净值，再乘以最新份额即可贴合最新持仓）。
-fn per_share_pnl(row: Option<&FundQuoteRow>) -> f64 {
-    match row {
-        Some(r) => {
-            let total = r.fund.total_shares();
-            if total > 0.0 {
-                r.pnl.unwrap_or(0.0) / total
-            } else {
-                0.0
-            }
-        }
-        None => 0.0,
-    }
 }
 
 /// 是否存在未分组持仓：以最新 config 的份额为权威（同 group_percent 的理由，

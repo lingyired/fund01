@@ -332,7 +332,10 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
     let confirmed_session = if net_value_date.is_empty() {
         None
     } else {
-        confirmed_session_active_now(&net_value_date).then_some(true)
+        // 与抓取侧 has_replace 同语义：境内标准窗口；QDII 走披露日窗口
+        // （披露日 = PDATE 下一交易日 ≥ 今天 才算「今日已更新」）
+        let delayed = crate::providers::fundmnfinfo::is_qdii_name(&official_name);
+        confirmed_session_active_now(&net_value_date, delayed).then_some(true)
     };
 
     Ok(ResolveFundPayload {
