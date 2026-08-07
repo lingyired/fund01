@@ -90,11 +90,15 @@ pub fn is_trading_day_started(date_str: &str, now: &DateTime<Local>) -> bool {
     minutes >= 9 * 60 + 15
 }
 
-/// 晚间已拉到官方确认涨跌：展示「已更新」；该净值日的下一交易日开盘后抹去
+/// 晚间已拉到官方确认涨跌：展示「已更新」；普通基金在净值日下一交易日开盘后抹去。
+/// QDII（T+1 披露，净值日=昨天）：走「披露日窗口」（与 `is_confirmed_session_active`
+/// 的 delayed 分支一致）——披露日（PDATE 下一交易日）≥ 今天 才算「今日已更新」，
+/// 徽标与当日收益严格同步：披露日当天显示，次日/周末无新披露时随收益一起消失。
 pub fn should_show_confirmed_updated_badge(
     percent_source: Option<&str>,
     net_value_date: Option<&str>,
     now: &DateTime<Local>,
+    is_qdii: bool,
 ) -> bool {
     if percent_source != Some("confirmed") {
         return false;
@@ -102,6 +106,10 @@ pub fn should_show_confirmed_updated_badge(
     let nav_day = normalize_net_value_date(net_value_date.unwrap_or(""), now);
     if nav_day.is_empty() {
         return false;
+    }
+    if is_qdii {
+        let next = next_trading_day(&nav_day, now);
+        return next >= today_date_str(now);
     }
     let next = next_trading_day(&nav_day, now);
     !is_trading_day_started(&next, now)

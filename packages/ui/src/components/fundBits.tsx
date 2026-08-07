@@ -5,10 +5,12 @@ export function ConfirmedUpdatedBadge({
   show,
   percent,
   netValue,
+  isQdii,
 }: {
   show?: boolean
   percent?: number | null
   netValue?: number | null
+  isQdii?: boolean
 }) {
   if (!show) return null
   const pctText = formatPct(percent)
@@ -23,7 +25,11 @@ export function ConfirmedUpdatedBadge({
             ? 'border-rise/35 bg-rise/10 text-rise'
             : 'border-fall/35 bg-fall/10 text-fall'
       }`}
-      title="已拉到官方确认涨跌，持仓金额与收益已按确认值更新；下一交易日开盘后自动清除"
+      title={
+        isQdii
+          ? '已拉到官方确认涨跌，持仓金额与收益已按确认值更新；披露日窗口内保留，无新披露自动清除'
+          : '已拉到官方确认涨跌，持仓金额与收益已按确认值更新；下一交易日开盘后自动清除'
+      }
     >
       <span>已更新</span>
       {pctText !== '--' ? (

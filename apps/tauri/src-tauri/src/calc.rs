@@ -160,6 +160,7 @@ pub fn calc_holdings(
             q.percent_source.as_deref(),
             Some(if nav_day.is_empty() { q.net_value_date.as_str() } else { nav_day.as_str() }),
             &now,
+            q.is_qdii.unwrap_or(false),
         );
 
         // 合并展示字段到 FundRecord（serde flatten，避免 JSON 字段冲突）

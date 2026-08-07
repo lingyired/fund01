@@ -297,6 +297,7 @@ export function FundList({
                           show={row.confirmedUpdated}
                           percent={row.dayGrowth ?? row.percent}
                           netValue={row.netValue}
+                          isQdii={row.isQdii}
                         />
                       </div>
                     </div>

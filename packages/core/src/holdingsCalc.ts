@@ -209,6 +209,7 @@ export function calcHoldings(
       confirmedUpdated: shouldShowConfirmedUpdatedBadge({
         percentSource: q.percentSource || null,
         netValueDate: navDay || q.netValueDate || '',
+        isQdii: q.isQdii,
       }),
       totalCost: round2(totalCostRow),
       totalCumPnl: hasCost ? round2(liveAmount - totalCostRow) : null,

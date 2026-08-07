@@ -49,18 +49,26 @@ export function isTradingDayStarted(dateStr: string, now = new Date()): boolean 
 
 /**
  * 晚间已拉到官方确认涨跌：展示「已更新」；
- * 该净值日的下一交易日开盘后抹去。
+ * 普通基金：该净值日的下一交易日开盘后抹去。
+ * QDII（T+1 披露，净值日=昨天）：走「披露日窗口」（与 isConfirmedSessionActive 的
+ * delayed 分支一致）——披露日（PDATE 下一交易日）≥ 今天 才算「今日已更新」，
+ * 徽标与当日收益严格同步：披露日当天显示，次日/周末无新披露时随收益一起消失。
  */
 export function shouldShowConfirmedUpdatedBadge(
   quote: {
     percentSource?: 'estimate' | 'confirmed' | null
     netValueDate?: string | null
+    isQdii?: boolean
   },
   now = new Date(),
 ): boolean {
   if (quote.percentSource !== 'confirmed') return false
   const navDay = normalizeNetValueDate(quote.netValueDate, now)
   if (!navDay) return false
+  if (quote.isQdii) {
+    const next = nextTradingDay(navDay)
+    return next >= todayDateStr(now)
+  }
   const next = nextTradingDay(navDay)
   return !isTradingDayStarted(next, now)
 }
