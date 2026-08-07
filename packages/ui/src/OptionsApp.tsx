@@ -9,6 +9,7 @@ import {
   Info,
   Menu,
   Plus,
+  RotateCcw,
   Settings2,
   Sparkles,
   Trash2,
@@ -16,6 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import {
+  AlertDialog,
   Button,
   IconButton,
   ScrollArea,
@@ -56,6 +58,7 @@ import {
   removeHoldingGroup,
   removeHoldingGroupWithFunds,
   renameHoldingGroup,
+  resetConfig,
   setFundAllocation,
   setHoldingGroupOrder,
   updateSettings,
@@ -1824,6 +1827,7 @@ function DataBackupSection() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [resetOpen, setResetOpen] = useState(false)
 
   async function handleExport() {
     setBusy(true)
@@ -1889,6 +1893,33 @@ function DataBackupSection() {
     }
   }
 
+  async function handleReset() {
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      // 重置为出厂默认：持仓/自选/黄金/设置全清（saveConfig 已 await，落库完成才继续）
+      await resetConfig(ports)
+      // 清行情缓存并强制刷新：popup 的持仓/自选来自 SW 按旧 config 写入的 cache-* 缓存，
+      // 必须清掉并按新 config 重建，否则 popup 仍显示旧持仓（非交易时段 alarm 不会自动刷新）。
+      // Tauri 无缓存概念（fetchHoldings 实时按 config 算）→ 回退仅强制刷新。
+      // 此处失败不阻断重置：cache-* 已先被移除，即使网络拉取失败，popup 也会读到空数据。
+      try {
+        if (ports.data.clearCache) await ports.data.clearCache()
+        else await ports.data.triggerRefresh()
+      } catch {
+        // 忽略：config 已重置成功，缓存已移除，仅网络重建失败
+      }
+      // 持仓、设置、主题全部变化 → 重载页面，保证各区块从默认配置重新渲染
+      window.location.reload()
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '重置失败')
+      setBusy(false)
+      // 重置失败时保持确认框打开，便于重试
+      setResetOpen(true)
+    }
+  }
+
   return (
     <SectionCard title="数据备份">
       <p className="text-xs text-muted">
@@ -1918,6 +1949,48 @@ function DataBackupSection() {
           <Trash2 className="h-4 w-4" />
           清除缓存并重新加载
         </Button>
+        <AlertDialog.Root open={resetOpen} onOpenChange={setResetOpen}>
+          <AlertDialog.Trigger>
+            <Button
+              type="button"
+              variant="solid"
+              color="red"
+              disabled={busy}
+              title="清空全部持仓与设置，恢复出厂默认"
+            >
+              <RotateCcw className="h-4 w-4" />
+              重置全部数据
+            </Button>
+          </AlertDialog.Trigger>
+          <AlertDialog.Content maxWidth="420px">
+            <AlertDialog.Title>重置全部数据？</AlertDialog.Title>
+            <AlertDialog.Description>
+              <p>将清空以下内容，且无法撤销：</p>
+              <ul className="mt-1 list-inside list-disc text-sm text-ink">
+                <li>全部持仓与自选基金</li>
+                <li>黄金持仓与平均成本</li>
+                <li>所有设置（主题、菜单栏、角标、刷新频率等）</li>
+              </ul>
+              <p className="mt-2">如有需要，请先在上方「导出配置」备份。</p>
+            </AlertDialog.Description>
+            <div className="mt-4 flex justify-end gap-3">
+              <AlertDialog.Cancel>
+                <Button variant="soft" color="gray" disabled={busy}>
+                  取消
+                </Button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action>
+                <Button
+                  color="red"
+                  disabled={busy}
+                  onClick={() => void handleReset()}
+                >
+                  确认重置
+                </Button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Root>
         <input
           ref={fileRef}
           type="file"

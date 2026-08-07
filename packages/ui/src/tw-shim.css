@@ -137,6 +137,8 @@
 .justify-start{justify-content:flex-start}
 .leading-none{line-height:1}
 .leading-relaxed{line-height:1.625}
+.list-disc{list-style-type:disc}
+.list-inside{list-style-position:inside}
 @media (min-width:1024px){.lg\:gap-5{gap:20px}}
 @media (min-width:1024px){.lg\:grid-cols-\[minmax\(0\,0\.9fr\)_minmax\(0\,1\.1fr\)\]{grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr)}}
 @media (min-width:1024px){.lg\:items-stretch{align-items:stretch}}
@@ -170,6 +172,7 @@
 .mt-1\.5{margin-top:6px}
 .mt-2{margin-top:8px}
 .mt-3{margin-top:12px}
+.mt-4{margin-top:16px}
 .opacity-50{opacity:0.5}
 .opacity-60{opacity:0.6}
 .overflow-auto{overflow:auto}

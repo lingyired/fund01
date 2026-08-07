@@ -253,6 +253,11 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                 watchlist = Some(list);
                 patches.extend(p);
             }
+        } else if force {
+            // 持仓/自选全空（重置 / 清空后 force 刷新）：显式广播空快照，
+            // 否则 broadcast 会回退旧 state.quote，popup / menubar 浮窗仍显示旧持仓。
+            holdings_payload = Some(HoldingsPayload::default());
+            watchlist = Some(Vec::new());
         }
     }
 

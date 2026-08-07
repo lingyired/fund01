@@ -827,3 +827,13 @@ export function importConfig(ports: Ports, payload: Partial<AppConfig> & {funds?
   ports.config.saveConfig(next)
   return next
 }
+
+/**
+ * 重置为出厂默认：清空全部持仓 / 自选 / 黄金持仓，恢复默认设置（不可撤销，请先导出备份）。
+ * await 保存完成后才 resolve，保证调用方随后重载到的配置是最新的。
+ */
+export async function resetConfig(ports: Ports): Promise<AppConfig> {
+  const next = normalizeConfig(null)
+  await ports.config.saveConfig(next)
+  return next
+}
