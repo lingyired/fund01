@@ -58,6 +58,7 @@ import {
   importConfig,
   listHoldingGroups,
   pickBasisNav,
+  refreshHoldingsCache,
   removeHoldingGroup,
   removeHoldingGroupWithFunds,
   renameHoldingGroup,
@@ -784,6 +785,8 @@ function HoldingGroupsSection({
       setGroups(next)
       setEditingIdx(null)
       onGroupsChanged()
+      // 重命名会同步改 allocations/costs key，popup 缓存需强制重算
+      await refreshHoldingsCache(ports)
     } catch (e: unknown) {
       setGroupError((e as Error)?.message || '重命名失败')
     }
@@ -796,6 +799,8 @@ function HoldingGroupsSection({
       const next = await removeHoldingGroup(ports, name)
       setGroups(next)
       onGroupsChanged()
+      // 删除分组会清掉引用它的份额（空基金一并删除），popup 缓存需强制重算
+      await refreshHoldingsCache(ports)
     } catch (e: unknown) {
       setGroupError((e as Error)?.message || '删除失败')
     }
@@ -944,6 +949,8 @@ function AddFundSection({
           setGroups(listHoldingGroups(ports))
           setMessage(`已添加 ${payload.code}`)
           onAdded?.()
+          // 让 popup 等读 SW 缓存的端立即看到新持仓（周末也会强制重算）
+          await refreshHoldingsCache(ports)
         }}
       />
       {message ? <p className="text-sm text-fall">{message}</p> : null}
@@ -1159,6 +1166,8 @@ function EditHoldingsSection({
       setActiveTab(ALL_TAB)
       setMessage(`已删除分组「${label}」`)
       onGroupsChanged()
+      // 删除分组连带删除基金，popup 缓存需强制重算
+      await refreshHoldingsCache(ports)
     } catch (e) {
       setError((e as Error)?.message || '删除分组失败')
     } finally {
@@ -1236,6 +1245,8 @@ function EditHoldingsSection({
         const codes = rows.filter((r) => r.group === g).map((r) => r.code)
         await setHoldingGroupOrder(ports, g, codes)
       }
+      // 保存后同步展示缓存（popup 等端立即看到新份额/成本，周末也强制重算）
+      await refreshHoldingsCache(ports)
       setMessage('已保存')
     } catch (e) {
       setError((e as Error)?.message || '保存失败')
@@ -1642,6 +1653,9 @@ function ImportSection({
     // 若不广播，部分失败时各分区列表会停留在旧数据
     onGroupsChanged()
     onImported()
+    // 清缓存并强制刷新：popup 等读 SW 缓存的端立即重算，否则要等交易时段 alarm
+    // 才会看到新写入的成本/份额（周末会残留一整天旧快照，详见 docs/导入后持有成本显示横杠-诊断.md）
+    await refreshHoldingsCache(ports)
     if (failed.length === 0) {
       setMessage(`成功导入 ${entries.length} 条`)
       // 重置，便于再次导入

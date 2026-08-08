@@ -438,6 +438,29 @@ export function removeFund(ports: Ports, code: string, type: 'hold' | 'watch'): 
   ports.config.saveConfig(config)
 }
 
+/**
+ * 写持仓（新增/编辑/导入）成功后刷新展示缓存，让 popup 等读 SW 缓存的端立即反映新数据。
+ *
+ * 背景：popup 持仓列表读 SW 算好的 `cache-holdings`（非实时读 config）；写 config 不会自动
+ * 触发 SW 重算缓存（仅切换 quoteSource 才自动 refreshAll）。叠加非交易时段（周末/节假日）
+ * alarm 定时刷新被跳过，旧快照会残留到下一交易时段 —— 表现为「导入后持有成本/收益显示 --」。
+ *
+ * - chrome：`clearCache` = 清全部 cache-* + `refreshAll(true)`（force 跳过非交易时段过滤，立即重算）
+ * - tauri：无 SW 缓存概念，`clearCache` 未实现 → 回退普通 `triggerRefresh`
+ * - 失败不阻断：数据已落库，下一轮交易时段 alarm 会自然重算
+ */
+export async function refreshHoldingsCache(ports: Ports): Promise<void> {
+  try {
+    if (ports.data.clearCache) {
+      await ports.data.clearCache()
+    } else {
+      await ports.data.triggerRefresh()
+    }
+  } catch {
+    /* 忽略：刷新失败不影响已落库的数据 */
+  }
+}
+
 export function updateGoldConfig(
   ports: Ports,
   payload: {holding: number; avgPrice: number},
