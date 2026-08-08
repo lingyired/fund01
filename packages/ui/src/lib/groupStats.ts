@@ -97,11 +97,19 @@ export interface GroupSummary {
   down: number
 }
 
-/** 计算单个分组的汇总（含资产/当日收益/累计收益/涨跌家数） */
+/** 该基金是否属于某分组（键存在即算，含 0 份额：0 金额关注/待加仓基金也属于其分组）。
+ *  不能用 groupShares >= 0（不在分组的基金返回 0 会误判）。 */
+export function inGroup(row: FundQuoteRow, group: string): boolean {
+  return (row.allocations?.[group] ?? -1) >= 0
+}
+
+/** 计算单个分组的汇总（含资产/当日收益/累计收益/涨跌家数）。
+ *  包含 0 份额基金（0 金额关注/待加仓）：其金额/收益/涨跌均贡献 0，
+ *  但计入 count（分组 tab 显示「N 只」含关注占位），与分组 tab 列表一致。 */
 export function summarizeGroup(list: FundQuoteRow[], groupKey: GroupKey): GroupSummary {
   const rows = groupKey
-    ? list.filter((r) => groupShares(r, groupKey) > 0)
-    : list.filter((r) => groupShares(r, '') > 0)
+    ? list.filter((r) => inGroup(r, groupKey))
+    : list.filter((r) => inGroup(r, ''))
   const amount = rows.reduce((s, r) => s + groupAmount(r, groupKey), 0)
   // 当日收益聚合：跳过当日收益为空的成员（QDII 盘中 pnl=null → groupPnl 返回 null），
   // 不按 0 计入（§六）；盘后 QDII 有值自动补回
@@ -209,7 +217,7 @@ export function buildDisplayRows(
     activeTab === 'all' ? '' : activeTab === '__ungrouped__' ? '' : activeTab
   const rows = isAll
     ? list
-    : list.filter((r) => groupShares(r, activeKey) > 0)
+    : list.filter((r) => inGroup(r, activeKey))
   return rows.map((row) => {
     if (isAll) {
       return {
