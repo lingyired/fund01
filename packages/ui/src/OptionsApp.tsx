@@ -913,7 +913,7 @@ function AddFundSection({groupsReload}: {groupsReload: number}) {
   return (
     <SectionCard id="add-fund" title="添加持仓">
       <p className="text-xs text-muted">
-        录入基金代码与金额即可添加。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
+        录入基金代码与持有金额即可添加；持有收益可选填（与基金列表/截图一致）。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
       </p>
       <FundFormBody
         mode="hold"
@@ -928,7 +928,7 @@ function AddFundSection({groupsReload}: {groupsReload: number}) {
               amount: payload.amount,
               amountBasis: payload.amountBasis,
               group: payload.group,
-              cost: payload.cost,
+              holdProfit: payload.holdProfit,
               type: 'hold',
             })
             setGroups(listHoldingGroups(ports))

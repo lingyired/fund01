@@ -16,8 +16,8 @@ type Payload = {
   type?: 'hold' | 'watch'
   /** 持仓分组（仅 hold 有效；空字符串=未分组）。指定本次金额对应的分组份额 */
   group?: string
-  /** 该分组的持仓成本单价（元/份，可选；用于持有收益） */
-  cost?: number
+  /** 该分组的持有收益（元，可选；用于反推成本单价） */
+  holdProfit?: number
 }
 
 function defaultBasis(initial: FundQuoteRow | null): AmountBasis {
@@ -36,7 +36,7 @@ export function FundFormBody({
   /** 编辑某分组时，该分组的当前金额（覆盖 initial.amount，避免显示总额误导） */
   initialAmount,
   /** 编辑某分组时该分组的当前成本 */
-  initialCost,
+  initialHoldProfit,
   groups,
   onSubmit,
   onGroupsChanged,
@@ -50,8 +50,8 @@ export function FundFormBody({
   editingGroup?: string
   /** 编辑某分组时该分组的当前金额 */
   initialAmount?: number
-  /** 编辑某分组时该分组的当前成本 */
-  initialCost?: number
+  /** 编辑某分组时该分组的当前持有收益 */
+  initialHoldProfit?: number
   /** 当前所有持仓分组 */
   groups: string[]
   onSubmit: (payload: Payload) => Promise<void>
@@ -65,7 +65,7 @@ export function FundFormBody({
   const ports = usePorts()
   const [code, setCode] = useState('')
   const [amount, setAmount] = useState('')
-  const [cost, setCost] = useState('')
+  const [holdProfit, setHoldProfit] = useState('')
   const [amountBasis, setAmountBasis] = useState<AmountBasis>('prev')
   /** 当前选中的单一分组（'' = 未分组） */
   const [selectedGroup, setSelectedGroup] = useState<string>('')
@@ -79,13 +79,13 @@ export function FundFormBody({
     setCode(initial?.code || '')
     const amt = initialAmount != null ? initialAmount : initial?.amount
     setAmount(amt != null ? String(amt) : '')
-    setCost(initialCost != null && initialCost > 0 ? String(initialCost) : '')
+    setHoldProfit(initialHoldProfit != null ? String(initialHoldProfit) : '')
     setAmountBasis(defaultBasis(initial))
     setSelectedGroup(editingGroup ?? '')
     setNewGroup('')
     setAddingGroup(false)
     setError('')
-  }, [initial, editingGroup, initialAmount, initialCost])
+  }, [initial, editingGroup, initialAmount, initialHoldProfit])
 
   async function handleAddGroup() {
     const name = newGroup.trim()
@@ -121,9 +121,9 @@ export function FundFormBody({
             payload.amount = Number(amount) || 0
             payload.amountBasis = amountBasis
             payload.group = selectedGroup
-            // 成本：空字符串=不传（保留原值/无成本）；0=清空；>0=覆盖
-            const costNum = cost.trim() === '' ? undefined : Number(cost) || 0
-            if (costNum !== undefined) payload.cost = costNum
+            // 持有收益：空字符串=不传（保留原值/无成本）；>0 或 <0 均传，用于反推成本单价
+            const hpNum = holdProfit.trim() === '' ? undefined : Number(holdProfit)
+            if (hpNum != null && Number.isFinite(hpNum)) payload.holdProfit = hpNum
           }
           await onSubmit(payload)
           // 内联常驻场景没有弹窗可关，仅弹窗场景需要 onOpenChange
@@ -132,7 +132,7 @@ export function FundFormBody({
           if (!onOpenChange && !initial) {
             setCode('')
             setAmount('')
-            setCost('')
+            setHoldProfit('')
           }
         } catch (err: unknown) {
           const msg =
@@ -274,22 +274,21 @@ export function FundFormBody({
           </div>
           <div className="space-y-1.5">
             <label
-              htmlFor="cost"
+              htmlFor="holdProfit"
               className="text-sm font-medium text-ink-soft leading-none"
             >
-              持仓成本单价（可选，用于持有收益）
+              持有收益（可选）
             </label>
             <TextField.Root
-              id="cost"
+              id="holdProfit"
               type="number"
-              step="0.0001"
-              min="0"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              placeholder="留空则不统计持有收益；填 0 清空已有成本"
+              step="0.01"
+              value={holdProfit}
+              onChange={(e) => setHoldProfit(e.target.value)}
+              placeholder="留空则不统计持有收益；如 -123.45"
             />
             <p className="text-[11px] text-muted">
-              买入时的单位成本价（元/份）。持有收益 = 当前市值 − 成本单价 × 份额。
+              持有收益 = 当前市值 − 成本本金。留空则不统计持有收益（成本单价按市值自动派生）。
             </p>
           </div>
         </>
@@ -327,7 +326,7 @@ export function FundFormDialog({
   initial,
   editingGroup,
   initialAmount,
-  initialCost,
+  initialHoldProfit,
   groups,
   onSubmit,
   onGroupsChanged,
@@ -338,7 +337,7 @@ export function FundFormDialog({
   initial: FundQuoteRow | null
   editingGroup?: string
   initialAmount?: number
-  initialCost?: number
+  initialHoldProfit?: number
   groups: string[]
   onSubmit: (payload: Payload) => Promise<void>
   onGroupsChanged?: () => void
@@ -364,7 +363,7 @@ export function FundFormDialog({
           initial={initial}
           editingGroup={editingGroup}
           initialAmount={initialAmount}
-          initialCost={initialCost}
+          initialHoldProfit={initialHoldProfit}
           groups={groups}
           onSubmit={onSubmit}
           onGroupsChanged={onGroupsChanged}
