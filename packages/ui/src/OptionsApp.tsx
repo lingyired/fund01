@@ -1215,9 +1215,19 @@ function EditHoldingsSection({
           // 统一录入口径：金额 + 收益 → 份额 = 金额 ÷ 口径基准净值；成本单价 = (金额−收益) ÷ 份额（派生）
           const amount = Number(r.amount)
           const meta = navMeta[r.code]
-          if (!(amount > 0) || !meta) {
+          if (!meta) {
             throw new Error(
-              `「${r.name}」在「${r.group || '未分组'}」缺少持有金额或确认净值，无法折算份额，请核对后重试`,
+              `「${r.name}」在「${r.group || '未分组'}」缺少确认净值，无法折算份额，请核对后重试`,
+            )
+          }
+          if (!(amount > 0)) {
+            // 0 金额 = 关注/待加仓：保留该分组 0 份额（不是删除、不是报错），后续在表格/弹层填金额即可加仓
+            if (amount === 0) {
+              await setFundAllocation(ports, key, r.group, 0, undefined, {keepZero: true})
+              continue
+            }
+            throw new Error(
+              `「${r.name}」在「${r.group || '未分组'}」持有金额无效（${amount}），请填写大于 0 的金额`,
             )
           }
           const picked = pickBasisNav(basis ?? 'prev', meta)

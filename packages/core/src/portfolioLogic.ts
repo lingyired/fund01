@@ -101,11 +101,13 @@ export function normalizeFund(
   let allocations: Record<string, number> | undefined
   if (fallbackType === 'hold') {
     if (raw.allocations && typeof raw.allocations === 'object') {
-      // 直接用 allocations，但需清理 NaN/负数
+      // 直接用 allocations，但需清理 NaN/负数；0 份额分组保留
+      //（0 金额基金 = 关注/待加仓，视为正常持仓记录，编辑表格可见可加仓，而非幽灵）
       allocations = {}
       for (const [g, s] of Object.entries(raw.allocations)) {
         const shares = Number(s) || 0
         if (shares > 0) allocations[g] = shares
+        else if (shares === 0) allocations[g] = 0
       }
     } else if (prev?.allocations && Object.keys(prev.allocations).length) {
       allocations = {...prev.allocations}

@@ -808,7 +808,8 @@ export async function setHoldingGroupOrder(
 
 /**
  * 直接设置某基金在某分组的份额与成本（批量编辑用，绕过金额反推份额）。
- * - shares<=0 等同于删除该分组 allocation（连带 cost）
+ * - shares<=0 默认等同于删除该分组 allocation（连带 cost）
+ * - shares===0 且 opts.keepZero 时保留 0 份额分组（0 金额基金 = 关注/待加仓，不删）
  * - cost<=0 或 undefined 表示清空该分组成本单价（保留份额）
  * - 保留其他分组的 allocation/cost
  */
@@ -818,6 +819,7 @@ export async function setFundAllocation(
   group: string,
   shares: number,
   cost?: number,
+  opts?: {keepZero?: boolean},
 ): Promise<void> {
   const config = ports.config.getConfig()
   const key = String(code).padStart(6, '0')
@@ -828,6 +830,8 @@ export async function setFundAllocation(
   const s = Number(shares) || 0
   if (s > 0) {
     allocations[group] = s
+  } else if (s === 0 && opts?.keepZero) {
+    allocations[group] = 0
   } else {
     delete allocations[group]
   }

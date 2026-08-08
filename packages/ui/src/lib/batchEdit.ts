@@ -74,11 +74,13 @@ export async function loadEditRows(
   for (const g of groupSet) if (g && !groups.includes(g)) groups.push(g)
   if (groupSet.has('')) groups.push('')
 
-  // 每个分组读取排序 + 展开行
+  // 每个分组读取排序 + 展开行（含 0 份额分组：0 金额基金 = 关注/待加仓，编辑表格须可见可编辑）
   const rows: EditRow[] = []
   for (const g of groups) {
     const order = getHoldingGroupOrder(ports, g)
-    const inGroup = funds.filter((f) => (f.allocations?.[g] ?? 0) > 0)
+    const inGroup = funds.filter(
+      (f) => (f.allocations?.[g] ?? -1) >= 0,
+    )
     // 按 order 排序，未在 order 中的按金额降序补在后面
     const ordered: FundRecord[] = []
     const used = new Set<string>()

@@ -93,7 +93,8 @@ pub fn normalize_fund(
         if let Some(a) = raw.get("allocations").and_then(|v| v.as_object()) {
             for (g, s) in a {
                 let shares = s.as_f64().unwrap_or(0.0);
-                if shares > 0.0 {
+                // 保留 0 份额分组：0 金额基金 = 关注/待加仓，视为正常持仓记录
+                if shares >= 0.0 {
                     allocations.insert(g.clone(), shares);
                 }
             }
