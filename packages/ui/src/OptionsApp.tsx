@@ -35,6 +35,7 @@ import type {
   AppThemePref,
   BadgeMode,
   MenubarLayout,
+  ResolveFundResult,
   SettingsTabId,
 } from '@fund01/core'
 import {
@@ -46,6 +47,7 @@ import {
   MENUBAR_OVERVIEW_KEY,
   MIN_REFRESH_INTERVAL,
   normalizeHexColor,
+  todayDateStr,
 } from '@fund01/core'
 import {cn} from '@fund01/core'
 import {
@@ -55,6 +57,7 @@ import {
   fetchSettings,
   importConfig,
   listHoldingGroups,
+  pickBasisNav,
   removeHoldingGroup,
   removeHoldingGroupWithFunds,
   renameHoldingGroup,
@@ -62,6 +65,7 @@ import {
   setFundAllocation,
   setHoldingGroupOrder,
   updateSettings,
+  type AmountBasis,
 } from './lib/fundOps'
 import {
   deriveRowReadonly,
@@ -961,8 +965,14 @@ function EditHoldingsSection({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  // 最新净值缓存（code → netValue），用于展示「当前持仓金额」（只读，不参与保存）
-  const [navMap, setNavMap] = useState<Record<string, number>>({})
+  // 净值缓存（code → resolveFund 完整结果，含今/昨净值与日期），供折算份额与只读派生用
+  const [navMeta, setNavMeta] = useState<Record<string, ResolveFundResult>>({})
+  /**
+   * 金额口径（spec §6.1，与单只弹层对齐）：prev=金额是昨收市值 / today=金额是今日确认市值。
+   * null = 尚未显式选择 → navMeta 就绪后按「数据源是否已出今日净值」智能默认；
+   * 用户手动切换后不再自动覆盖。
+   */
+  const [basis, setBasis] = useState<AmountBasis | null>(null)
 
   useEffect(() => {
     setError('')
@@ -984,7 +994,7 @@ function EditHoldingsSection({
   useEffect(() => {
     const codes = navCodes ? navCodes.split(',') : []
     if (!codes.length) {
-      setNavMap({})
+      setNavMeta({})
       return
     }
     let cancelled = false
@@ -992,37 +1002,67 @@ function EditHoldingsSection({
       codes.map(async (code) => {
         try {
           const meta = await ports.data.resolveFund({code, type: 'hold'})
-          return [code, meta?.netValue ?? null] as const
+          return [code, meta] as const
         } catch {
           return [code, null] as const
         }
       }),
     ).then((results) => {
       if (cancelled) return
-      const m: Record<string, number> = {}
-      for (const [code, nav] of results) {
-        if (nav != null && nav > 0) m[code] = nav
+      const m: Record<string, ResolveFundResult> = {}
+      for (const [code, meta] of results) {
+        if (meta && meta.netValue != null && meta.netValue > 0) m[code] = meta
       }
-      setNavMap(m)
+      setNavMeta(m)
     })
     return () => {
       cancelled = true
     }
   }, [ports, navCodes])
 
-  // 净值就绪后，为未初始化的行回填「持有金额 / 持有收益」预填值：
-  // 金额 = 份额 × 最新净值（与旧版只读「持仓金额」同口径）；收益 = 金额 − 成本。
-  // 用 initialized 标记而非值判空，避免重载/清空输入时覆盖用户编辑。
+  /** 按当前口径取折算净值（口径取不到时 undefined；保存时同样会抛错提示） */
+  function pickNav(meta: ResolveFundResult | undefined): number | undefined {
+    if (!meta) return undefined
+    try {
+      return pickBasisNav(basis ?? 'prev', meta).nav
+    } catch {
+      return undefined
+    }
+  }
+
+  // navMeta 就绪后，若用户未手动选择口径，按「数据源是否已出今日净值」智能默认
+  //（与单只弹层编辑模式的 percentSource 推断一致：已确认 → today，否则 prev）
   useEffect(() => {
-    if (!Object.keys(navMap).length) return
+    if (basis !== null || !Object.keys(navMeta).length) return
+    const hasToday = Object.values(navMeta).some(
+      (m) => m.netValueDate && m.netValueDate === todayDateStr(),
+    )
+    setBasis(hasToday ? 'today' : 'prev')
+  }, [navMeta, basis])
+
+  // 净值就绪 + 口径确定后，为未初始化的行回填「持有金额 / 持有收益」预填值：
+  // 金额 = 份额 × 口径基准净值；收益 = 金额 − 份额 × 成本单价。
+  // initialized 标记防重载覆盖；用户已动手（金额/收益非空）的行不覆盖；
+  // 当前口径取不到净值（如 today 但今日未确认）时保持未初始化，等待切换口径后重试。
+  useEffect(() => {
+    if (!Object.keys(navMeta).length || basis == null) return
     setRows((cur) =>
       cur.map((r) => {
         if (r.initialized) return r
-        const nav = navMap[r.code]
+        if (r.amount.trim() !== '' || r.holdProfit.trim() !== '') return r
         const sh = Number(r.shares) || 0
-        if (!(nav != null && nav > 0) || sh <= 0) {
+        const meta = navMeta[r.code]
+        if (!meta || sh <= 0) {
           // 无净值（新基金/取数失败）：保持空白，标记已尝试避免反复计算
           return {...r, initialized: true}
+        }
+        let nav: number
+        try {
+          nav = pickBasisNav(basis, meta).nav
+        } catch {
+          // 当前口径取不到基准净值（如 today 但数据源尚无今日净值）：
+          // 不标记，用户切换口径后本 effect 重跑再试
+          return r
         }
         const amount = Math.round(sh * nav * 100) / 100
         const cost = Number(r.cost) || 0
@@ -1036,10 +1076,18 @@ function EditHoldingsSection({
         }
       }),
     )
-  }, [navMap])
+  }, [navMeta, basis])
+
+  // 切换金额口径：未手动编辑过的行重置为待预填，按新口径基准重新折算
+  //「持有金额 = 份额 × 新基准」，保证「不改即保存份额不变」；touched 行保留用户输入。
+  useEffect(() => {
+    setRows((cur) =>
+      cur.map((r) => (r.touched ? r : {...r, initialized: false, amount: '', holdProfit: ''})),
+    )
+  }, [basis])
 
   function updateRow(index: number, patch: Partial<EditRow>) {
-    setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch} : r)))
+    setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch, touched: true} : r)))
   }
 
   function removeRow(index: number) {
@@ -1079,6 +1127,7 @@ function EditHoldingsSection({
                   amount: String(Math.round((a1 + a2) * 100) / 100),
                   holdProfit: mergedProfit,
                   initialized: true,
+                  touched: true,
                 }
               : r,
           )
@@ -1141,15 +1190,16 @@ function EditHoldingsSection({
         }
         const rowGroups = new Set(list.map((r) => r.group))
         for (const r of list) {
-          // 统一录入口径：金额 + 收益 → 份额 = 金额 ÷ 最新净值；成本单价 = (金额−收益) ÷ 份额（派生）
+          // 统一录入口径：金额 + 收益 → 份额 = 金额 ÷ 口径基准净值；成本单价 = (金额−收益) ÷ 份额（派生）
           const amount = Number(r.amount)
-          const nav = navMap[r.code]
-          if (!(amount > 0) || !(nav != null && nav > 0)) {
+          const meta = navMeta[r.code]
+          if (!(amount > 0) || !meta) {
             throw new Error(
               `「${r.name}」在「${r.group || '未分组'}」缺少持有金额或确认净值，无法折算份额，请核对后重试`,
             )
           }
-          const shares = Math.round((amount / nav) * 10000) / 10000
+          const picked = pickBasisNav(basis ?? 'prev', meta)
+          const shares = Math.round((amount / picked.nav) * 10000) / 10000
           const hpRaw = r.holdProfit.trim()
           const holdProfit = hpRaw === '' ? undefined : Number(hpRaw)
           let cost: number | undefined
@@ -1215,6 +1265,22 @@ function EditHoldingsSection({
       </p>
       {error ? <p className="text-sm text-rise">{error}</p> : null}
       {message ? <p className="text-sm text-fall">{message}</p> : null}
+
+      {/* 金额口径（spec §6.1，与单只弹层对齐）：决定持有金额按哪一版净值折算份额 */}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-ink-soft">金额口径</span>
+        <SegmentedControl.Root
+          value={basis ?? 'prev'}
+          onValueChange={(v) => setBasis(v as AmountBasis)}
+          size="1"
+        >
+          <SegmentedControl.Item value="prev">昨日结算</SegmentedControl.Item>
+          <SegmentedControl.Item value="today">今日结算</SegmentedControl.Item>
+        </SegmentedControl.Root>
+        <span className="text-[11px] leading-tight text-muted">
+          持有金额按「今日结算」用今日确认净值折算份额；「昨日结算」用上一交易日净值。默认已按数据源状态自动选择，金额与列表/截图口径一致时无需切换。
+        </span>
+      </div>
 
       <Tabs.Root
         value={activeTab}
@@ -1298,7 +1364,7 @@ function EditHoldingsSection({
                     </thead>
                     <tbody>
                       {items.map(({r, i}) => {
-                        const nav = navMap[r.code]
+                        const nav = pickNav(navMeta[r.code])
                         const derived = deriveRowReadonly(r, nav)
                         return (
                           <tr key={`${r.code}-${r.group}`} className="border-b border-line/30">

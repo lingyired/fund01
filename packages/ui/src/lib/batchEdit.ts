@@ -22,8 +22,10 @@ export type EditRow = {
   amount: string
   /** 可编辑：该分组持有收益（留空 = 保留原成本单价） */
   holdProfit: string
-  /** 是否已按最新净值完成 amount/holdProfit 预填（防止重载时覆盖用户编辑） */
+  /** 是否已按当前金额口径完成 amount/holdProfit 预填（防止重载时覆盖用户编辑） */
   initialized: boolean
+  /** 用户是否手动编辑过该行（切换金额口径时保留，不被重新预填覆盖） */
+  touched?: boolean
 }
 
 /**
