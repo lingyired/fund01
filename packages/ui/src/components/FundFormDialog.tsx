@@ -16,7 +16,7 @@ type Payload = {
   type?: 'hold' | 'watch'
   /** 持仓分组（仅 hold 有效；空字符串=未分组）。指定本次金额对应的分组份额 */
   group?: string
-  /** 该分组的持仓成本单价（元/份，可选；用于累计收益） */
+  /** 该分组的持仓成本单价（元/份，可选；用于持有收益） */
   cost?: number
 }
 
@@ -277,7 +277,7 @@ export function FundFormBody({
               htmlFor="cost"
               className="text-sm font-medium text-ink-soft leading-none"
             >
-              持仓成本单价（可选，用于累计收益）
+              持仓成本单价（可选，用于持有收益）
             </label>
             <TextField.Root
               id="cost"
@@ -286,10 +286,10 @@ export function FundFormBody({
               min="0"
               value={cost}
               onChange={(e) => setCost(e.target.value)}
-              placeholder="留空则不统计累计收益；填 0 清空已有成本"
+              placeholder="留空则不统计持有收益；填 0 清空已有成本"
             />
             <p className="text-[11px] text-muted">
-              买入时的单位成本价（元/份）。累计收益 = 当前市值 − 成本单价 × 份额。
+              买入时的单位成本价（元/份）。持有收益 = 当前市值 − 成本单价 × 份额。
             </p>
           </div>
         </>

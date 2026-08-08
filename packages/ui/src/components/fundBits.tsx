@@ -1,5 +1,21 @@
 import {formatPct, pctClass} from '@fund01/core'
 
+/**
+ * 天天基金口径说明（spec 持仓录入与展示统一 D4 定稿文案）。
+ * 落地两处：popup 列表「持有收益」表头 ℹ️ + 设置页「名词说明」区块。
+ */
+export const HOLD_PROFIT_TERMS_NOTE = (
+  <div className="space-y-1 text-left">
+    <p>
+      天天基金的「<b>持仓收益</b>」= 我们的「持有收益」（当前市值 − 当前持仓成本）。
+    </p>
+    <p>
+      天天基金列表另列的「<b>持有收益</b>」（含已赎回的已实现部分）≠ 我们的持有收益。
+      Fund01 不追踪已实现，只认前者。
+    </p>
+  </div>
+)
+
 /** 已确认涨跌的徽标：展示「已更新 + 当日涨跌% + 最新净值」，仅 confirmedUpdated 时渲染 */
 export function ConfirmedUpdatedBadge({
   show,

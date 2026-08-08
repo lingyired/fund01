@@ -47,7 +47,7 @@ import {
   MIN_REFRESH_INTERVAL,
   normalizeHexColor,
 } from '@fund01/core'
-import {cn, formatAmount} from '@fund01/core'
+import {cn} from '@fund01/core'
 import {
   addHoldingGroup,
   createFund,
@@ -63,9 +63,14 @@ import {
   setHoldingGroupOrder,
   updateSettings,
 } from './lib/fundOps'
-import {loadEditRows, type EditRow} from './lib/batchEdit'
+import {
+  deriveRowReadonly,
+  loadEditRows,
+  type EditRow,
+} from './lib/batchEdit'
 import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings'
 import {FundFormBody} from './components/FundFormDialog'
+import {HOLD_PROFIT_TERMS_NOTE} from './components/fundBits'
 import {HoldingsNav, HOLDINGS_NAV_ITEMS} from './components/HoldingsNav'
 import {applyTheme} from './theme'
 import {usePorts} from './context'
@@ -212,6 +217,7 @@ export function OptionsApp({
                 onGroupsChanged={() => setGroupsReload((t) => t + 1)}
                 onImported={() => setHoldingsReload((t) => t + 1)}
               />
+              <TermsNoteSection />
             </div>
           </Tabs.Content>
 
@@ -1004,6 +1010,34 @@ function EditHoldingsSection({
     }
   }, [ports, navCodes])
 
+  // 净值就绪后，为未初始化的行回填「持有金额 / 持有收益」预填值：
+  // 金额 = 份额 × 最新净值（与旧版只读「持仓金额」同口径）；收益 = 金额 − 成本。
+  // 用 initialized 标记而非值判空，避免重载/清空输入时覆盖用户编辑。
+  useEffect(() => {
+    if (!Object.keys(navMap).length) return
+    setRows((cur) =>
+      cur.map((r) => {
+        if (r.initialized) return r
+        const nav = navMap[r.code]
+        const sh = Number(r.shares) || 0
+        if (!(nav != null && nav > 0) || sh <= 0) {
+          // 无净值（新基金/取数失败）：保持空白，标记已尝试避免反复计算
+          return {...r, initialized: true}
+        }
+        const amount = Math.round(sh * nav * 100) / 100
+        const cost = Number(r.cost) || 0
+        const holdProfit =
+          cost > 0 ? Math.round((amount - sh * cost) * 100) / 100 : ''
+        return {
+          ...r,
+          initialized: true,
+          amount: String(amount),
+          holdProfit: holdProfit === '' ? '' : String(holdProfit),
+        }
+      }),
+    )
+  }, [navMap])
+
   function updateRow(index: number, patch: Partial<EditRow>) {
     setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch} : r)))
   }
@@ -1012,7 +1046,7 @@ function EditHoldingsSection({
     setRows((cur) => cur.filter((_, i) => i !== index))
   }
 
-  /** 修改某行份额所属分组；目标分组已有同一基金时先确认再合并累加 */
+  /** 修改某行份额所属分组；目标分组已有同一基金时先确认再合并累加（金额/收益相加） */
   function handleGroupChange(index: number, next: string) {
     const cur = rows[index]
     if (next === cur.group) return
@@ -1022,27 +1056,30 @@ function EditHoldingsSection({
     if (targetIdx !== -1) {
       const target = rows[targetIdx]
       const label = next || '未分组'
-      const msg = `「${cur.name}」在分组「${label}」已有份额 ${target.shares || 0}，确定合并累加吗？\n合并后：份额相加，成本单价按份额加权平均。`
+      const msg = `「${cur.name}」在分组「${label}」已有持仓，确定合并累加吗？\n合并后：持有金额与持有收益相加，成本单价按合并结果自动派生。`
       if (!confirm(msg)) return
-      const s1 = Number(cur.shares) || 0
-      const s2 = Number(target.shares) || 0
-      const c1 = Number(cur.cost) || 0
-      const c2 = Number(target.cost) || 0
-      const mergedShares = s1 + s2
-      let mergedCost = ''
-      if (mergedShares > 0 && c1 > 0 && c2 > 0) {
-        // 份额加权平均成本单价
-        mergedCost = String(Math.round(((s1 * c1 + s2 * c2) / mergedShares) * 1e6) / 1e6)
-      } else if (c1 > 0) {
-        mergedCost = cur.cost
-      } else if (c2 > 0) {
-        mergedCost = target.cost
-      }
+      const a1 = Number(cur.amount) || 0
+      const a2 = Number(target.amount) || 0
+      const p1 = cur.holdProfit.trim() === '' ? Number.NaN : Number(cur.holdProfit)
+      const p2 = target.holdProfit.trim() === '' ? Number.NaN : Number(target.holdProfit)
+      const mergedProfit =
+        Number.isFinite(p1) && Number.isFinite(p2)
+          ? String(Math.round((p1 + p2) * 100) / 100)
+          : Number.isFinite(p1)
+            ? String(Math.round(p1 * 100) / 100)
+            : Number.isFinite(p2)
+              ? String(Math.round(p2 * 100) / 100)
+              : ''
       setRows((curRows) =>
         curRows
           .map((r, i) =>
             i === targetIdx
-              ? {...r, shares: String(mergedShares), cost: mergedCost}
+              ? {
+                  ...r,
+                  amount: String(Math.round((a1 + a2) * 100) / 100),
+                  holdProfit: mergedProfit,
+                  initialized: true,
+                }
               : r,
           )
           .filter((_, i) => i !== index),
@@ -1104,8 +1141,31 @@ function EditHoldingsSection({
         }
         const rowGroups = new Set(list.map((r) => r.group))
         for (const r of list) {
-          const shares = Number(r.shares) || 0
-          const cost = r.cost.trim() === '' ? undefined : Number(r.cost) || 0
+          // 统一录入口径：金额 + 收益 → 份额 = 金额 ÷ 最新净值；成本单价 = (金额−收益) ÷ 份额（派生）
+          const amount = Number(r.amount)
+          const nav = navMap[r.code]
+          if (!(amount > 0) || !(nav != null && nav > 0)) {
+            throw new Error(
+              `「${r.name}」在「${r.group || '未分组'}」缺少持有金额或确认净值，无法折算份额，请核对后重试`,
+            )
+          }
+          const shares = Math.round((amount / nav) * 10000) / 10000
+          const hpRaw = r.holdProfit.trim()
+          const holdProfit = hpRaw === '' ? undefined : Number(hpRaw)
+          let cost: number | undefined
+          if (
+            holdProfit != null &&
+            Number.isFinite(holdProfit) &&
+            shares > 0 &&
+            holdProfit < amount
+          ) {
+            cost = Math.round(((amount - holdProfit) / shares) * 1e6) / 1e6
+          }
+          // 收益留空（未录入）→ 保留原成本单价，避免误清空
+          if (cost == null) {
+            const prevCost = ports.config.getConfig().holdings[key]?.costs?.[r.group]
+            if (prevCost != null && prevCost > 0) cost = prevCost
+          }
           await setFundAllocation(ports, key, r.group, shares, cost)
         }
         const prevGroups = Object.keys(funds[key]?.allocations || {})
@@ -1151,7 +1211,7 @@ function EditHoldingsSection({
   return (
     <SectionCard id="edit-holdings" title="编辑持仓">
       <p className="text-xs text-muted">
-        可直接修改每只基金在各分组的「持有份额」与「持仓成本单价」；「持仓金额」按最新净值实时估算、仅供查看不可编辑；删除分组会连带删除组内所有基金。记得点保存。
+        可编辑「持有金额」与「持有收益」（当前市值 − 成本本金）；「持有份额 / 成本单价 / 持有成本」由金额与收益自动派生、只读展示，无需手填。删除分组会连带删除组内所有基金。记得点保存。
       </p>
       {error ? <p className="text-sm text-rise">{error}</p> : null}
       {message ? <p className="text-sm text-fall">{message}</p> : null}
@@ -1216,28 +1276,30 @@ function EditHoldingsSection({
                   <table className="w-full table-fixed text-left text-xs">
                     <colgroup>
                       <col className="w-auto" />
-                      <col className="w-[150px]" />
-                      <col className="w-[150px]" />
-                      <col className="w-[150px]" />
+                      <col className="w-[130px]" />
+                      <col className="w-[110px]" />
+                      <col className="w-[90px]" />
+                      <col className="w-[90px]" />
+                      <col className="w-[90px]" />
                       <col className="w-[140px]" />
                       <col className="w-[44px]" />
                     </colgroup>
                     <thead className="sticky top-0 z-10 bg-paper-deep/40 text-muted">
                       <tr className="border-b border-line/40">
                         <th className="px-2 py-1.5 font-medium">基金</th>
-                        <th className="px-2 py-1.5 text-right font-medium">持仓金额</th>
+                        <th className="px-2 py-1.5 text-right font-medium">持有金额</th>
+                        <th className="px-2 py-1.5 text-right font-medium">持有收益</th>
                         <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
                         <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
+                        <th className="px-2 py-1.5 text-right font-medium">持有成本</th>
                         <th className="px-2 py-1.5 text-center font-medium">分组</th>
                         <th className="px-1 py-1.5 text-center font-medium">删</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map(({r, i}) => {
-                        const sharesNum = Number(r.shares) || 0
                         const nav = navMap[r.code]
-                        const amountText =
-                          sharesNum > 0 && nav != null ? `¥${formatAmount(sharesNum * nav)}` : '—'
+                        const derived = deriveRowReadonly(r, nav)
                         return (
                           <tr key={`${r.code}-${r.group}`} className="border-b border-line/30">
                             <td className="px-2 py-1.5 align-middle">
@@ -1254,36 +1316,55 @@ function EditHoldingsSection({
                               </div>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
-                              <div
-                                className="truncate text-right font-mono text-ink"
-                                title={amountText}
-                              >
-                                {amountText}
-                              </div>
-                            </td>
-                            <td className="px-2 py-1.5 align-middle">
                               <TextField.Root
                                 type="number"
-                                step="0.0001"
+                                step="0.01"
                                 min="0"
-                                value={r.shares}
-                                onChange={(e) => updateRow(i, {shares: e.target.value})}
+                                value={r.amount}
+                                onChange={(e) => updateRow(i, {amount: e.target.value})}
                                 disabled={saving}
                                 className="h-8 text-right font-mono text-xs"
-                                placeholder="0"
+                                placeholder="当前市值"
                               />
                             </td>
                             <td className="px-2 py-1.5 align-middle">
                               <TextField.Root
                                 type="number"
-                                step="0.0001"
-                                min="0"
-                                value={r.cost}
-                                onChange={(e) => updateRow(i, {cost: e.target.value})}
+                                step="0.01"
+                                value={r.holdProfit}
+                                onChange={(e) => updateRow(i, {holdProfit: e.target.value})}
                                 disabled={saving}
                                 className="h-8 text-right font-mono text-xs"
-                                placeholder="留空"
+                                placeholder="如 123.45"
                               />
+                            </td>
+                            <td
+                              className="px-2 py-1.5 text-right align-middle font-mono tabular-nums text-ink-soft"
+                              title={derived.shares != null ? String(derived.shares) : undefined}
+                            >
+                              {derived.shares != null
+                                ? derived.shares.toFixed(4)
+                                : r.shares || '—'}
+                            </td>
+                            <td
+                              className="px-2 py-1.5 text-right align-middle font-mono tabular-nums text-ink-soft"
+                              title={
+                                derived.costPrice != null ? String(derived.costPrice) : undefined
+                              }
+                            >
+                              {derived.costPrice != null
+                                ? derived.costPrice.toFixed(4)
+                                : r.cost || '—'}
+                            </td>
+                            <td
+                              className="px-2 py-1.5 text-right align-middle font-mono tabular-nums text-ink-soft"
+                              title={
+                                derived.holdingCost != null ? String(derived.holdingCost) : undefined
+                              }
+                            >
+                              {derived.holdingCost != null
+                                ? `¥${derived.holdingCost.toFixed(2)}`
+                                : '—'}
                             </td>
                             <td className="px-2 py-1.5 align-middle">
                               <Select.Root
@@ -1735,6 +1816,27 @@ function ImportSection({
         >
           {running ? `导入中 ${progress.done}/${progress.total}` : `导入 ${entries.length} 条`}
         </Button>
+      </div>
+    </SectionCard>
+  )
+}
+
+/* ── 名词说明（持仓收益口径，D4） ────────────────────────── */
+function TermsNoteSection() {
+  return (
+    <SectionCard id="terms-note" title="名词说明">
+      <div className="space-y-3 text-sm leading-relaxed text-muted">
+        <div className="rounded-lg border border-line/60 bg-paper-deep/40 p-3 text-[13px] leading-relaxed">
+          {HOLD_PROFIT_TERMS_NOTE}
+        </div>
+        <p>
+          我们的「持有收益」= 当前市值 − 成本本金（不追已实现收益），与支付宝「持有收益」、
+          天天基金「持仓收益」同一口径；因此不单列「累计收益」（恒等于持有收益）。
+        </p>
+        <p>
+          录入时只需填「持有金额（当前市值）」与「持有收益」两个数；「持有成本 = 持有金额 − 持有收益」，
+          「成本单价」为派生值仅供查看。
+        </p>
       </div>
     </SectionCard>
   )

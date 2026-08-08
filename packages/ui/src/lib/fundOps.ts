@@ -244,7 +244,7 @@ export async function createFund(
     group?: string
     /** 该分组的持仓成本单价（元/份，可选） */
     cost?: number
-    /** 累计收益（元，可选；用于反推成本单价） */
+    /** 持有收益（元，可选；用于反推成本单价） */
     holdProfit?: number
     /** 持有份额（份，可选；提供则直接作为份额，跳过金额→净值折算） */
     shares?: number
@@ -311,7 +311,7 @@ export async function createFund(
     }
   }
 
-  // 累计收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
+  // 持有收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
   let holdProfit = payload.holdProfit
   if (
     (holdProfit == null || !Number.isFinite(holdProfit)) &&
@@ -350,7 +350,7 @@ export async function createFund(
     if (payload.cost != null && payload.cost > 0) {
       costs = {...prevCosts, [group]: Number(payload.cost) || 0}
     } else if (holdProfit != null && Number.isFinite(holdProfit) && shares > 0) {
-      // 总成本 = 市值 - 累计收益；成本单价 = 总成本 / 份额
+      // 总成本 = 市值 - 持有收益；成本单价 = 总成本 / 份额
       const totalCost = amount - Number(holdProfit)
       const price = Math.round((totalCost / shares) * 1e6) / 1e6
       if (price > 0) costs = {...prevCosts, [group]: price}

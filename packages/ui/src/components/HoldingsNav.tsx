@@ -6,6 +6,7 @@ export const HOLDINGS_NAV_ITEMS = [
   {id: 'add-fund', label: '添加持仓'},
   {id: 'edit-holdings', label: '编辑持仓'},
   {id: 'import-holdings', label: '导入持仓'},
+  {id: 'terms-note', label: '名词说明'},
 ] as const
 
 type NavItemId = (typeof HOLDINGS_NAV_ITEMS)[number]['id']

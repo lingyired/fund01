@@ -2,17 +2,53 @@
  * 批量编辑持仓的纯数据逻辑（与具体 UI 解耦）。
  * 原 BatchEditHoldingsDialog 依赖 Dialog，这里把行加载单独抽出来，
  * 供 OptionsApp 的内联「编辑持仓」区块复用。
+ *
+ * 口径（spec 持仓录入与展示统一 §4.3）：编辑表格可编辑列 = 持有金额 + 持有收益；
+ * 持有份额 / 成本单价 / 持有成本 均为只读派生展示。落库仍写 allocations/costs。
  */
 import type {FundRecord, Ports} from '@fund01/core'
 import {getHoldingGroupOrder, listFunds, listHoldingGroups} from './fundOps'
 
-/** 一行可编辑项：某基金在某分组的份额与成本 */
+/** 一行可编辑项：某基金在某分组的持有金额与持有收益（编辑用），份额/成本只读派生 */
 export type EditRow = {
   code: string
   name: string
   group: string
+  /** 持有份额（只读展示；loadEditRows 时为原值，UI 按 amount÷净值 实时派生） */
   shares: string
+  /** 成本单价（只读展示；UI 按 (金额−收益)÷份额 实时派生） */
   cost: string
+  /** 可编辑：该分组持有金额（当前市值） */
+  amount: string
+  /** 可编辑：该分组持有收益（留空 = 保留原成本单价） */
+  holdProfit: string
+  /** 是否已按最新净值完成 amount/holdProfit 预填（防止重载时覆盖用户编辑） */
+  initialized: boolean
+}
+
+/**
+ * 实时派生一组只读展示值（持有份额 / 成本单价 / 持有成本）。
+ * nav 缺失（无确认净值）时份额派不出 → 三项均为 null，UI 显示 --。
+ */
+export function deriveRowReadonly(
+  row: Pick<EditRow, 'amount' | 'holdProfit'>,
+  nav: number | undefined,
+): {shares: number | null; costPrice: number | null; holdingCost: number | null} {
+  const a = Number(row.amount) || 0
+  const hpRaw = row.holdProfit.trim()
+  const hp = hpRaw === '' ? Number.NaN : Number(hpRaw)
+  const hasNav = nav != null && nav > 0
+  if (!(a > 0) || !hasNav) return {shares: null, costPrice: null, holdingCost: null}
+  const shares = Math.round((a / nav) * 10000) / 10000
+  const costPrice =
+    shares > 0 && Number.isFinite(hp)
+      ? (() => {
+          const cp = (a - hp) / shares
+          return cp > 0 ? Math.round(cp * 1e6) / 1e6 : null
+        })()
+      : null
+  const holdingCost = Number.isFinite(hp) ? Math.round((a - hp) * 100) / 100 : null
+  return {shares, costPrice, holdingCost}
 }
 
 /** 把基金记录按分组展开成 EditRow 列表，应用排序 */
@@ -63,6 +99,10 @@ export async function loadEditRows(
         group: g,
         shares: shares ? String(shares) : '',
         cost: cost != null && cost > 0 ? String(cost) : '',
+        // 金额/收益预填依赖行情净值，由 OptionsApp 在 navMap 就绪后回填（见 initialized）
+        amount: '',
+        holdProfit: '',
+        initialized: false,
       })
     }
   }

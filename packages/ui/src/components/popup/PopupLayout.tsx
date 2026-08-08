@@ -114,6 +114,8 @@ export function PopupLayout({
           loading={loading}
           onAddFund={() => openSettingsAnchor('add-fund')}
           onImportHoldings={() => openSettingsAnchor('import-holdings')}
+          groups={holdingGroups}
+          onHoldingsChanged={() => void ports.data.triggerRefresh()}
         />
       </div>
       <FooterBar
