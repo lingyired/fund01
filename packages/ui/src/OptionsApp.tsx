@@ -1442,7 +1442,9 @@ function EditHoldingsSection({
                             <td
                               className="px-2 py-1.5 text-right align-middle font-mono tabular-nums text-ink-soft"
                               title={
-                                derived.holdingCost != null ? String(derived.holdingCost) : undefined
+                                derived.holdingCost != null
+                                  ? String(derived.holdingCost)
+                                  : '未录入成本：导入时收益≥金额反推≤0 未写入，或新基金未录；可在「持有收益」栏填入有效数值后保存自动反推成本单价'
                               }
                             >
                               {derived.holdingCost != null

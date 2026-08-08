@@ -460,6 +460,11 @@ export function FundList({
                             'font-mono text-[13px] tabular-nums',
                             cost != null ? 'text-ink-soft' : 'text-muted',
                           )}
+                          title={
+                            cost != null
+                              ? String(cost)
+                              : '未录入成本：导入时收益≥金额反推≤0 未写入，或新基金未录；可在弹层填入持有收益自动反推'
+                          }
                         >
                           {cost != null ? `¥${formatAmount(cost)}` : '--'}
                         </div>

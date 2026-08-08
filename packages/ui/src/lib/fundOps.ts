@@ -353,7 +353,19 @@ export async function createFund(
       // 总成本 = 市值 - 持有收益；成本单价 = 总成本 / 份额
       const totalCost = amount - Number(holdProfit)
       const price = Math.round((totalCost / shares) * 1e6) / 1e6
-      if (price > 0) costs = {...prevCosts, [group]: price}
+      if (price > 0) {
+        costs = {...prevCosts, [group]: price}
+      } else if (payload.onWarn) {
+        // 持有收益 ≥ 持有金额：成本单价反推 ≤0，未写入；提示用户核对数据口径
+        //（常见于金额是某口径市值、收益是另一口径收益，或录错）。持有成本显示 -- 是数据
+        // 层语义正确的体现，不是 bug；用户在导入「数据校验提醒」框可看到本条警告。
+        const gp = group || '未分组'
+        payload.onWarn(
+          `${meta.code}（${gp}）：持有收益（${holdProfit}）≥ 持有金额（${amount}），` +
+            `成本单价反推 ${price.toFixed(6)} 元/份 ≤0，未写入；` +
+            `请检查金额与收益口径是否一致（今日/昨日结算）。`,
+        )
+      }
     }
     return await upsertFund(ports, {
       code: meta.code,
