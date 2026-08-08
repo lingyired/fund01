@@ -436,7 +436,7 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
 /// 菜单事件分发（open-settings / quit 等）
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
-        open_settings_window(app, None);
+        open_settings_window(app, None, None);
     }
     // "quit" 由插件在 Rust 侧直接 app.exit(0)
 }

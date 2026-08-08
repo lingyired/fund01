@@ -38,6 +38,7 @@
 .block{display:block}
 .blur-2xl{filter:blur(40px)}
 .border{border-width:1px;border-style:solid}
+.border-dashed{border-style:dashed}
 .border-r{border-right-width:1px;border-right-style:solid}
 .border-accent{border-color:var(--accent-9)}
 .border-b{border-bottom-width:1px;border-bottom-style:solid}

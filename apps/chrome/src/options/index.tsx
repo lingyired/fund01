@@ -13,9 +13,11 @@ import { ChromeWindowPort } from '../ports/chromeWindowPort'
 initTheme()
 
 // 支持从 popup footer「修改持仓」按钮以 options.html?tab=holdings 打开，直达「持仓」tab；
-// 非法/缺失参数一律回落「通用」。
+// 非法/缺失参数一律回落「通用」。anchor 来自 URL hash（popup 空状态「添加持仓/批量导入」按钮
+// 打开 options.html?tab=holdings#add-fund），仅 holdings tab 下生效。
 const urlTab = new URLSearchParams(location.search).get('tab')
 const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
+const initialAnchor = location.hash.replace(/^#/, '') || undefined
 
 // 注入四个 Port 实现，UI 通过 PortsContext 拿到运行时能力（含窗口/导航操作）
 const ports: Ports = {
@@ -32,7 +34,7 @@ const version = ports.window.getVersion()
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <PortsContext.Provider value={ports}>
-      <OptionsApp initialTab={initialTab} version={version} />
+      <OptionsApp initialTab={initialTab} initialAnchor={initialAnchor} version={version} />
     </PortsContext.Provider>
   </React.StrictMode>,
 )

@@ -19,6 +19,8 @@ async function bootstrap() {
   const urlTab = new URLSearchParams(window.location.search).get('tab')
   const initialTab =
     urlTab === 'holdings' || urlTab === 'data' || urlTab === 'menubar' ? urlTab : 'general'
+  // URL hash 锚点（options.html?tab=holdings#add-fund）：popup 空状态直达「添加/导入持仓」区块
+  const initialAnchor = window.location.hash.replace(/^#/, '') || undefined
 
   const windowPort = new TauriWindowPort()
   const ports: Ports = {
@@ -31,7 +33,7 @@ async function bootstrap() {
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <PortsContext.Provider value={ports}>
-        <OptionsApp initialTab={initialTab} version={windowPort.getVersion()} />
+        <OptionsApp initialTab={initialTab} initialAnchor={initialAnchor} version={windowPort.getVersion()} />
       </PortsContext.Provider>
     </React.StrictMode>,
   )

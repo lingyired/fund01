@@ -162,8 +162,8 @@ pub async fn save_config(
 // ------------------------- WindowPort -------------------------
 
 #[tauri::command]
-pub async fn open_settings_window(app: AppHandle, tab: Option<String>) {
-    crate::window::open_settings_window(&app, tab.as_deref());
+pub async fn open_settings_window(app: AppHandle, tab: Option<String>, anchor: Option<String>) {
+    crate::window::open_settings_window(&app, tab.as_deref(), anchor.as_deref());
 }
 
 #[tauri::command]

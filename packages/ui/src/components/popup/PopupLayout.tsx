@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react'
-import type {HoldingsPayload} from '@fund01/core'
+import type {HoldingsPayload, SettingsAnchorId} from '@fund01/core'
 import {usePorts} from '../../context'
 import {listHoldingGroups} from '../../lib/fundOps'
 import {
@@ -34,6 +34,10 @@ export function PopupLayout({
   const ports = usePorts()
   const list = data?.list || []
   const holdingGroups = listHoldingGroups(ports)
+  // 空状态直达设置页「持仓」tab 的对应区块（单独添加 / 批量导入）
+  const openSettingsAnchor = (anchor: SettingsAnchorId) => {
+    void ports.window.openSettings('holdings', anchor)
+  }
   const [activeTab, setActiveTab] = useState('all')
   // 外部请求但 tabs 尚未就绪时挂起，待 tabs 可用后应用
   const [pendingTab, setPendingTab] = useState<string | null>(null)
@@ -108,6 +112,8 @@ export function PopupLayout({
           activeTab={validTab}
           tabTotalAmount={tabTotalAmount}
           loading={loading}
+          onAddFund={() => openSettingsAnchor('add-fund')}
+          onImportHoldings={() => openSettingsAnchor('import-holdings')}
         />
       </div>
       <FooterBar

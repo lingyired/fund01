@@ -5,8 +5,10 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  ClipboardPaste,
+  Plus,
 } from 'lucide-react'
-import {Skeleton, Table} from '@radix-ui/themes'
+import {Button, Skeleton, Table} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {
   cn,
@@ -105,11 +107,17 @@ export function FundList({
   activeTab,
   tabTotalAmount,
   loading,
+  onAddFund,
+  onImportHoldings,
 }: {
   rows: DisplayRow[]
   activeTab: string
   tabTotalAmount: number
   loading?: boolean
+  /** 空状态「添加持仓」入口：打开设置页持仓 tab 并定位到「添加持仓」区块 */
+  onAddFund?: () => void
+  /** 空状态「批量导入」入口：打开设置页持仓 tab 并定位到「导入持仓」区块 */
+  onImportHoldings?: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [detailRow, setDetailRow] = useState<FundQuoteRow | null>(null)
@@ -175,6 +183,37 @@ export function FundList({
   }
 
   if (rows.length === 0) {
+    // 初始状态（全部 tab 无持仓）：引导去设置页添加/导入，并提示两种方式
+    if (isAll && (onAddFund || onImportHoldings)) {
+      return (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-line/70 bg-paper/50 px-4 py-10 text-center">
+          <Plus className="h-8 w-8 text-muted" />
+          <div>
+            <p className="text-sm font-medium text-ink">暂无基金持仓</p>
+            <p
+              className="mx-auto mt-1 text-xs leading-relaxed text-muted"
+              style={{maxWidth: 280}}
+            >
+              添加第一只基金即可开始跟踪收益：可以单独添加持仓，也可以从基金 App 批量导入持仓。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {onAddFund ? (
+              <Button size="1" variant="soft" onClick={onAddFund}>
+                <Plus className="h-3 w-3" />
+                添加持仓
+              </Button>
+            ) : null}
+            {onImportHoldings ? (
+              <Button size="1" variant="outline" onClick={onImportHoldings}>
+                <ClipboardPaste className="h-3 w-3" />
+                批量导入
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="py-10 text-center text-sm text-muted">
         {isAll ? '暂无基金持仓' : '该分组暂无持仓'}

@@ -66,7 +66,7 @@ import {
 import {loadEditRows, type EditRow} from './lib/batchEdit'
 import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings'
 import {FundFormBody} from './components/FundFormDialog'
-import {HoldingsNav} from './components/HoldingsNav'
+import {HoldingsNav, HOLDINGS_NAV_ITEMS} from './components/HoldingsNav'
 import {applyTheme} from './theme'
 import {usePorts} from './context'
 import importPromptMd from '../../../docs/import-prompt.md?raw'
@@ -97,9 +97,15 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
 
 export function OptionsApp({
   initialTab,
+  initialAnchor,
   version,
 }: {
   initialTab?: TabId
+  /**
+   * 打开后要滚动定位的「持仓」tab 区块锚点 id（来自 URL hash，如 options.html?tab=holdings#add-fund）。
+   * 仅 initialTab='holdings' 时有意义；区块渲染完成后平滑滚动到对应 SectionCard。
+   */
+  initialAnchor?: string
   /** 扩展版本号，渲染在品牌名右侧（vX.Y.Z） */
   version?: string
 }) {
@@ -119,6 +125,30 @@ export function OptionsApp({
   const [holdingsReload, setHoldingsReload] = useState(0)
   // 分组列表变更（持仓分组增删改、导入自动建组）后自增，让持仓/添加/编辑/导入分区同步分组列表
   const [groupsReload, setGroupsReload] = useState(0)
+
+  // 外部直达区块（popup 空状态「添加持仓/批量导入」按钮 → options.html?tab=holdings#add-fund）：
+  // 仅当落在 holdings tab 且锚点 id 已知时生效；等 Tabs.Content 渲染后平滑滚动到对应 SectionCard
+  //（SectionCard 自带 scroll-mt-20，滚动时自动让出吸顶 HoldingsNav 高度）。
+  const anchorIds = useMemo(
+    () => new Set<string>(HOLDINGS_NAV_ITEMS.map((i) => i.id)),
+    [],
+  )
+  const pendingAnchor = useMemo(
+    () =>
+      initialAnchor && tab === 'holdings' && anchorIds.has(initialAnchor)
+        ? initialAnchor
+        : null,
+    [initialAnchor, tab, anchorIds],
+  )
+  useEffect(() => {
+    if (!pendingAnchor) return
+    // 等 holdings tab 内容挂载（首次渲染 + StrictMode 双挂载都覆盖）
+    const t = window.setTimeout(() => {
+      const el = document.getElementById(pendingAnchor)
+      if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'})
+    }, 60)
+    return () => window.clearTimeout(t)
+  }, [pendingAnchor])
 
   return (
     <Theme accentColor="blue" grayColor="gray" radius="small">

@@ -130,7 +130,10 @@ pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>, tab: Opti
 }
 
 /// 打开设置窗口（复用 options.html?tab= 约定）
-pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
+/// tab = 设置页一级 tab（'holdings' / 'data' / ...）；anchor = 「持仓」tab 内区块锚点 id
+/// （仅 tab='holdings' 时有意义），拼入 URL hash 供前端滚动定位。
+/// 注意：窗口已存在时仅聚焦（不重新导航），anchor 不生效——与 Chrome 端每次新开标签页不同。
+pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&str>) {
     if let Some(win) = app.get_webview_window(SETTINGS_LABEL) {
         // macOS: 设置窗口 = 主界面形态，确保 Dock 显示应用图标
         //（应用启动时 Accessory 常驻，若用户关窗后恢复过则需再次切回）
@@ -141,7 +144,10 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>) {
         return;
     }
     let url = match tab {
-        Some(t) if t == "holdings" || t == "data" => format!("options.html?tab={t}"),
+        Some(t) if t == "holdings" || t == "data" => {
+            let hash = anchor.filter(|_| t == "holdings").map(|a| format!("#{a}")).unwrap_or_default();
+            format!("options.html?tab={t}{hash}")
+        }
         _ => "options.html".to_string(),
     };
     if let Ok(win) = WebviewWindowBuilder::new(app, SETTINGS_LABEL, WebviewUrl::App(url.into()))
