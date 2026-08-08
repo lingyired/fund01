@@ -17,7 +17,6 @@ import {
   formatAmount,
   formatMoney,
   formatPct,
-  holdingCostOf,
   pctClass,
 } from '@fund01/core'
 import type {DisplayRow} from '../../lib/groupStats'
@@ -26,7 +25,7 @@ import {ConfirmedUpdatedBadge, HOLD_PROFIT_TERMS_NOTE} from '../fundBits'
 import {FundDetailDialog} from '../FundDetailDialog'
 import {HoldingEditPopover} from './HoldingEditPopover'
 
-const COL_W = {day: 78, cum: 78, cost: 78, nav: 64}
+const COL_W = {day: 84, cum: 84, nav: 76}
 
 type SortKey = 'amount' | 'pnl' | 'cumPnl' | 'netValue'
 type SortDir = 'asc' | 'desc'
@@ -287,13 +286,6 @@ export function FundList({
             onSort={handleSort}
           />
           <SortableHeader
-            sortKey="amount"
-            label="持有成本"
-            align="right"
-            sort={sort}
-            onSort={handleSort}
-          />
-          <SortableHeader
             sortKey="netValue"
             label="最新净值"
             align="right"
@@ -449,35 +441,6 @@ export function FundList({
                   </div>
                 </Table.Cell>
 
-                {/* 持有成本（= 持有金额 − 持有收益，展示口径 D3；未录入成本时 --） */}
-                <Table.Cell className="text-right" style={{width: COL_W.cost}}>
-                  {(() => {
-                    const cost = holdingCostOf(amount, cumPnl)
-                    return (
-                      <>
-                        <div
-                          className={cn(
-                            'font-mono text-[13px] tabular-nums',
-                            cost != null ? 'text-ink-soft' : 'text-muted',
-                          )}
-                          title={
-                            cost != null
-                              ? String(cost)
-                              : '未录入成本：导入时收益≥金额反推≤0 未写入，或新基金未录；可在弹层填入持有收益自动反推'
-                          }
-                        >
-                          {cost != null ? `¥${formatAmount(cost)}` : '--'}
-                        </div>
-                        <div className="font-mono text-[11px] text-muted">
-                          {cost != null && amount > 0
-                            ? `${((cost / amount) * 100).toFixed(1)}%`
-                            : ''}
-                        </div>
-                      </>
-                    )
-                  })()}
-                </Table.Cell>
-
                 {/* 最新净值（带当日涨跌%） */}
                 <Table.Cell className="text-right" style={{width: COL_W.nav}}>
                   <div className="font-mono text-[13px] tabular-nums text-ink-soft">
@@ -499,7 +462,7 @@ export function FundList({
               {/* 展开：分组明细（仅全部 tab 多分组基金） */}
               {canExpand && expandedRow ? (
                 <Table.Row>
-                  <Table.Cell colSpan={5}>
+                  <Table.Cell colSpan={4}>
                     <div className="border-t border-line/30 bg-paper-deep/40 px-3 py-2">
                       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                         {allocKeys.map((g) => (

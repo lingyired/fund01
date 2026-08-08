@@ -15,20 +15,6 @@ export function truncPnl2(n: number) {
   return (x >= 0 ? Math.floor(x * 100) : Math.ceil(x * 100)) / 100
 }
 
-/**
- * 持有成本（展示口径） = 持有金额 − 持有收益。
- * 与 spec「持仓录入与展示统一」D3 一致：列表/弹层/编辑表格展示的「持有成本」恒等于
- * 用户录入的「持有金额 − 持有收益」两个头条数字之差（精确，非 shares × costPrice 反推）。
- * null 表示未录入成本（持有收益为 null），UI 渲染 --。
- */
-export function holdingCostOf(
-  amount: number,
-  cumPnl: number | null | undefined,
-): number | null {
-  if (cumPnl == null || !Number.isFinite(cumPnl)) return null
-  return Math.round((Number(amount) - Number(cumPnl)) * 100) / 100
-}
-
 export type QuoteLike = {
   code: string
   name?: string
