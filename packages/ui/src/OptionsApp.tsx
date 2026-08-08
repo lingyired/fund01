@@ -1091,13 +1091,20 @@ function EditHoldingsSection({
     )
   }, [navMeta, basis])
 
-  // 切换金额口径：未手动编辑过的行重置为待预填，按新口径基准重新折算
-  //「持有金额 = 份额 × 新基准」，保证「不改即保存份额不变」；touched 行保留用户输入。
-  useEffect(() => {
+  /**
+   * 用户手动切换金额口径：未手动编辑过的行重置为待预填，按新口径基准重新折算
+   *「持有金额 = 份额 × 新基准」，保证「不改即保存份额不变」；touched 行保留用户输入。
+   *
+   * ⚠️ 必须是「手动切换」时才重置，不能用监听 basis 的 effect：
+   * 挂载时 basis 由 null → 智能默认（prev/today）也是一次变化，effect 会误触发，
+   * 把预填 effect 刚填好的金额/收益全部清空（重置后全新导入「金额/收益都空」的根因）。
+   */
+  function handleBasisChange(next: AmountBasis) {
+    setBasis(next)
     setRows((cur) =>
       cur.map((r) => (r.touched ? r : {...r, initialized: false, amount: '', holdProfit: ''})),
     )
-  }, [basis])
+  }
 
   function updateRow(index: number, patch: Partial<EditRow>) {
     setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch, touched: true} : r)))
@@ -1288,7 +1295,7 @@ function EditHoldingsSection({
         <span className="text-xs font-medium text-ink-soft">金额口径</span>
         <SegmentedControl.Root
           value={basis ?? 'prev'}
-          onValueChange={(v) => setBasis(v as AmountBasis)}
+          onValueChange={(v) => handleBasisChange(v as AmountBasis)}
           size="1"
         >
           <SegmentedControl.Item value="prev">昨日结算</SegmentedControl.Item>
