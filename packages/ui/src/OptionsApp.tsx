@@ -1065,9 +1065,14 @@ function EditHoldingsSection({
         if (r.amount.trim() !== '' || r.holdProfit.trim() !== '') return r
         const sh = Number(r.shares) || 0
         const meta = navMeta[r.code]
-        if (!meta || sh <= 0) {
+        if (!meta) {
           // 无净值（新基金/取数失败）：保持空白，标记已尝试避免反复计算
           return {...r, initialized: true}
+        }
+        if (sh <= 0) {
+          // 0 份额（0 金额关注基金）：金额 = 0（份额 0 × 净值），收益留空（无成本），
+          // 显示「0」而非空白；后续加仓直接改金额保存即可
+          return {...r, initialized: true, amount: '0', holdProfit: ''}
         }
         let nav: number
         try {

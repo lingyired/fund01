@@ -77,7 +77,9 @@ export function HoldingEditPopover({
     setGroup(initGroup)
     // 预填：编辑模式按当前分组回显（与列表展示口径一致：金额=分组市值、收益=分组持有收益）
     if (row) {
-      setAmount(groupAmount(row, initGroup) > 0 ? String(groupAmount(row, initGroup)) : '')
+      // 0 金额（份额 0）显示「0」而非空白：0 金额基金 = 关注/待加仓，可直接改金额加仓
+      const ga = groupAmount(row, initGroup)
+      setAmount(ga > 0 ? String(ga) : ga === 0 ? '0' : '')
       const p = groupCumPnl(row, initGroup)
       setHoldProfit(p != null && p !== 0 ? String(p) : p === 0 ? '0' : '')
       setAmountBasis(row.percentSource === 'confirmed' ? 'today' : 'prev')
@@ -150,7 +152,9 @@ export function HoldingEditPopover({
     if (next === group) return
     setGroup(next)
     if (!row) return
-    setAmount(groupAmount(row, next) > 0 ? String(groupAmount(row, next)) : '')
+    // 0 金额（份额 0）显示「0」而非空白
+    const ga = groupAmount(row, next)
+    setAmount(ga > 0 ? String(ga) : ga === 0 ? '0' : '')
     const p = groupCumPnl(row, next)
     setHoldProfit(p != null && p !== 0 ? String(p) : p === 0 ? '0' : '')
   }
@@ -158,8 +162,10 @@ export function HoldingEditPopover({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const a = Number(amount)
-    if (!(a > 0)) {
-      setError('请填写持有金额（当前市值）')
+    // 0 金额 = 关注/待加仓：编辑模式保留 0 份额分组、新增模式创建占位，均允许；
+    // 仅拒绝负数/非数字
+    if (!Number.isFinite(a) || a < 0) {
+      setError('请填写有效的持有金额（≥ 0）')
       return
     }
     if (!/^\d{6}$/.test(code.trim())) {

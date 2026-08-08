@@ -304,11 +304,13 @@ export async function createFund(
       } catch {
         basisDate = undefined
       }
-    } else {
+    } else if (amount > 0) {
       const picked = pickBasisNav(basis, meta, payload.navDate)
       basisDate = picked.date
       shares = deriveHoldShares(amount, picked)
     }
+    // amount <= 0（0 金额 = 关注/待加仓）：份额恒 0，无需净值折算，
+    // 也不依赖数据源是否有确认净值（否则净值缺失时 0 金额导入会失败）
   }
 
   // 持有收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
@@ -409,12 +411,13 @@ export async function updateFund(
 
   // 仅在显式传了份额或金额时才动 allocations，否则会把该分组份额清零
   if (type === 'hold' && ((shares != null && shares > 0) || amount != null)) {
-    const meta = await ports.data.resolveFund({code, type})
-    const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
     let nextShares = 0
     if (shares != null && shares > 0) {
       nextShares = shares
-    } else if (amount != null) {
+    } else if (amount != null && Number(amount) > 0) {
+      // 仅正金额需要净值折算；0 金额（关注/待加仓）份额恒 0，不依赖数据源是否有净值
+      const meta = await ports.data.resolveFund({code, type})
+      const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
       nextShares = deriveHoldShares(Number(amount) || 0, pickBasisNav(basis, meta, navDate))
     }
     const group = payload.group ?? ''

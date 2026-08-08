@@ -101,7 +101,8 @@ export async function loadEditRows(
         code: f.code,
         name: f.name || f.code,
         group: g,
-        shares: shares ? String(shares) : '',
+        // 0 份额也显示为「0」（0 金额关注基金），供只读列回退与预填判断用
+        shares: shares > 0 ? String(shares) : shares === 0 ? '0' : '',
         cost: cost != null && cost > 0 ? String(cost) : '',
         // 金额/收益预填依赖行情净值，由 OptionsApp 在 navMap 就绪后回填（见 initialized）
         amount: '',
