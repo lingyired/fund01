@@ -210,7 +210,10 @@ export function OptionsApp({
                 groupsReload={groupsReload}
                 onGroupsChanged={() => setGroupsReload((t) => t + 1)}
               />
-              <AddFundSection groupsReload={groupsReload} />
+              <AddFundSection
+                groupsReload={groupsReload}
+                onAdded={() => setHoldingsReload((t) => t + 1)}
+              />
               <EditHoldingsSection
                 reloadSignal={holdingsReload}
                 groupsReload={groupsReload}
@@ -900,11 +903,17 @@ function HoldingGroupsSection({
 }
 
 /* ── 添加持仓 ─────────────────────────────────────────────── */
-function AddFundSection({groupsReload}: {groupsReload: number}) {
+function AddFundSection({
+  groupsReload,
+  onAdded,
+}: {
+  groupsReload: number
+  /** 添加成功回调（触发下方「编辑持仓」列表实时刷新） */
+  onAdded?: () => void
+}) {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [message, setMessage] = useState('')
-  const [error, setError] = useState('')
 
   useEffect(() => {
     setGroups(listHoldingGroups(ports))
@@ -919,28 +928,25 @@ function AddFundSection({groupsReload}: {groupsReload: number}) {
         mode="hold"
         initial={null}
         groups={groups}
+        onGroupsChanged={() => setGroups(listHoldingGroups(ports))}
         onSubmit={async (payload) => {
           setMessage('')
-          setError('')
-          try {
-            await createFund(ports, {
-              code: payload.code,
-              amount: payload.amount,
-              amountBasis: payload.amountBasis,
-              group: payload.group,
-              holdProfit: payload.holdProfit,
-              type: 'hold',
-            })
-            setGroups(listHoldingGroups(ports))
-            setMessage(`已添加 ${payload.code}`)
-          } catch (e: unknown) {
-            setError((e as Error)?.message || '添加失败')
-            throw e
-          }
+          // 错误不在此 catch 显示（也不 rethrow 后由下方再显）：直接上抛，
+          // 由 FundFormBody 表单内统一显示一次，避免同文案重复提示
+          await createFund(ports, {
+            code: payload.code,
+            amount: payload.amount,
+            amountBasis: payload.amountBasis,
+            group: payload.group,
+            holdProfit: payload.holdProfit,
+            type: 'hold',
+          })
+          setGroups(listHoldingGroups(ports))
+          setMessage(`已添加 ${payload.code}`)
+          onAdded?.()
         }}
       />
       {message ? <p className="text-sm text-fall">{message}</p> : null}
-      {error ? <p className="text-sm text-rise">{error}</p> : null}
     </SectionCard>
   )
 }
