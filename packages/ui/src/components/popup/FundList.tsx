@@ -7,10 +7,9 @@ import {
   ChevronsUpDown,
   ClipboardPaste,
   Info,
-  Pencil,
   Plus,
 } from 'lucide-react'
-import {Button, IconButton, Skeleton, Table, Tooltip} from '@radix-ui/themes'
+import {Button, Skeleton, Table, Tooltip} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {
   cn,
@@ -23,7 +22,6 @@ import type {DisplayRow} from '../../lib/groupStats'
 import {groupAmount, groupPnl} from '../../lib/groupStats'
 import {ConfirmedUpdatedBadge, HOLD_PROFIT_TERMS_NOTE} from '../fundBits'
 import {FundDetailDialog} from '../FundDetailDialog'
-import {HoldingEditPopover} from './HoldingEditPopover'
 
 const COL_W = {day: 84, cum: 84, nav: 76}
 
@@ -115,8 +113,6 @@ export function FundList({
   loading,
   onAddFund,
   onImportHoldings,
-  groups,
-  onHoldingsChanged,
 }: {
   rows: DisplayRow[]
   activeTab: string
@@ -126,17 +122,9 @@ export function FundList({
   onAddFund?: () => void
   /** 空状态「批量导入」入口：打开设置页持仓 tab 并定位到「导入持仓」区块 */
   onImportHoldings?: () => void
-  /** 所有持仓分组（内联编辑弹层的分组选择器候选） */
-  groups: string[]
-  /** 内联弹层保存成功后回调（刷新行情缓存，让列表立即反映） */
-  onHoldingsChanged?: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [detailRow, setDetailRow] = useState<FundQuoteRow | null>(null)
-  /** 内联编辑弹层：编辑模式（行 + 当前分组）；null 表示关闭 */
-  const [editRow, setEditRow] = useState<{row: FundQuoteRow; group: string} | null>(null)
-  /** 内联编辑弹层：新增模式 */
-  const [addOpen, setAddOpen] = useState(false)
   const isAll = activeTab === 'all'
 
   const [sort, setSort] = useState<{key: SortKey; dir: SortDir} | null>(null)
@@ -238,7 +226,6 @@ export function FundList({
   }
 
   return (
-    <>
     <div className="overflow-hidden rounded-xl border border-line/70 bg-paper shadow-card">
     <Table.Root
       variant="surface"
@@ -295,7 +282,7 @@ export function FundList({
         </Table.Row>
       </Table.Header>
       <Table.Body>
-        {sortedRows.map(({row, amount, pnl, cumPnl, cumPnlPercent, group}) => {
+        {sortedRows.map(({row, amount, pnl, cumPnl, cumPnlPercent}) => {
           const allocKeys = Object.keys(row.allocations || {})
           const canExpand = isAll && allocKeys.length > 1
           const expandedRow = expanded.has(row.code)
@@ -327,67 +314,51 @@ export function FundList({
                         )}
                       </span>
                     ) : null}
-                    <div className="flex min-w-0 flex-1 items-start gap-1">
-                      <div className="min-w-0 flex-1">
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setDetailRow(row)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setDetailRow(row)
-                            }
-                          }}
-                          className={cn(
-                            'block max-w-full cursor-pointer truncate text-left text-sm font-medium hover:underline',
-                            pctClass(pnl),
-                          )}
-                          title="点击查看详情"
-                        >
-                          {row.name}
-                        </span>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <span className="font-mono text-xs text-muted">
-                            {row.code}
-                          </span>
-                          <span className="font-mono text-xs text-muted">·</span>
-                          <span
-                            className="font-mono text-xs text-ink-soft"
-                            title="上一确认点市值，不含盘中估算浮动"
-                          >
-                            ¥{formatAmount(amount)}
-                          </span>
-                          {row.isQdii && row.netValueDate ? (
-                            <span
-                              className="shrink-0 font-mono text-[10px] text-muted"
-                              title="最新已披露净值日期（QDII 延迟披露）"
-                            >
-                              净值{row.netValueDate.slice(5)}
-                            </span>
-                          ) : null}
-                          <ConfirmedUpdatedBadge
-                            show={row.confirmedUpdated}
-                            percent={row.dayGrowth ?? row.percent}
-                            netValue={row.netValue}
-                            isQdii={row.isQdii}
-                          />
-                        </div>
-                      </div>
-                      <IconButton
-                        type="button"
-                        size="1"
-                        variant="ghost"
-                        className="h-5 w-5 shrink-0 text-muted hover:text-ink"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditRow({row, group})
+                    <div className="min-w-0">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setDetailRow(row)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setDetailRow(row)
+                          }
                         }}
-                        title="编辑持仓（持有金额 / 持有收益）"
-                        aria-label={`编辑 ${row.name} 持仓`}
+                        className={cn(
+                          'block max-w-full cursor-pointer truncate text-left text-sm font-medium hover:underline',
+                          pctClass(pnl),
+                        )}
+                        title="点击查看详情"
                       >
-                        <Pencil className="h-3 w-3" />
-                      </IconButton>
+                        {row.name}
+                      </span>
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="font-mono text-xs text-muted">
+                          {row.code}
+                        </span>
+                        <span className="font-mono text-xs text-muted">·</span>
+                        <span
+                          className="font-mono text-xs text-ink-soft"
+                          title="上一确认点市值，不含盘中估算浮动"
+                        >
+                          ¥{formatAmount(amount)}
+                        </span>
+                        {row.isQdii && row.netValueDate ? (
+                          <span
+                            className="shrink-0 font-mono text-[10px] text-muted"
+                            title="最新已披露净值日期（QDII 延迟披露）"
+                          >
+                            净值{row.netValueDate.slice(5)}
+                          </span>
+                        ) : null}
+                        <ConfirmedUpdatedBadge
+                          show={row.confirmedUpdated}
+                          percent={row.dayGrowth ?? row.percent}
+                          netValue={row.netValue}
+                          isQdii={row.isQdii}
+                        />
+                      </div>
                     </div>
                   </div>
                 </Table.Cell>
@@ -501,35 +472,6 @@ export function FundList({
         stats={detail?.stats ?? null}
       />
     </Table.Root>
-    {/* 列表底部「+ 添加持仓」：内联弹层新增（D1） */}
-    <div className="border-t border-line/30">
-      <button
-        type="button"
-        onClick={() => setAddOpen(true)}
-        className="flex w-full items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-muted transition-colors hover:bg-paper-deep/40 hover:text-ink"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        添加持仓
-      </button>
     </div>
-    </div>
-    {/* 内联编辑弹层：编辑（行） */}
-    <HoldingEditPopover
-      open={!!editRow}
-      onOpenChange={(v) => !v && setEditRow(null)}
-      row={editRow?.row ?? null}
-      initialGroup={editRow?.group}
-      groups={groups}
-      onSaved={onHoldingsChanged}
-    />
-    {/* 内联编辑弹层：新增 */}
-    <HoldingEditPopover
-      open={addOpen}
-      onOpenChange={setAddOpen}
-      row={null}
-      groups={groups}
-      onSaved={onHoldingsChanged}
-    />
-    </>
   )
 }
