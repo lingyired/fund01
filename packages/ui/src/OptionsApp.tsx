@@ -364,6 +364,9 @@ function GeneralSection({
     } catch {
       /* ignore */
     }
+    // 勾选/取消指数后立即刷新行情缓存：popup 指数条读 SW 的 cache-indices，
+    // 非交易时段 alarm 定时刷新被跳过会残留旧缓存（新勾选的黄金/指数不显示）
+    await refreshHoldingsCache(ports)
   }
 
   /** 持久化指数顺序（popup 看板按 selectedIndices 顺序展示） */
