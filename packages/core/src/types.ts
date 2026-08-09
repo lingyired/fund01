@@ -83,6 +83,11 @@ export type IndexItem = {
   percent: number | null
   price?: number | null
   change?: number | null
+  /**
+   * 行情拉取失败时的简短错误码（NET 网络 / TIMEOUT 超时 / HTTP 服务端错误 / NODATA 无数据 / PARSE 解析失败）。
+   * 有值表示该条目本次刷新失败，UI 显示错误态（数值处显示接口错误、底部显示错误码）。
+   */
+  error?: string
 }
 
 export type SectorItem = {
@@ -158,6 +163,9 @@ export const AVAILABLE_INDICES: IndexMeta[] = [
   {code: '000905', name: '中证500'},
   {code: 'NDX', name: '纳斯达克100'},
   {code: 'SPX', name: '标普500'},
+  // 黄金看板：国内金（上金所 AU9999 现货，元/克）与国际金（COMEX 黄金主力，美元/盎司）
+  {code: 'AU9999', name: '黄金9999'},
+  {code: 'XAU', name: 'COMEX 黄金'},
 ]
 
 /** 扩展程序角标（badge）显示方式 */

@@ -48,11 +48,11 @@ export function isTradingDayStarted(dateStr: string, now = new Date()): boolean 
 }
 
 /**
- * 晚间已拉到官方确认涨跌：展示「已更新」；
- * 普通基金：该净值日的下一交易日开盘后抹去。
- * QDII（T+1 披露，净值日=昨天）：走「披露日窗口」（与 isConfirmedSessionActive 的
- * delayed 分支一致）——披露日（PDATE 下一交易日）≥ 今天 才算「今日已更新」，
- * 徽标与当日收益严格同步：披露日当天显示，次日/周末无新披露时随收益一起消失。
+ * 晚间已拉到官方确认涨跌：展示「已更新」；两类基金均保留到「锚点日的下一交易日」开盘后抹去：
+ * - 普通基金：锚点 = 净值日（当天披露）→ 净值日下一交易日开盘后清除（周末照常显示）。
+ * - QDII（T+1 披露，净值日=昨天）：锚点 = 披露日（净值日的下一交易日，即用户看到该净值
+ *   的日子），与普通基金的净值日同义 → 披露日的下一交易日开盘后清除（周末照常显示）。
+ * 与 isConfirmedSessionActive 的 delayed 分支保持一致。
  */
 export function shouldShowConfirmedUpdatedBadge(
   quote: {
@@ -65,11 +65,8 @@ export function shouldShowConfirmedUpdatedBadge(
   if (quote.percentSource !== 'confirmed') return false
   const navDay = normalizeNetValueDate(quote.netValueDate, now)
   if (!navDay) return false
-  if (quote.isQdii) {
-    const next = nextTradingDay(navDay)
-    return next >= todayDateStr(now)
-  }
-  const next = nextTradingDay(navDay)
+  const anchor = quote.isQdii ? nextTradingDay(navDay) : navDay
+  const next = nextTradingDay(anchor)
   return !isTradingDayStarted(next, now)
 }
 
@@ -155,24 +152,23 @@ export function isNightMarketActive(now = new Date()): boolean {
 /**
  * 延迟披露基金（QDII/海外）：净值 T+1/T+2 披露。判定与 isQdiiName 一致
  * （证监会强制 QDII 基金名含 "QDII"；后续可扩展 FTYPE 双通道）。
- * 识别出的基金在 `isConfirmedSessionActive` 中走「披露日窗口」（delayedDisclosure）：
- * 披露日（PDATE 下一交易日）≥ 今天 才算「今日已更新」，其他情况保持 `-`。
+ * 识别出的基金在 `isConfirmedSessionActive` 中走 delayed 分支：锚点从「净值日」前移
+ * 到「披露日」（净值日的下一交易日），披露日与普通基金净值日同义 —— 披露后一直保留
+ * 到披露日的下一交易日开盘前（周末照常显示），开盘后恢复盘中口径。
  */
 export function isDelayedNavFund(name: string): boolean {
   return /QDII/i.test(String(name || ''))
 }
 
 /**
- * 确认会话：净值日的下一交易日尚未开盘（09:15 前）。非延迟披露基金（境内）用它：
- * PDATE=今天（当晚披露）→ next=明天 > today → 已确认；PDATE=昨天（盘中）→
- * next=今天已开盘 → 未确认（走盘中估算）。
+ * 确认会话：锚点日的下一交易日尚未开盘（09:15 前）。非延迟披露基金（境内）用它：
+ * PDATE=今天（当晚披露）→ 锚点=今天 → next=明天 > today → 已确认；PDATE=昨天（盘中）→
+ * 锚点=昨天 → next=今天已开盘 → 未确认（走盘中估算）。
  *
- * `delayedDisclosure=true`（QDII/海外，净值 T+1 披露）：改用「披露日窗口」——
- * QDII 的披露日 = PDATE 的下一交易日（T+1：今天披露昨天净值）。**披露日 ≥ 今天
- * 才算「今日已更新」**（今天披露或未来披露都算，如周一披露上周五净值）：
- * `nextTradingDay(PDATE) >= today`。这样 08-06 净值今天披露 → 显示；08-05 净值
- * 昨天披露（今天无更新）→ 不显示（保持 `-`）——严格匹配用户语义「只有真正的当日
- * 收益更新之后（不管净值是哪一天）才显示，否则都是 `-`」。
+ * `delayedDisclosure=true`（QDII/海外，净值 T+1 披露）：锚点 = 披露日（PDATE 的下一
+ * 交易日，T+1：今天披露昨天净值）——把披露日当作普通基金的「净值日」处理：披露后
+ * 保留到披露日的下一交易日开盘前，周末照常显示「已更新」。如 08-06 净值 08-07 披露 →
+ * 锚点 08-07 → 08-07 ~ 08-10 开盘前均确认（周末显示）；08-10 开盘后恢复盘中口径。
  */
 export function isConfirmedSessionActive(
   navDayRaw: any,
@@ -181,14 +177,7 @@ export function isConfirmedSessionActive(
 ): boolean {
   const navDay = normalizeNetValueDate(navDayRaw, now)
   if (!navDay) return false
-  if (delayedDisclosure) {
-    const next = nextTradingDay(navDay)
-    return next >= todayDateStr(now)
-  }
-  const next = nextTradingDay(navDay)
-  const today = todayDateStr(now)
-  if (today > next) return false
-  if (today < next) return true
-  const minutes = now.getHours() * 60 + now.getMinutes()
-  return minutes < 9 * 60 + 15
+  const anchor = delayedDisclosure ? nextTradingDay(navDay) : navDay
+  const next = nextTradingDay(anchor)
+  return !isTradingDayStarted(next, now)
 }

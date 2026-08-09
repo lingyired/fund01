@@ -299,6 +299,9 @@ pub struct IndexItem {
     pub price: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change: Option<f64>,
+    /// 行情拉取失败时的简短错误码（NET/TIMEOUT/HTTP/NODATA/PARSE），UI 显示错误态
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

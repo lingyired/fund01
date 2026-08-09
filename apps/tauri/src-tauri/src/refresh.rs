@@ -272,14 +272,9 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             .and_then(|p| p.indices.as_ref())
             .map(|l| split_indices(l).1)
             .unwrap_or_default();
-        match crate::market::get_a_share_indices().await {
-            Ok(v) => {
-                let mut merged = v;
-                merged.extend(prev_us);
-                indices = Some(merged);
-            }
-            Err(e) => eprintln!("[fund01] getIndices(A股) 失败: {e}"),
-        }
+        let mut merged = crate::market::get_a_share_indices().await;
+        merged.extend(prev_us);
+        indices = Some(merged);
         if force || calendar::is_a_share_trading_time(&now) {
             let m = crate::market::get_market_overview().await;
             market = Some(m);
@@ -319,14 +314,9 @@ async fn refresh_night(app: &AppHandle, force: bool) {
             .and_then(|p| p.indices.as_ref())
             .map(|l| split_indices(l).0)
             .unwrap_or_default();
-        match crate::market::get_us_indices().await {
-            Ok(v) => {
-                let mut merged = prev_a;
-                merged.extend(v);
-                indices = Some(merged);
-            }
-            Err(e) => eprintln!("[fund01] getIndices(美股) 失败: {e}"),
-        }
+        let mut merged = prev_a;
+        merged.extend(crate::market::get_us_indices().await);
+        indices = Some(merged);
     }
 
     // ---------------- 黄金夜盘 ----------------

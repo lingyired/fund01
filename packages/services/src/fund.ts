@@ -468,9 +468,9 @@ function resolveDisplayPercent(opts: {
   dayGrowthFromHist?: boolean
 }): {percent: number | null; percentSource: 'confirmed' | 'estimate' | null} {
   const navDay = normalizeNetValueDate(opts.netValueDate)
-  // **披露日窗口**：境内走标准确认窗口；QDII 走 delayed 窗口（披露日 = PDATE 下一交易日
-  // ≥ 今天 才算「今日已更新」）——QDII 今天披露的净值（PDATE=昨天）才显示，昨天披露的
-  // （PDATE=前天）保持 `-`，避免把未更新的滞后涨幅累计到「当日」标签下。
+  // **确认窗口**：境内走标准窗口；QDII 走 delayed 分支（锚点 = 披露日 = PDATE 下一交易日，
+  // 按普通基金规则保留到披露日的下一交易日开盘前，周末照常显示；开盘后恢复盘中口径）——
+  // 避免把未更新的滞后涨幅累计到「当日」标签下。
   const inConfirmSession =
     opts.dayGrowth != null &&
     !!navDay &&
@@ -1192,8 +1192,8 @@ function parseFundMNFInfoItem(item: any): {
   // ⚠️ GZTIME 已对全部场外基金停返（实测恒 null，2026-08-07）→ 原判定恒 false，
   // confirmed 分支成为死代码。替代判定：GZTIME 缺失时改用「确认会话」——
   //   - 境内（delayed=false）：PDATE 下一交易日开盘前（PDATE=今天 即当日已披露）
-  //   - QDII（delayed=true，披露日窗口）：披露日 = PDATE 下一交易日 ≥ 今天 才算「今日已更新」
-  //     （QDII T+1：今天披露昨天净值 → PDATE=今天-1 → 显示；PDATE=前天 = 昨天披露的 → 保持 `-`）
+  //   - QDII（delayed=true）：锚点 = 披露日 = PDATE 下一交易日，保留到披露日的下一交易日
+  //     开盘前（净值披露后周末照常显示，开盘后恢复盘中口径）
   const gztimeDay = gztime.length >= 10 ? gztime.slice(0, 10) : ''
   const qdiiName = String(item?.SHORTNAME || '')
   const hasReplace =

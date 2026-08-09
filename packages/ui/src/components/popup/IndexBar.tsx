@@ -51,23 +51,37 @@ export function IndexBar({
                 className="w-[124px] shrink-0 cursor-pointer rounded-xl border border-line/70 bg-panel px-3 py-1.5 text-left transition-colors hover:bg-paper-deep"
               >
                 <div className="truncate text-[11px] text-muted">{item.name}</div>
-                <div
-                  className={cn(
-                    'mt-0.5 font-mono text-sm font-semibold leading-none tabular-nums',
-                    pctClass(item.percent),
-                  )}
-                >
-                  {formatAmount(item.price)}
-                </div>
-                <div
-                  className={cn(
-                    'mt-1 flex items-baseline gap-1 font-mono text-[11px] leading-none tabular-nums',
-                    pctClass(item.percent),
-                  )}
-                >
-                  <span>{formatMoney(item.change)}</span>
-                  <span>{formatPct(item.percent)}</span>
-                </div>
+                {item.error ? (
+                  <>
+                    {/* 行情拉取失败：数值处提示接口错误，底部显示简短错误码 */}
+                    <div className="mt-0.5 font-mono text-sm font-semibold leading-none text-muted">
+                      接口错误
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] leading-none text-muted">
+                      {item.error}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div
+                      className={cn(
+                        'mt-0.5 font-mono text-sm font-semibold leading-none tabular-nums',
+                        pctClass(item.percent),
+                      )}
+                    >
+                      {formatAmount(item.price)}
+                    </div>
+                    <div
+                      className={cn(
+                        'mt-1 flex items-baseline gap-1 font-mono text-[11px] leading-none tabular-nums',
+                        pctClass(item.percent),
+                      )}
+                    >
+                      <span>{formatMoney(item.change)}</span>
+                      <span>{formatPct(item.percent)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )
           })
