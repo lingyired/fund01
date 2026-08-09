@@ -1,8 +1,7 @@
 import {useEffect, useState} from 'react'
-import {Plus, X} from 'lucide-react'
+import {X} from 'lucide-react'
 import {Button, Dialog, RadioCards, TextField} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
-import {addHoldingGroup} from '../lib/fundOps'
 import {usePorts} from '../context'
 
 /** 录入金额对应哪一版确认净值市值 */
@@ -69,7 +68,6 @@ export function FundFormBody({
   const [amountBasis, setAmountBasis] = useState<AmountBasis>('prev')
   /** 当前选中的单一分组（'' = 未分组） */
   const [selectedGroup, setSelectedGroup] = useState<string>('')
-  const [newGroup, setNewGroup] = useState('')
   const [addingGroup, setAddingGroup] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -82,28 +80,9 @@ export function FundFormBody({
     setHoldProfit(initialHoldProfit != null ? String(initialHoldProfit) : '')
     setAmountBasis(defaultBasis(initial))
     setSelectedGroup(editingGroup ?? '')
-    setNewGroup('')
     setAddingGroup(false)
     setError('')
   }, [initial, editingGroup, initialAmount, initialHoldProfit])
-
-  async function handleAddGroup() {
-    const name = newGroup.trim()
-    if (!name) return
-    setAddingGroup(true)
-    setError('')
-    try {
-      await addHoldingGroup(ports, name)
-      // 新增后自动选中
-      setSelectedGroup(name)
-      setNewGroup('')
-      onGroupsChanged?.()
-    } catch (e: unknown) {
-      setError((e as Error)?.message || '新增分组失败')
-    } finally {
-      setAddingGroup(false)
-    }
-  }
 
   return (
     <form
@@ -166,7 +145,7 @@ export function FundFormBody({
           {/* 分组（单选） */}
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-ink-soft leading-none">
-              分组（单选，本次金额对应的分组份额；一个基金可在多个分组各持有独立份额）
+              分组（单选，本次金额对应的分组份额；一个基金可在多个分组各持有独立份额；如需添加分组请在持仓分组中添加）
             </label>
             <div className="flex flex-wrap gap-1.5 rounded-md border border-line bg-paper/40 p-2">
               {/* 未分组选项 */}
@@ -206,27 +185,6 @@ export function FundFormBody({
                 本次金额将记入「{selectedGroup || '未分组'}」分组。如需把同一基金加入其他分组，再次添加并选其它分组即可。
               </p>
             )}
-            {/* 内联新增分组 */}
-            <div className="flex gap-2 pt-1">
-              <TextField.Root
-                type="text"
-                value={newGroup}
-                onChange={(e) => setNewGroup(e.target.value)}
-                placeholder="输入新分组名"
-                disabled={saving || addingGroup}
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="1"
-                disabled={saving || addingGroup || !newGroup.trim()}
-                onClick={handleAddGroup}
-              >
-                <Plus className="h-4 w-4" />
-                新增
-              </Button>
-            </div>
           </div>
 
           <fieldset className="space-y-2">

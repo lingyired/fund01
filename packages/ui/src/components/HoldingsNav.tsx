@@ -82,6 +82,14 @@ export function HoldingsNav() {
           </button>
         )
       })}
+      <button
+        type="button"
+        onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}
+        className="ml-auto appearance-none border-0 bg-transparent px-3 py-2 text-xs font-medium text-muted transition-colors hover:text-ink"
+        title="返回顶部"
+      >
+        返回顶部
+      </button>
     </nav>
   )
 }

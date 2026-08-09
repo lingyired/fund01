@@ -1395,11 +1395,11 @@ function EditHoldingsSection({
                     <thead className="sticky top-0 z-10 bg-paper-deep/40 text-muted">
                       <tr className="border-b border-line/40">
                         <th className="px-2 py-1.5 font-medium">基金</th>
-                        <th className="px-2 py-1.5 text-right font-medium">持有金额</th>
-                        <th className="px-2 py-1.5 text-right font-medium">持有收益</th>
-                        <th className="px-2 py-1.5 text-right font-medium">持有份额</th>
-                        <th className="px-2 py-1.5 text-right font-medium">成本单价</th>
-                        <th className="px-2 py-1.5 text-right font-medium">持有成本</th>
+                        <th className="px-2 py-1.5 text-center font-medium">持有金额</th>
+                        <th className="px-2 py-1.5 text-center font-medium">持有收益</th>
+                        <th className="px-2 py-1.5 text-center font-medium">持有份额</th>
+                        <th className="px-2 py-1.5 text-center font-medium">成本单价</th>
+                        <th className="px-2 py-1.5 text-center font-medium">持有成本</th>
                         <th className="px-2 py-1.5 text-center font-medium">分组</th>
                         <th className="px-1 py-1.5 text-center font-medium">删</th>
                       </tr>
@@ -2248,6 +2248,9 @@ function DataBackupSection() {
         />
       </div>
       {message ? <p className="text-sm text-fall">{message}</p> : null}
+      {ports.window.supportsMenubar?.() && message === '配置已导出' ? (
+        <p className="text-sm text-muted">导出的文件已经保存在下载目录</p>
+      ) : null}
       {error ? <p className="text-sm text-rise">{error}</p> : null}
     </SectionCard>
   )
