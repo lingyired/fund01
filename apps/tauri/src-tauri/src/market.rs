@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use regex::Regex;
 use serde_json::Value;
 
 use crate::http::{self, DESKTOP_UA};
@@ -45,9 +44,11 @@ const INDEX_LIST: &[IndexMeta] = &[
     IndexMeta { secid: "1.000905", code: "000905", name: "中证500", tx: Some("sh000905"), sina: None, sina_us: None, em_kline: false, sina_fx: None },
     IndexMeta { secid: "100.NDX", code: "NDX", name: "纳斯达克100", tx: Some("us.NDX"), sina: None, sina_us: Some(".NDX"), em_kline: false, sina_fx: None },
     IndexMeta { secid: "100.SPX", code: "SPX", name: "标普500", tx: Some("us.INX"), sina: None, sina_us: Some(".INX"), em_kline: false, sina_fx: None },
-    // 黄金看板：国内金（上金所现货，元/克）实时+历史都走东财；国际金（伦敦金现，美元/盎司）实时+历史都走新浪（同源一致）
+    // 黄金看板：国内金（上金所现货，元/克）实时+历史都走东财；国际金实时走东财 COMEX 主力（GC00Y，美元/盎司，
+    // 不依赖 Referer——新浪 hq.sinajs.cn 强制校验 Referer，chrome SW fetch 无法携带自定义 Referer 头会 Forbidden），
+    // 历史走新浪外盘日K（GlobalFuturesService 不依赖 Referer），实时与历史同为国际金价、趋势一致
     IndexMeta { secid: "118.AU9999", code: "AU9999", name: "黄金9999", tx: None, sina: None, sina_us: None, em_kline: true, sina_fx: None },
-    IndexMeta { secid: "XAU", code: "XAU", name: "伦敦金", tx: None, sina: None, sina_us: None, em_kline: false, sina_fx: Some("XAU") },
+    IndexMeta { secid: "101.GC00Y", code: "XAU", name: "伦敦金", tx: None, sina: None, sina_us: None, em_kline: false, sina_fx: Some("XAU") },
 ];
 
 fn find_index_meta(code: &str) -> Option<&'static IndexMeta> {
@@ -74,84 +75,40 @@ pub async fn get_us_indices() -> Result<Vec<IndexItem>, String> {
     fetch_indices(&list).await
 }
 
-/// 新浪外盘实时行情（如伦敦金 hf_XAU，GBK 编码），字段布局与 gds_AU9999 相同
-async fn fetch_sina_fx_quote(symbol: &str, code: &str, name: &str) -> Result<IndexItem, String> {
-    let hf = format!("hf_{symbol}");
-    let buf = http::http_get_bytes(
-        &format!("https://hq.sinajs.cn/list={hf}"),
-        &HashMap::new(),
-        DESKTOP_UA,
-        Some("https://finance.sina.com.cn/"),
-        Duration::from_secs(10),
-    )
-    .await?;
-    let text = http::gbk_decode(&buf);
-    let re = Regex::new(&format!(r#"hq_str_{hf}="([^"]*)""#)).unwrap();
-    let m = re.captures(&text).ok_or_else(|| format!("解析 {symbol} 行情失败"))?;
-    let parts: Vec<&str> = m.get(1).unwrap().as_str().split(',').collect();
-    let price = parts.first().and_then(|s| s.parse::<f64>().ok());
-    let prev_close = parts.get(7).and_then(|s| s.parse::<f64>().ok());
-    let percent = match (price, prev_close) {
-        (Some(p), Some(pc)) if pc != 0.0 => Some(round4((p - pc) / pc * 100.0)),
-        _ => None,
-    };
-    let change = match (price, prev_close) {
-        (Some(p), Some(pc)) => Some(round4(p - pc)),
-        _ => None,
-    };
-    Ok(IndexItem {
-        code: code.to_string(),
-        name: name.to_string(),
-        percent: percent.filter(|v| v.is_finite()),
-        price: price.filter(|v| v.is_finite()),
-        change: change.filter(|v| v.is_finite()),
-    })
-}
-
 async fn fetch_indices(list: &[&IndexMeta]) -> Result<Vec<IndexItem>, String> {
-    let em_list: Vec<&&IndexMeta> = list.iter().filter(|i| i.sina_fx.is_none()).collect();
-    let fx_list: Vec<&&IndexMeta> = list.iter().filter(|i| i.sina_fx.is_some()).collect();
+    let secids: Vec<String> = list.iter().map(|i| i.secid.to_string()).collect();
+    let query = http::params(&[
+        ("fltt", "2"),
+        ("invt", "2"),
+        ("fields", "f2,f3,f4,f12,f14"),
+        ("secids", &secids.join(",")),
+    ]);
+    let data = http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await?;
+    let diff = data.pointer("/data/diff").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let by_code: HashMap<String, &Value> = diff
+        .iter()
+        .filter_map(|d| {
+            d.get("f12")
+                .and_then(|v| v.as_str())
+                .map(|c| (c.to_string(), d))
+        })
+        .collect();
     let mut out = Vec::with_capacity(list.len());
-    if !em_list.is_empty() {
-        let secids: Vec<String> = em_list.iter().map(|i| i.secid.to_string()).collect();
-        let query = http::params(&[
-            ("fltt", "2"),
-            ("invt", "2"),
-            ("fields", "f2,f3,f4,f12,f14"),
-            ("secids", &secids.join(",")),
-        ]);
-        let data = http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await?;
-        let diff = data.pointer("/data/diff").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-        let by_code: HashMap<String, &Value> = diff
-            .iter()
-            .filter_map(|d| {
-                d.get("f12")
-                    .and_then(|v| v.as_str())
-                    .map(|c| (c.to_string(), d))
-            })
-            .collect();
-        for item in em_list {
-            let row = by_code.get(item.code).copied().or_else(|| {
-                by_code.get(item.secid.split('.').nth(1).unwrap_or("")).copied()
-            });
-            let num = |k: &str| -> Option<f64> {
-                row.and_then(|r| r.get(k)).and_then(|v| v.as_f64())
-            };
-            out.push(IndexItem {
-                code: item.code.to_string(),
-                name: item.name.to_string(),
-                percent: num("f3"),
-                price: num("f2"),
-                change: num("f4"),
-            });
-        }
-    }
-    for item in fx_list {
-        let symbol = item.sina_fx.unwrap_or(item.code);
-        match fetch_sina_fx_quote(symbol, item.code, item.name).await {
-            Ok(q) => out.push(q),
-            Err(e) => eprintln!("[fund01] fetchSinaFxQuote 失败 {symbol}: {e}"),
-        }
+    for item in list {
+        // 伦敦金（XAU）以 COMEX 主力 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
+        let row = by_code.get(item.code).copied().or_else(|| {
+            by_code.get(item.secid.split('.').nth(1).unwrap_or("")).copied()
+        });
+        let num = |k: &str| -> Option<f64> {
+            row.and_then(|r| r.get(k)).and_then(|v| v.as_f64())
+        };
+        out.push(IndexItem {
+            code: item.code.to_string(),
+            name: item.name.to_string(),
+            percent: num("f3"),
+            price: num("f2"),
+            change: num("f4"),
+        });
     }
     Ok(out)
 }

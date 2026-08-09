@@ -27,9 +27,11 @@ const INDEX_LIST: IndexMetaDef[] = [
   {secid: '1.000905', code: '000905', name: '中证500', tx: 'sh000905'},
   {secid: '100.NDX', code: 'NDX', name: '纳斯达克100', tx: 'us.NDX', sinaUs: '.NDX'},
   {secid: '100.SPX', code: 'SPX', name: '标普500', tx: 'us.INX', sinaUs: '.INX'},
-  // 黄金看板：国内金（上金所现货，元/克）实时+历史都走东财；国际金（伦敦金现，美元/盎司）实时+历史都走新浪（同源一致）
+  // 黄金看板：国内金（上金所现货，元/克）实时+历史都走东财；国际金实时走东财 COMEX 主力（GC00Y，美元/盎司，
+  // 不依赖 Referer——新浪 hq.sinajs.cn 强制校验 Referer，chrome SW fetch 无法携带自定义 Referer 头会 Forbidden），
+  // 历史走新浪外盘日K（GlobalFuturesService 不依赖 Referer），实时与历史同为国际金价、趋势一致
   {secid: '118.AU9999', code: 'AU9999', name: '黄金9999', emKline: true},
-  {secid: 'XAU', code: 'XAU', name: '伦敦金', sinaFx: 'XAU'},
+  {secid: '101.GC00Y', code: 'XAU', name: '伦敦金', sinaFx: 'XAU'},
 ]
 
 const RANGE_CALENDAR_DAYS: Record<string, number> = {
@@ -84,65 +86,25 @@ export function isUsIndexCode(code: string): boolean {
   return INDEX_LIST.some((i) => i.sinaUs && i.code === code)
 }
 
-/** 新浪外盘实时行情（如伦敦金 hf_XAU，GBK 编码），字段布局与 gds_AU9999 相同 */
-async function fetchSinaFxQuote(symbol: string, code: string, name: string) {
-  const hf = `hf_${symbol}`
-  const buf = await httpGet(`https://hq.sinajs.cn/list=${hf}`, {
-    responseType: 'arraybuffer',
-    headers: {Referer: 'https://finance.sina.com.cn/'},
-    timeout: 10000,
-  })
-  const text = new TextDecoder('gbk').decode(buf as ArrayBuffer)
-  const m = text.match(new RegExp(`hq_str_${hf}="([^"]*)"`))
-  if (!m || !m[1]) throw new Error(`解析 ${symbol} 行情失败`)
-  const parts = m[1].split(',')
-  const price = parseFloat(parts[0])
-  const prevClose = parseFloat(parts[7])
-  const percent =
-    Number.isFinite(price) && Number.isFinite(prevClose) && prevClose !== 0
-      ? ((price - prevClose) / prevClose) * 100
-      : null
-  const change =
-    Number.isFinite(price) && Number.isFinite(prevClose) ? price - prevClose : null
-  return {
-    code,
-    name,
-    percent: percent == null ? null : round4(percent),
-    price: Number.isFinite(price) ? price : null,
-    change: change == null ? null : round4(change),
-  }
-}
-
 export async function getIndices(scope: IndexScope = 'all') {
   const list = INDEX_LIST.filter((i) =>
     scope === 'all' ? true : scope === 'us' ? !!i.sinaUs : !i.sinaUs,
   )
-  // 东财 ulist 批量拉非新浪外盘条目；新浪外盘（伦敦金）单独走 hq.sinajs.cn
-  const emList = list.filter((i) => !i.sinaFx)
-  const fxList = list.filter((i) => !!i.sinaFx)
-  const [data, ...fxQuotes] = await Promise.all([
-    emList.length
-      ? eastmoneyGet(
-          '/api/qt/ulist.np/get',
-          {
-            fltt: 2,
-            invt: 2,
-            fields: 'f2,f3,f4,f12,f14',
-            secids: emList.map((i) => i.secid).join(','),
-          },
-          PUSH_HOSTS,
-        )
-      : Promise.resolve(null),
-    ...fxList.map((i) =>
-      fetchSinaFxQuote(i.sinaFx!, i.code, i.name).catch((e) => {
-        console.warn(`[fund01] fetchSinaFxQuote 失败 ${i.sinaFx}`, e)
-        return null
-      }),
-    ),
-  ])
+  const secids = list.map((i) => i.secid).join(',')
+  const data = await eastmoneyGet(
+    '/api/qt/ulist.np/get',
+    {
+      fltt: 2,
+      invt: 2,
+      fields: 'f2,f3,f4,f12,f14',
+      secids,
+    },
+    PUSH_HOSTS,
+  )
   const diff = data?.data?.diff || []
   const byCode = new Map<string, any>(diff.map((d: any) => [String(d.f12), d]))
-  const emItems = emList.map((item) => {
+  return list.map((item) => {
+    // 伦敦金（XAU）以 COMEX 主力 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
     const row = byCode.get(item.code) || byCode.get(item.secid.split('.')[1])
     const percent = row?.f3
     const change = row?.f4
@@ -154,7 +116,6 @@ export async function getIndices(scope: IndexScope = 'all') {
       change: typeof change === 'number' ? change : null,
     }
   })
-  return [...emItems, ...fxQuotes.filter((q): q is NonNullable<typeof q> => !!q)]
 }
 
 export async function getSectorBoards({sort = 'desc', size = 10} = {}) {
