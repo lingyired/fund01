@@ -123,7 +123,7 @@ export function App() {
   // 这样配色在 React 挂载前就已就位，不会闪烁。默认 appearance="inherit" 不会输出
   // light/dark class，因此不会阻断 <html class="dark"> 的级联。
   return (
-    <Theme accentColor="blue" grayColor="gray" radius="small">
+    <Theme accentColor="blue" grayColor="mauve" radius="small">
       <div
         className="flex h-full min-h-0 flex-col overflow-hidden"
         style={{background: 'var(--app-bg)'}}

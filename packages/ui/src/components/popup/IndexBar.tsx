@@ -48,7 +48,15 @@ export function IndexBar({
                     open()
                   }
                 }}
-                className="w-[124px] shrink-0 cursor-pointer rounded-xl border border-line/70 bg-panel px-3 py-1.5 text-left transition-colors hover:bg-paper-deep"
+                className={cn(
+                  'w-[124px] shrink-0 cursor-pointer rounded-lg border px-3 py-1.5 text-left transition-colors',
+                  // 取消渐变：用淡透明实色（红/绿），边框同色但更淡，贴合现有 UI；持平/无数据保持原 bg-panel 普通卡片
+                  item.percent != null && !Number.isNaN(item.percent)
+                    ? item.percent > 0
+                      ? 'border-rise/20 bg-rise/10 hover:bg-rise/15'
+                      : 'border-fall/20 bg-fall/10 hover:bg-fall/15'
+                    : 'border-line/60 bg-panel hover:bg-paper-deep',
+                )}
               >
                 <div className="truncate text-[11px] text-muted">{item.name}</div>
                 {item.error ? (

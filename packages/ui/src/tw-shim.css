@@ -21,9 +21,12 @@
 .bg-accent{background-color:var(--accent-9)}
 .bg-accent\/10{background-color:color-mix(in oklab, var(--accent-9) 10%, transparent)}
 .bg-fall\/20{background-color:color-mix(in oklab, var(--app-fall) 20%, transparent)}
+.bg-fall\/15{background-color:color-mix(in oklab, var(--app-fall) 15%, transparent)}
+.bg-fall\/10{background-color:color-mix(in oklab, var(--app-fall) 10%, transparent)}
 .bg-fall{background-color:var(--app-fall)}
 .bg-gold\/10{background-color:color-mix(in oklab, var(--app-gold) 10%, transparent)}
 .bg-gradient-to-br{--tw-gradient-position:to bottom right;background-image:linear-gradient(var(--tw-gradient-position),var(--tw-gradient-stops))}
+.bg-gradient-to-bl{--tw-gradient-position:to bottom left;background-image:linear-gradient(var(--tw-gradient-position),var(--tw-gradient-stops))}
 .bg-app{background-color:var(--app-bg)}
 .bg-transparent{background-color:transparent}
 .bg-panel{background-color:var(--app-panel)}
@@ -41,6 +44,8 @@
 .bg-paper\/50{background-color:color-mix(in oklab, var(--app-paper) 50%, transparent)}
 .bg-rise{background-color:var(--app-rise)}
 .bg-rise\/5{background-color:color-mix(in oklab, var(--app-rise) 5%, transparent)}
+.bg-rise\/10{background-color:color-mix(in oklab, var(--app-rise) 10%, transparent)}
+.bg-rise\/15{background-color:color-mix(in oklab, var(--app-rise) 15%, transparent)}
 .block{display:block}
 .blur-2xl{filter:blur(40px)}
 .border{border-width:1px;border-style:solid}
@@ -60,6 +65,9 @@
 .border-line\/60{border-color:color-mix(in oklab, var(--app-line) 60%, transparent)}
 .border-line\/70{border-color:color-mix(in oklab, var(--app-line) 70%, transparent)}
 .border-rise\/30{border-color:color-mix(in oklab, var(--app-rise) 30%, transparent)}
+.border-rise\/20{border-color:color-mix(in oklab, var(--app-rise) 20%, transparent)}
+.border-fall\/30{border-color:color-mix(in oklab, var(--app-fall) 30%, transparent)}
+.border-fall\/20{border-color:color-mix(in oklab, var(--app-fall) 20%, transparent)}
 .border-t{border-top-width:1px;border-top-style:solid}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
 .break-words{overflow-wrap:break-word;word-break:break-word}
@@ -86,6 +94,10 @@
 .font-normal{font-weight:400}
 .font-semibold{font-weight:600}
 .from-gold\/15{--tw-gradient-from:color-mix(in oklab, var(--app-gold) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.from-fall\/10{--tw-gradient-from:color-mix(in oklab, var(--app-fall) 10%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.from-fall\/15{--tw-gradient-from:color-mix(in oklab, var(--app-fall) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.from-rise\/10{--tw-gradient-from:color-mix(in oklab, var(--app-rise) 10%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.from-rise\/15{--tw-gradient-from:color-mix(in oklab, var(--app-rise) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
 .gap-0\.5{gap:2px}
 .gap-1{gap:4px}
 .gap-1\.5{gap:6px}
@@ -128,6 +140,12 @@
 .hover\:bg-paper\/60:hover{background-color:color-mix(in oklab, var(--color-background) 60%, transparent)}
 .hover\:bg-paper\/70:hover{background-color:color-mix(in oklab, var(--color-background) 70%, transparent)}
 .hover\:bg-rise\/10:hover{background-color:color-mix(in oklab, var(--app-rise) 10%, transparent)}
+.hover\:bg-rise\/15:hover{background-color:color-mix(in oklab, var(--app-rise) 15%, transparent)}
+.hover\:bg-fall\/15:hover{background-color:color-mix(in oklab, var(--app-fall) 15%, transparent)}
+.hover\:from-fall\/15:hover{--tw-gradient-from:color-mix(in oklab, var(--app-fall) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.hover\:from-rise\/15:hover{--tw-gradient-from:color-mix(in oklab, var(--app-rise) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
+.hover\:to-fall\/35:hover{--tw-gradient-to:color-mix(in oklab, var(--app-fall) 35%, transparent)}
+.hover\:to-rise\/35:hover{--tw-gradient-to:color-mix(in oklab, var(--app-rise) 35%, transparent)}
 .hover\:border-accent\/50:hover{border-color:color-mix(in oklab, var(--accent-9) 50%, transparent)}
 .hover\:opacity-90:hover{opacity:0.9}
 .hover\:text-ink:hover{color:var(--gray-12)}
@@ -304,6 +322,10 @@
 .text-xl{font-size:20px;line-height:1.75rem}
 .text-xs{font-size:12px;line-height:1.25rem}
 .to-paper\/50{--tw-gradient-to:color-mix(in oklab, var(--color-background) 50%, transparent)}
+.to-fall\/25{--tw-gradient-to:color-mix(in oklab, var(--app-fall) 25%, transparent)}
+.to-fall\/35{--tw-gradient-to:color-mix(in oklab, var(--app-fall) 35%, transparent)}
+.to-rise\/25{--tw-gradient-to:color-mix(in oklab, var(--app-rise) 25%, transparent)}
+.to-rise\/35{--tw-gradient-to:color-mix(in oklab, var(--app-rise) 35%, transparent)}
 .bottom-0{bottom:0px}
 .fixed{position:fixed}
 .inset-0{top:0;right:0;bottom:0;left:0}
@@ -324,6 +346,10 @@
 .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uppercase{text-transform:uppercase}
 .via-gold\/5{--tw-gradient-via:color-mix(in oklab, var(--app-gold) 5%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-via) 50%,var(--tw-gradient-to)}
+.via-fall\/5{--tw-gradient-via:color-mix(in oklab, var(--app-fall) 5%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-via) 50%,var(--tw-gradient-to)}
+.via-fall\/8{--tw-gradient-via:color-mix(in oklab, var(--app-fall) 8%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-via) 50%,var(--tw-gradient-to)}
+.via-rise\/5{--tw-gradient-via:color-mix(in oklab, var(--app-rise) 5%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-via) 50%,var(--tw-gradient-to)}
+.via-rise\/8{--tw-gradient-via:color-mix(in oklab, var(--app-rise) 8%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-via) 50%,var(--tw-gradient-to)}
 .w-1\.5{width:6px}
 .w-2\/3{width:66.666667%}
 .w-24{width:96px}
