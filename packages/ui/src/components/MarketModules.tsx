@@ -47,19 +47,31 @@ export function IndicesModule({
                 }}
               >
                 <div className="truncate text-xs text-muted">{item.name}</div>
-                {/* 指数值单独一行（随涨跌着色） */}
-                <div
-                  className={`mt-1.5 font-mono text-base font-semibold tabular-nums sm:text-lg ${pctClass(item.percent)}`}
-                >
-                  {formatAmount(item.price)}
-                </div>
-                {/* 涨跌额 + 百分比 一行 */}
-                <div
-                  className={`mt-0.5 flex items-baseline gap-1.5 font-mono text-xs tabular-nums sm:text-sm ${pctClass(item.percent)}`}
-                >
-                  <span>{formatMoney(item.change)}</span>
-                  <span>{formatPct(item.percent)}</span>
-                </div>
+                {item.error ? (
+                  <>
+                    {/* 行情拉取失败：数值处提示接口错误，底部显示简短错误码 */}
+                    <div className="mt-1.5 font-mono text-base font-semibold text-muted sm:text-lg">
+                      接口错误
+                    </div>
+                    <div className="mt-0.5 font-mono text-xs text-muted">{item.error}</div>
+                  </>
+                ) : (
+                  <>
+                    {/* 指数值单独一行（随涨跌着色） */}
+                    <div
+                      className={`mt-1.5 font-mono text-base font-semibold tabular-nums sm:text-lg ${pctClass(item.percent)}`}
+                    >
+                      {formatAmount(item.price)}
+                    </div>
+                    {/* 涨跌额 + 百分比 一行 */}
+                    <div
+                      className={`mt-0.5 flex items-baseline gap-1.5 font-mono text-xs tabular-nums sm:text-sm ${pctClass(item.percent)}`}
+                    >
+                      <span>{formatMoney(item.change)}</span>
+                      <span>{formatPct(item.percent)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             )
           })}

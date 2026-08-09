@@ -31,7 +31,7 @@ const INDEX_LIST: IndexMetaDef[] = [
   // 不依赖 Referer——新浪 hq.sinajs.cn 强制校验 Referer，chrome SW fetch 无法携带自定义 Referer 头会 Forbidden），
   // 历史走新浪外盘日K（GlobalFuturesService 不依赖 Referer），实时与历史同为国际金价、趋势一致
   {secid: '118.AU9999', code: 'AU9999', name: '黄金9999', emKline: true},
-  {secid: '101.GC00Y', code: 'XAU', name: '伦敦金', sinaFx: 'XAU'},
+  {secid: '101.GC00Y', code: 'XAU', name: 'COMEX 黄金', sinaFx: 'XAU'},
 ]
 
 const RANGE_CALENDAR_DAYS: Record<string, number> = {
@@ -86,35 +86,74 @@ export function isUsIndexCode(code: string): boolean {
   return INDEX_LIST.some((i) => i.sinaUs && i.code === code)
 }
 
+/** 指数行情错误码（简短，用于看板卡片底部展示） */
+export type IndexErrorCode = 'NET' | 'TIMEOUT' | 'HTTP' | 'NODATA' | 'PARSE'
+
+/** 把接口异常归类为简短错误码（http.ts 的 describeErr 前缀） */
+function indexErrorCodeOf(e: any): IndexErrorCode {
+  const msg = e instanceof Error ? e.message : String(e)
+  if (msg.startsWith('HTTP ')) return 'HTTP'
+  if (msg.includes('Timeout') || msg.includes('Abort')) return 'TIMEOUT'
+  if (msg.includes('NetworkError') || msg.includes('fetch failed')) return 'NET'
+  return 'PARSE'
+}
+
+/**
+ * 拉取指数实时行情（条目级容错：单个/整体接口失败不抛错，对应条目带 error 码，
+ * 保证看板卡片始终能在 popup 显示，数值处与底部展示错误状态）。
+ */
 export async function getIndices(scope: IndexScope = 'all') {
   const list = INDEX_LIST.filter((i) =>
     scope === 'all' ? true : scope === 'us' ? !!i.sinaUs : !i.sinaUs,
   )
   const secids = list.map((i) => i.secid).join(',')
-  const data = await eastmoneyGet(
-    '/api/qt/ulist.np/get',
-    {
-      fltt: 2,
-      invt: 2,
-      fields: 'f2,f3,f4,f12,f14',
-      secids,
-    },
-    PUSH_HOSTS,
-  )
+  let data: any = null
+  let fetchErr: IndexErrorCode | null = null
+  try {
+    data = await eastmoneyGet(
+      '/api/qt/ulist.np/get',
+      {
+        fltt: 2,
+        invt: 2,
+        fields: 'f2,f3,f4,f12,f14',
+        secids,
+      },
+      PUSH_HOSTS,
+    )
+  } catch (e) {
+    fetchErr = indexErrorCodeOf(e)
+    console.warn(`[fund01] getIndices 失败 scope=${scope}`, e)
+  }
   const diff = data?.data?.diff || []
   const byCode = new Map<string, any>(diff.map((d: any) => [String(d.f12), d]))
   return list.map((item) => {
-    // 伦敦金（XAU）以 COMEX 主力 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
-    const row = byCode.get(item.code) || byCode.get(item.secid.split('.')[1])
-    const percent = row?.f3
-    const change = row?.f4
-    return {
-      code: item.code,
-      name: item.name,
-      percent: typeof percent === 'number' ? percent : null,
-      price: typeof row?.f2 === 'number' ? row.f2 : null,
-      change: typeof change === 'number' ? change : null,
+    // 接口整体失败 → 全部条目报接口错误码；成功但条目缺失 → NODATA
+    if (fetchErr) {
+      return {
+        code: item.code,
+        name: item.name,
+        percent: null,
+        price: null,
+        change: null,
+        error: fetchErr,
+      }
     }
+    // COMEX 黄金（XAU）以 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
+    const row = byCode.get(item.code) || byCode.get(item.secid.split('.')[1])
+    if (!row) {
+      return {
+        code: item.code,
+        name: item.name,
+        percent: null,
+        price: null,
+        change: null,
+        error: 'NODATA' as IndexErrorCode,
+      }
+    }
+    const percent = typeof row?.f3 === 'number' ? row.f3 : null
+    const change = typeof row?.f4 === 'number' ? row.f4 : null
+    const price = typeof row?.f2 === 'number' ? row.f2 : null
+    return {code: item.code, name: item.name, percent, price, change}
   })
 }
 

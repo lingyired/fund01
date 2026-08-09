@@ -48,7 +48,7 @@ const INDEX_LIST: &[IndexMeta] = &[
     // 不依赖 Referer——新浪 hq.sinajs.cn 强制校验 Referer，chrome SW fetch 无法携带自定义 Referer 头会 Forbidden），
     // 历史走新浪外盘日K（GlobalFuturesService 不依赖 Referer），实时与历史同为国际金价、趋势一致
     IndexMeta { secid: "118.AU9999", code: "AU9999", name: "黄金9999", tx: None, sina: None, sina_us: None, em_kline: true, sina_fx: None },
-    IndexMeta { secid: "101.GC00Y", code: "XAU", name: "伦敦金", tx: None, sina: None, sina_us: None, em_kline: false, sina_fx: Some("XAU") },
+    IndexMeta { secid: "101.GC00Y", code: "XAU", name: "COMEX 黄金", tx: None, sina: None, sina_us: None, em_kline: false, sina_fx: Some("XAU") },
 ];
 
 fn find_index_meta(code: &str) -> Option<&'static IndexMeta> {
@@ -63,19 +63,34 @@ pub fn is_us_index_code(code: &str) -> bool {
     INDEX_LIST.iter().any(|i| i.sina_us.is_some() && i.code == code)
 }
 
-/// 仅 A 股指数（上证/深证/北证/科创等，排除美股 NDX/SPX）
-pub async fn get_a_share_indices() -> Result<Vec<IndexItem>, String> {
+/// 把接口异常归类为简短错误码（http.rs 的 send 错误格式）
+fn error_code_of(msg: &str) -> &'static str {
+    if msg.starts_with("HTTP ") {
+        "HTTP"
+    } else if msg.contains("timed out") || msg.contains("timeout") || msg.contains("Timeout") {
+        "TIMEOUT"
+    } else if msg.contains("网络错误") || msg.contains("connect") || msg.contains("Connection") {
+        "NET"
+    } else {
+        "PARSE"
+    }
+}
+
+/// 仅 A 股指数（上证/深证/北证/科创等 + 黄金，排除美股 NDX/SPX）
+pub async fn get_a_share_indices() -> Vec<IndexItem> {
     let list: Vec<&IndexMeta> = INDEX_LIST.iter().filter(|i| i.sina_us.is_none()).collect();
     fetch_indices(&list).await
 }
 
 /// 仅美股指数（NDX / SPX）
-pub async fn get_us_indices() -> Result<Vec<IndexItem>, String> {
+pub async fn get_us_indices() -> Vec<IndexItem> {
     let list: Vec<&IndexMeta> = INDEX_LIST.iter().filter(|i| i.sina_us.is_some()).collect();
     fetch_indices(&list).await
 }
 
-async fn fetch_indices(list: &[&IndexMeta]) -> Result<Vec<IndexItem>, String> {
+/// 拉取指数实时行情（条目级容错：接口整体失败/条目缺失不抛错，对应条目带 error 码，
+/// 保证看板卡片始终能显示，数值处与底部展示错误状态）
+async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
     let secids: Vec<String> = list.iter().map(|i| i.secid.to_string()).collect();
     let query = http::params(&[
         ("fltt", "2"),
@@ -83,7 +98,24 @@ async fn fetch_indices(list: &[&IndexMeta]) -> Result<Vec<IndexItem>, String> {
         ("fields", "f2,f3,f4,f12,f14"),
         ("secids", &secids.join(",")),
     ]);
-    let data = http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await?;
+    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("[fund01] getIndices 失败: {e}");
+            let code = error_code_of(&e).to_string();
+            return list
+                .iter()
+                .map(|i| IndexItem {
+                    code: i.code.to_string(),
+                    name: i.name.to_string(),
+                    percent: None,
+                    price: None,
+                    change: None,
+                    error: Some(code.clone()),
+                })
+                .collect();
+        }
+    };
     let diff = data.pointer("/data/diff").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let by_code: HashMap<String, &Value> = diff
         .iter()
@@ -93,24 +125,35 @@ async fn fetch_indices(list: &[&IndexMeta]) -> Result<Vec<IndexItem>, String> {
                 .map(|c| (c.to_string(), d))
         })
         .collect();
-    let mut out = Vec::with_capacity(list.len());
-    for item in list {
-        // 伦敦金（XAU）以 COMEX 主力 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
-        let row = by_code.get(item.code).copied().or_else(|| {
-            by_code.get(item.secid.split('.').nth(1).unwrap_or("")).copied()
-        });
-        let num = |k: &str| -> Option<f64> {
-            row.and_then(|r| r.get(k)).and_then(|v| v.as_f64())
-        };
-        out.push(IndexItem {
-            code: item.code.to_string(),
-            name: item.name.to_string(),
-            percent: num("f3"),
-            price: num("f2"),
-            change: num("f4"),
-        });
-    }
-    Ok(out)
+    list.iter()
+        .map(|item| {
+            // COMEX 黄金（XAU）以 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
+            let row = by_code.get(item.code).copied().or_else(|| {
+                by_code.get(item.secid.split('.').nth(1).unwrap_or("")).copied()
+            });
+            match row {
+                Some(r) => {
+                    let num = |k: &str| r.get(k).and_then(|v| v.as_f64());
+                    IndexItem {
+                        code: item.code.to_string(),
+                        name: item.name.to_string(),
+                        percent: num("f3"),
+                        price: num("f2"),
+                        change: num("f4"),
+                        error: None,
+                    }
+                }
+                None => IndexItem {
+                    code: item.code.to_string(),
+                    name: item.name.to_string(),
+                    percent: None,
+                    price: None,
+                    change: None,
+                    error: Some("NODATA".to_string()),
+                },
+            }
+        })
+        .collect()
 }
 
 /// 板块排行（对应 getSectorBoards）
