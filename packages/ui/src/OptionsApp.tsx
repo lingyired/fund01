@@ -161,7 +161,7 @@ export function OptionsApp({
   }, [pendingAnchor])
 
   return (
-    <Theme accentColor="blue" grayColor="gray" radius="small">
+    <Theme accentColor="blue" grayColor="mauve" radius="small">
       <Tabs.Root
         value={tab}
         onValueChange={(v) => setTab(v as TabId)}
