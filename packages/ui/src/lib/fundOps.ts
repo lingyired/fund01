@@ -244,7 +244,7 @@ export async function createFund(
     group?: string
     /** 该分组的持仓成本单价（元/份，可选） */
     cost?: number
-    /** 累计收益（元，可选；用于反推成本单价） */
+    /** 持有收益（元，可选；用于反推成本单价） */
     holdProfit?: number
     /** 持有份额（份，可选；提供则直接作为份额，跳过金额→净值折算） */
     shares?: number
@@ -304,14 +304,16 @@ export async function createFund(
       } catch {
         basisDate = undefined
       }
-    } else {
+    } else if (amount > 0) {
       const picked = pickBasisNav(basis, meta, payload.navDate)
       basisDate = picked.date
       shares = deriveHoldShares(amount, picked)
     }
+    // amount <= 0（0 金额 = 关注/待加仓）：份额恒 0，无需净值折算，
+    // 也不依赖数据源是否有确认净值（否则净值缺失时 0 金额导入会失败）
   }
 
-  // 累计收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
+  // 持有收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
   let holdProfit = payload.holdProfit
   if (
     (holdProfit == null || !Number.isFinite(holdProfit)) &&
@@ -350,10 +352,22 @@ export async function createFund(
     if (payload.cost != null && payload.cost > 0) {
       costs = {...prevCosts, [group]: Number(payload.cost) || 0}
     } else if (holdProfit != null && Number.isFinite(holdProfit) && shares > 0) {
-      // 总成本 = 市值 - 累计收益；成本单价 = 总成本 / 份额
+      // 总成本 = 市值 - 持有收益；成本单价 = 总成本 / 份额
       const totalCost = amount - Number(holdProfit)
       const price = Math.round((totalCost / shares) * 1e6) / 1e6
-      if (price > 0) costs = {...prevCosts, [group]: price}
+      if (price > 0) {
+        costs = {...prevCosts, [group]: price}
+      } else if (payload.onWarn) {
+        // 持有收益 ≥ 持有金额：成本单价反推 ≤0，未写入；提示用户核对数据口径
+        //（常见于金额是某口径市值、收益是另一口径收益，或录错）。持有成本显示 -- 是数据
+        // 层语义正确的体现，不是 bug；用户在导入「数据校验提醒」框可看到本条警告。
+        const gp = group || '未分组'
+        payload.onWarn(
+          `${meta.code}（${gp}）：持有收益（${holdProfit}）≥ 持有金额（${amount}），` +
+            `成本单价反推 ${price.toFixed(6)} 元/份 ≤0，未写入；` +
+            `请检查金额与收益口径是否一致（今日/昨日结算）。`,
+        )
+      }
     }
     return await upsertFund(ports, {
       code: meta.code,
@@ -397,12 +411,13 @@ export async function updateFund(
 
   // 仅在显式传了份额或金额时才动 allocations，否则会把该分组份额清零
   if (type === 'hold' && ((shares != null && shares > 0) || amount != null)) {
-    const meta = await ports.data.resolveFund({code, type})
-    const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
     let nextShares = 0
     if (shares != null && shares > 0) {
       nextShares = shares
-    } else if (amount != null) {
+    } else if (amount != null && Number(amount) > 0) {
+      // 仅正金额需要净值折算；0 金额（关注/待加仓）份额恒 0，不依赖数据源是否有净值
+      const meta = await ports.data.resolveFund({code, type})
+      const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
       nextShares = deriveHoldShares(Number(amount) || 0, pickBasisNav(basis, meta, navDate))
     }
     const group = payload.group ?? ''
@@ -436,6 +451,29 @@ export function removeFund(ports: Ports, code: string, type: 'hold' | 'watch'): 
   if (!map[key]) throw new Error('基金不存在')
   delete map[key]
   ports.config.saveConfig(config)
+}
+
+/**
+ * 写持仓（新增/编辑/导入）成功后刷新展示缓存，让 popup 等读 SW 缓存的端立即反映新数据。
+ *
+ * 背景：popup 持仓列表读 SW 算好的 `cache-holdings`（非实时读 config）；写 config 不会自动
+ * 触发 SW 重算缓存（仅切换 quoteSource 才自动 refreshAll）。叠加非交易时段（周末/节假日）
+ * alarm 定时刷新被跳过，旧快照会残留到下一交易时段 —— 表现为「导入后持有成本/收益显示 --」。
+ *
+ * - chrome：`clearCache` = 清全部 cache-* + `refreshAll(true)`（force 跳过非交易时段过滤，立即重算）
+ * - tauri：无 SW 缓存概念，`clearCache` 未实现 → 回退普通 `triggerRefresh`
+ * - 失败不阻断：数据已落库，下一轮交易时段 alarm 会自然重算
+ */
+export async function refreshHoldingsCache(ports: Ports): Promise<void> {
+  try {
+    if (ports.data.clearCache) {
+      await ports.data.clearCache()
+    } else {
+      await ports.data.triggerRefresh()
+    }
+  } catch {
+    /* 忽略：刷新失败不影响已落库的数据 */
+  }
 }
 
 export function updateGoldConfig(
@@ -773,7 +811,8 @@ export async function setHoldingGroupOrder(
 
 /**
  * 直接设置某基金在某分组的份额与成本（批量编辑用，绕过金额反推份额）。
- * - shares<=0 等同于删除该分组 allocation（连带 cost）
+ * - shares<=0 默认等同于删除该分组 allocation（连带 cost）
+ * - shares===0 且 opts.keepZero 时保留 0 份额分组（0 金额基金 = 关注/待加仓，不删）
  * - cost<=0 或 undefined 表示清空该分组成本单价（保留份额）
  * - 保留其他分组的 allocation/cost
  */
@@ -783,6 +822,7 @@ export async function setFundAllocation(
   group: string,
   shares: number,
   cost?: number,
+  opts?: {keepZero?: boolean},
 ): Promise<void> {
   const config = ports.config.getConfig()
   const key = String(code).padStart(6, '0')
@@ -793,6 +833,8 @@ export async function setFundAllocation(
   const s = Number(shares) || 0
   if (s > 0) {
     allocations[group] = s
+  } else if (s === 0 && opts?.keepZero) {
+    allocations[group] = 0
   } else {
     delete allocations[group]
   }

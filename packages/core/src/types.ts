@@ -14,8 +14,8 @@ export type FundRecord = {
   allocations: Record<string, number>
   /**
    * 该基金在各分组的持仓成本单价（仅持仓使用，与 allocations 同 key）。
-   * value 是该分组买入时的单位成本价（元/份），用于计算累计收益。
-   * 总成本 = Σ(单价[g] × 份额[g])。缺失或 0 表示未录入，累计收益显示为 --。
+   * value 是该分组买入时的单位成本价（元/份），用于计算持有收益。
+   * 总成本 = Σ(单价[g] × 份额[g])。缺失或 0 表示未录入，持有收益显示为 --。
    */
   costs?: Record<string, number>
   sectors: string[]
@@ -48,9 +48,14 @@ export type FundQuoteRow = FundRecord & {
   confirmedUpdated?: boolean
   /** 累计投入成本合计（各分组 cost 之和）；为 0 表示未录入 */
   totalCost?: number
-  /** 累计收益 = 当前市值 - 总成本；null 表示未录入成本 */
+  /**
+   * 持有收益 = 当前市值 − 总成本；null 表示未录入成本。
+   * 口径约定（与支付宝「持有收益」/天天基金「持仓收益」一致，不追已实现收益）：
+   * 存储与计算逻辑保持「当前市值 − 当前持仓成本」，仅展示语义定名为「持有收益」，
+   * 不单列「累计收益」（恒等于持有收益，避免与天天基金另列口径混淆）。
+   */
   totalCumPnl?: number | null
-  /** 累计收益率(%) = 累计收益 / 总成本 × 100；null 表示未录入成本 */
+  /** 持有收益率(%) = 持有收益 / 总成本 × 100；null 表示未录入成本 */
   totalCumPnlPercent?: number | null
   /** 是否为 QDII/海外延迟披露基金（UI 区分：盘中「-」、基金列次行净值日期） */
   isQdii?: boolean
@@ -64,9 +69,9 @@ export type HoldingsPayload = {
     totalPnlPercent: number
     /** 累计投入成本合计（仅含录入成本的持仓） */
     totalCost?: number
-    /** 累计收益合计（基于当前市值与录入成本） */
+    /** 持有收益合计（= 当前市值 − 当前持仓成本，不追已实现） */
     totalCumPnl?: number | null
-    /** 累计收益率合计(%) */
+    /** 持有收益率合计(%) */
     totalCumPnlPercent?: number | null
   }
   list: FundQuoteRow[]

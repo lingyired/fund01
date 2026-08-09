@@ -29,6 +29,7 @@
 .bg-panel\/90{background-color:color-mix(in oklab, var(--app-panel) 90%, transparent)}
 .bg-paper{background-color:var(--app-paper)}
 .bg-paper-deep{background-color:var(--app-paper-deep)}
+.bg-paper-deep\/40{background-color:color-mix(in oklab, var(--app-paper-deep) 40%, transparent)}
 .bg-paper-deep\/80{background-color:color-mix(in oklab, var(--app-paper-deep) 80%, transparent)}
 .bg-paper\/30{background-color:color-mix(in oklab, var(--app-paper) 30%, transparent)}
 .bg-paper\/40{background-color:color-mix(in oklab, var(--app-paper) 40%, transparent)}
@@ -57,6 +58,7 @@
 .border-t{border-top-width:1px;border-top-style:solid}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
 .break-words{overflow-wrap:break-word;word-break:break-word}
+.cursor-help{cursor:help}
 .cursor-not-allowed{cursor:not-allowed}
 .cursor-pointer{cursor:pointer}
 .cursor-zoom-in{cursor:zoom-in}
@@ -117,6 +119,7 @@
 .hidden{display:none}
 .hover\:-translate-y-0\.5:hover{transform:translateY(-0.125rem)}
 .hover\:bg-paper-deep:hover{background-color:var(--color-surface)}
+.hover\:bg-paper-deep\/40:hover{background-color:color-mix(in oklab, var(--app-paper-deep) 40%, transparent)}
 .hover\:bg-paper\/60:hover{background-color:color-mix(in oklab, var(--color-background) 60%, transparent)}
 .hover\:bg-paper\/70:hover{background-color:color-mix(in oklab, var(--color-background) 70%, transparent)}
 .hover\:bg-rise\/10:hover{background-color:color-mix(in oklab, var(--app-rise) 10%, transparent)}
@@ -138,6 +141,7 @@
 .justify-start{justify-content:flex-start}
 .leading-none{line-height:1}
 .leading-relaxed{line-height:1.625}
+.leading-tight{line-height:1.25}
 .list-disc{list-style-type:disc}
 .list-inside{list-style-position:inside}
 @media (min-width:1024px){.lg\:gap-5{gap:20px}}
@@ -146,6 +150,7 @@
 @media (min-width:1024px){.lg\:max-w-5xl{max-width:64rem}}
 .max-h-24{max-height:96px}
 .max-h-40{max-height:160px}
+.max-h-\[90vh\]{max-height:90vh}
 .max-w-2xl{max-width:42rem}
 .max-w-3xl{max-width:48rem}
 .max-w-5xl{max-width:64rem}
@@ -326,6 +331,9 @@
 .w-\[22\%\]{width:22%}
 .w-\[40\%\]{width:40%}
 .w-\[44px\]{width:44px}
+.w-\[90px\]{width:90px}
+.w-\[110px\]{width:110px}
+.w-\[130px\]{width:130px}
 .w-\[6\%\]{width:6%}
 .w-\[calc\(100\%-1rem\)\]{width:calc(100% - 1rem)}
 .w-\[calc\(46\%-44px\)\]{width:calc(46% - 44px)}

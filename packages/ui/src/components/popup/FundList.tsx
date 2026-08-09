@@ -6,9 +6,10 @@ import {
   ChevronRight,
   ChevronsUpDown,
   ClipboardPaste,
+  Info,
   Plus,
 } from 'lucide-react'
-import {Button, Skeleton, Table} from '@radix-ui/themes'
+import {Button, Skeleton, Table, Tooltip} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {
   cn,
@@ -19,7 +20,7 @@ import {
 } from '@fund01/core'
 import type {DisplayRow} from '../../lib/groupStats'
 import {groupAmount, groupPnl} from '../../lib/groupStats'
-import {ConfirmedUpdatedBadge} from '../fundBits'
+import {ConfirmedUpdatedBadge, HOLD_PROFIT_TERMS_NOTE} from '../fundBits'
 import {FundDetailDialog} from '../FundDetailDialog'
 
 const COL_W = {day: 84, cum: 84, nav: 76}
@@ -60,13 +61,16 @@ function SortIcon({active, dir}: {active: boolean; dir?: SortDir}) {
 function SortableHeader({
   sortKey,
   label,
+  sortLabel,
   hint,
   align,
   sort,
   onSort,
 }: {
   sortKey: SortKey
-  label: string
+  label: React.ReactNode
+  /** aria-label 用纯文本（label 为 ReactNode 时需显式给） */
+  sortLabel?: string
   /** 表头 label 后的辅助提示语（仅基金列使用） */
   hint?: string
   align?: 'left' | 'right'
@@ -88,7 +92,7 @@ function SortableHeader({
           align === 'right' ? 'rt-sort-btn--right' : 'rt-sort-btn--left',
         )}
         onClick={() => onSort(sortKey)}
-        aria-label={`按${label}排序`}
+        aria-label={`按${sortLabel ?? (typeof label === 'string' ? label : '')}排序`}
       >
         {label}
         {hint ? (
@@ -247,7 +251,23 @@ export function FundList({
           />
           <SortableHeader
             sortKey="cumPnl"
-            label="持有收益"
+            sortLabel="持有收益"
+            label={
+              <span className="inline-flex items-center gap-0.5">
+                持有收益
+                <Tooltip content={HOLD_PROFIT_TERMS_NOTE} maxWidth="280px">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label="持有收益口径说明"
+                    className="cursor-help text-muted hover:text-ink"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Info className="h-3 w-3" />
+                  </span>
+                </Tooltip>
+              </span>
+            }
             align="right"
             sort={sort}
             onSort={handleSort}
@@ -262,7 +282,7 @@ export function FundList({
         </Table.Row>
       </Table.Header>
       <Table.Body>
-        {sortedRows.map(({row, amount, pnl, cumPnl, cumPnlPercent, group}) => {
+        {sortedRows.map(({row, amount, pnl, cumPnl, cumPnlPercent}) => {
           const allocKeys = Object.keys(row.allocations || {})
           const canExpand = isAll && allocKeys.length > 1
           const expandedRow = expanded.has(row.code)
