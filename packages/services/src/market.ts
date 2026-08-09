@@ -1,6 +1,22 @@
 import {httpGet} from './http'
 
-const INDEX_LIST = [
+type IndexMetaDef = {
+  secid: string
+  code: string
+  name: string
+  /** 腾讯日K symbol（gu.qq.com） */
+  tx?: string
+  /** 新浪 A股日K symbol */
+  sina?: string
+  /** 新浪美股日K symbol */
+  sinaUs?: string
+  /** 历史 K 线走东财 kline（如国内金 118.AU9999） */
+  emKline?: boolean
+  /** 新浪外盘 symbol：实时走 hq.sinajs.cn、历史走 GlobalFuturesService（如伦敦金 XAU） */
+  sinaFx?: string
+}
+
+const INDEX_LIST: IndexMetaDef[] = [
   {secid: '1.000001', code: '000001', name: '上证指数', tx: 'sh000001'},
   {secid: '0.399001', code: '399001', name: '深证成指', tx: 'sz399001'},
   {secid: '0.399006', code: '399006', name: '创业板指', tx: 'sz399006'},
@@ -11,6 +27,9 @@ const INDEX_LIST = [
   {secid: '1.000905', code: '000905', name: '中证500', tx: 'sh000905'},
   {secid: '100.NDX', code: 'NDX', name: '纳斯达克100', tx: 'us.NDX', sinaUs: '.NDX'},
   {secid: '100.SPX', code: 'SPX', name: '标普500', tx: 'us.INX', sinaUs: '.INX'},
+  // 黄金看板：国内金（上金所现货，元/克）实时+历史都走东财；国际金（伦敦金现，美元/盎司）实时+历史都走新浪（同源一致）
+  {secid: '118.AU9999', code: 'AU9999', name: '黄金9999', emKline: true},
+  {secid: 'XAU', code: 'XAU', name: '伦敦金', sinaFx: 'XAU'},
 ]
 
 const RANGE_CALENDAR_DAYS: Record<string, number> = {
@@ -65,24 +84,65 @@ export function isUsIndexCode(code: string): boolean {
   return INDEX_LIST.some((i) => i.sinaUs && i.code === code)
 }
 
+/** 新浪外盘实时行情（如伦敦金 hf_XAU，GBK 编码），字段布局与 gds_AU9999 相同 */
+async function fetchSinaFxQuote(symbol: string, code: string, name: string) {
+  const hf = `hf_${symbol}`
+  const buf = await httpGet(`https://hq.sinajs.cn/list=${hf}`, {
+    responseType: 'arraybuffer',
+    headers: {Referer: 'https://finance.sina.com.cn/'},
+    timeout: 10000,
+  })
+  const text = new TextDecoder('gbk').decode(buf as ArrayBuffer)
+  const m = text.match(new RegExp(`hq_str_${hf}="([^"]*)"`))
+  if (!m || !m[1]) throw new Error(`解析 ${symbol} 行情失败`)
+  const parts = m[1].split(',')
+  const price = parseFloat(parts[0])
+  const prevClose = parseFloat(parts[7])
+  const percent =
+    Number.isFinite(price) && Number.isFinite(prevClose) && prevClose !== 0
+      ? ((price - prevClose) / prevClose) * 100
+      : null
+  const change =
+    Number.isFinite(price) && Number.isFinite(prevClose) ? price - prevClose : null
+  return {
+    code,
+    name,
+    percent: percent == null ? null : round4(percent),
+    price: Number.isFinite(price) ? price : null,
+    change: change == null ? null : round4(change),
+  }
+}
+
 export async function getIndices(scope: IndexScope = 'all') {
   const list = INDEX_LIST.filter((i) =>
     scope === 'all' ? true : scope === 'us' ? !!i.sinaUs : !i.sinaUs,
   )
-  const secids = list.map((i) => i.secid).join(',')
-  const data = await eastmoneyGet(
-    '/api/qt/ulist.np/get',
-    {
-      fltt: 2,
-      invt: 2,
-      fields: 'f2,f3,f4,f12,f14',
-      secids,
-    },
-    PUSH_HOSTS,
-  )
+  // 东财 ulist 批量拉非新浪外盘条目；新浪外盘（伦敦金）单独走 hq.sinajs.cn
+  const emList = list.filter((i) => !i.sinaFx)
+  const fxList = list.filter((i) => !!i.sinaFx)
+  const [data, ...fxQuotes] = await Promise.all([
+    emList.length
+      ? eastmoneyGet(
+          '/api/qt/ulist.np/get',
+          {
+            fltt: 2,
+            invt: 2,
+            fields: 'f2,f3,f4,f12,f14',
+            secids: emList.map((i) => i.secid).join(','),
+          },
+          PUSH_HOSTS,
+        )
+      : Promise.resolve(null),
+    ...fxList.map((i) =>
+      fetchSinaFxQuote(i.sinaFx!, i.code, i.name).catch((e) => {
+        console.warn(`[fund01] fetchSinaFxQuote 失败 ${i.sinaFx}`, e)
+        return null
+      }),
+    ),
+  ])
   const diff = data?.data?.diff || []
   const byCode = new Map<string, any>(diff.map((d: any) => [String(d.f12), d]))
-  return list.map((item) => {
+  const emItems = emList.map((item) => {
     const row = byCode.get(item.code) || byCode.get(item.secid.split('.')[1])
     const percent = row?.f3
     const change = row?.f4
@@ -94,6 +154,7 @@ export async function getIndices(scope: IndexScope = 'all') {
       change: typeof change === 'number' ? change : null,
     }
   })
+  return [...emItems, ...fxQuotes.filter((q): q is NonNullable<typeof q> => !!q)]
 }
 
 export async function getSectorBoards({sort = 'desc', size = 10} = {}) {
@@ -230,6 +291,76 @@ async function fetchSinaUsDaily(symbol: string, limit: number) {
   return mapped.slice(-limit)
 }
 
+/** 东财日K（klt=101，fqt=1 不复权）：国内金 118.AU9999 用 */
+async function fetchEastmoneyDaily(secid: string, limit: number) {
+  const hosts = [
+    'https://push2his.eastmoney.com',
+    'https://push2delay.eastmoney.com',
+    'https://push2.eastmoney.com',
+  ]
+  let lastErr: any
+  for (const host of hosts) {
+    try {
+      const data = await httpGet(`${host}/api/qt/stock/kline/get`, {
+        params: {
+          secid,
+          klt: 101,
+          fqt: 1,
+          end: '20500101',
+          lmt: limit,
+          fields1: 'f1,f2,f3,f4,f5,f6',
+          fields2: 'f51,f52,f53,f54,f55,f56,f57,f58',
+        },
+        headers: {Referer: 'https://quote.eastmoney.com/'},
+        timeout: 12000,
+      })
+      const klines: string[] = data?.data?.klines || []
+      const points = klines
+        .map((line: string) => {
+          const [date, , close] = line.split(',')
+          const c = parseFloat(close)
+          return {date, close: Number.isFinite(c) ? c : null}
+        })
+        .filter((p: any) => p.date && p.close != null)
+      if (points.length) return points
+    } catch (e) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchEastmoneyDaily 失败 host=${host}`, msg)
+    }
+  }
+  throw lastErr || new Error(`东财 ${secid} K线失败`)
+}
+
+/** 新浪外盘日K（GlobalFuturesService，JSONP）：伦敦金 XAU 用，返回升序取末 limit 条 */
+async function fetchSinaFxDaily(symbol: string, limit: number) {
+  const text = await httpGet(
+    'https://stock.finance.sina.com.cn/futures/api/jsonp.php/var%20gc=/GlobalFuturesService.getGlobalFuturesDailyKLine',
+    {
+      params: {symbol},
+      responseType: 'text',
+      headers: {Referer: 'https://finance.sina.com.cn/'},
+      timeout: 15000,
+    },
+  )
+  const start = (text as string).indexOf('[')
+  const end = (text as string).lastIndexOf(']')
+  if (start < 0 || end <= start) return []
+  let rows: any[] = []
+  try {
+    rows = JSON.parse((text as string).slice(start, end + 1))
+  } catch {
+    return []
+  }
+  const points = rows
+    .map((row: any) => {
+      const close = parseFloat(row.close)
+      return {date: row.date, close: Number.isFinite(close) ? close : null}
+    })
+    .filter((p: any) => p.date && p.close != null)
+  return points.slice(-limit)
+}
+
 export async function getIndexHistory(code: string, range = '1m') {
   const meta = findIndexMeta(code)
   if (!meta) throw new Error(`未知指数 ${code}`)
@@ -259,16 +390,39 @@ export async function getIndexHistory(code: string, range = '1m') {
       console.warn(`[fund01] fetchSinaCnDaily 失败 sina=${(meta as any).sina}`, msg)
     }
   }
-  if ((points.length < 10 || key === '3y') && (meta as any).sinaUs) {
+  if ((points.length < 10 || key === '3y') && meta.sinaUs) {
     try {
-      const usPoints = await fetchSinaUsDaily((meta as any).sinaUs, limit)
+      const usPoints = await fetchSinaUsDaily(meta.sinaUs, limit)
       if (usPoints.length > points.length) {
         points = usPoints
         source = 'sina-us'
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      console.warn(`[fund01] fetchSinaUsDaily 失败 sinaUs=${(meta as any).sinaUs}`, msg)
+      console.warn(`[fund01] fetchSinaUsDaily 失败 sinaUs=${meta.sinaUs}`, msg)
+    }
+  }
+
+  // 黄金看板：国内金（AU9999）走东财日K，国际金（伦敦金）走新浪外盘日K
+  if (points.length < 10 && meta.emKline) {
+    try {
+      points = await fetchEastmoneyDaily(meta.secid, limit)
+      source = 'eastmoney'
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchEastmoneyDaily 失败 secid=${meta.secid}`, msg)
+    }
+  }
+  if (points.length < 10 && meta.sinaFx) {
+    try {
+      const fxPoints = await fetchSinaFxDaily(meta.sinaFx, limit)
+      if (fxPoints.length > points.length) {
+        points = fxPoints
+        source = 'sina-fx'
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchSinaFxDaily 失败 symbol=${meta.sinaFx}`, msg)
     }
   }
 

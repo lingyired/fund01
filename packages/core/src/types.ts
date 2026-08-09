@@ -158,6 +158,9 @@ export const AVAILABLE_INDICES: IndexMeta[] = [
   {code: '000905', name: '中证500'},
   {code: 'NDX', name: '纳斯达克100'},
   {code: 'SPX', name: '标普500'},
+  // 黄金看板：国内金（上金所 AU9999 现货，元/克）与国际金（伦敦金现，美元/盎司）
+  {code: 'AU9999', name: '黄金9999'},
+  {code: 'XAU', name: '伦敦金'},
 ]
 
 /** 扩展程序角标（badge）显示方式 */
