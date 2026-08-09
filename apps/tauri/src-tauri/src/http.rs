@@ -113,27 +113,6 @@ pub async fn http_get_text(
     res.text().await.map_err(|e| format!("读取响应失败({url}): {e}"))
 }
 
-pub async fn http_get_bytes(
-    url: &str,
-    query: &HashMap<String, String>,
-    ua: &str,
-    referer: Option<&str>,
-    timeout: Duration,
-) -> Result<Vec<u8>, String> {
-    let mut final_url = url.to_string();
-    if !query.is_empty() {
-        let qs = query
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
-        final_url.push('?');
-        final_url.push_str(&qs);
-    }
-    let res = send(&final_url, &headers(ua, referer), timeout).await?;
-    res.bytes().await.map(|b| b.to_vec()).map_err(|e| format!("读取响应失败({url}): {e}"))
-}
-
 pub async fn http_post_json(
     url: &str,
     body: &Value,
@@ -203,10 +182,4 @@ pub async fn retry_3(
         tokio::time::sleep(Duration::from_millis(400 * (i as u64 + 1))).await;
     }
     Err(last_err.unwrap_or_else(|| format!("{label} 获取失败")))
-}
-
-/// GBK 解码（新浪黄金行情）
-pub fn gbk_decode(bytes: &[u8]) -> String {
-    let (cow, _, _) = encoding_rs::GBK.decode(bytes);
-    cow.into_owned()
 }

@@ -39,10 +39,7 @@ UI 与具体运行时（Chrome / Tauri）之间通过四个接口解耦。接口
 export interface DataPort {
   triggerRefresh(): Promise<void>
   fetchHoldings(): Promise<HoldingsPayload>
-  fetchWatchlist(): Promise<WatchlistPayload>
   fetchIndices(): Promise<IndexItem[]>
-  fetchMarketOverview(): Promise<MarketOverview | null>
-  fetchGold(): Promise<GoldPayload | null>
   fetchFundHistory(code: string, count?: number): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
@@ -85,7 +82,7 @@ export interface EventPort {
 **设计动机**：
 
 - 统一 Chrome `chrome.storage.onChanged` 与 Tauri `listen` 两种事件机制
-- 后端刷新完成后推送 `QuoteUpdate`（含 holdings / watchlist / indices / market / gold / time），UI 增量更新 state
+- 后端刷新完成后推送 `QuoteUpdate`（含 holdings / indices / time），UI 增量更新 state
 - Chrome 实现：监听 `chrome.storage.onChanged` 的 `cache-time` 变化，触发时一次性读所有 `cache-*` 组装 `QuoteUpdate`
 - Tauri 实现（未来）：`listen('quote-update', ...)`
 
@@ -111,34 +108,30 @@ export interface WindowPort {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Service Worker (Chrome) / Rust 后端 (Tauri)                 │
-│                                                             │
-│  chrome.alarms 触发 / tokio::interval                       │
-│           │                                                 │
-│           ▼                                                 │
-│  读配置 (chrome.storage.local['session-config'])             │
-│           │                                                 │
-│           ▼                                                 │
-│  Promise.allSettled([                                       │
-│    getFundsQuotes(holdFunds),     ← @fund01/services        │
-│    getFundsQuotes(watchFunds),                              │
-│    getIndices(),                                            │
-│    getMarketOverview(),                                     │
-│    getGoldRealtime(config.gold),                           │
-│  ])                                                         │
-│           │                                                 │
-│           ▼                                                 │
-│  后端合并计算（@fund01/core）:                                │
-│    holdingsResult  = calcHoldings(holdFunds, quotes)        │
-│    watchlistResult = mergeWatchlist(watchFunds, quotes)     │
-│           │                                                 │
-│           ▼                                                 │
-│  写 chrome.storage.local:                                   │
-│    cache-holdings, cache-watchlist, cache-indices,          │
-│    cache-market, cache-gold, cache-time                     │
-│           │                                                 │
-│           ▼                                                 │
-│  更新 badge: chrome.action.setBadgeText('↑0.8%')            │
+│ Service Worker (Chrome) / Rust 后端 (Tauri)           │
+│                                                     │
+│  chrome.alarms 触发 / tokio::interval                 │
+│           │                                         │
+│           ▼                                         │
+│  读配置 (chrome.storage.local['session-config'])       │
+│           │                                         │
+│           ▼                                         │
+│  Promise.allSettled([                               │
+│    getFundsQuotes(holdFunds),     ← @fund01/services│
+│    getIndices(),                                    │
+│  ])                                                 │
+│           │                                         │
+│           ▼                                         │
+│  后端合并计算（@fund01/core）:                              │
+│    holdingsResult  = calcHoldings(holdFunds, quotes)│
+│           │                                         │
+│           ▼                                         │
+│  写 chrome.storage.local:                            │
+│    cache-holdings, cache-indices,                   │
+│    cache-time                                       │
+│           │                                         │
+│           ▼                                         │
+│  更新 badge: chrome.action.setBadgeText('↑0.8%')      │
 └─────────────────────────────────────────────────────────────┘
                           │
                   chrome.storage.onChanged
@@ -153,7 +146,7 @@ export interface WindowPort {
 │  读取 cache-* 组装 QuoteUpdate                               │
 │           │                                                 │
 │           ▼                                                 │
-│  setHoldings / setWatchlist / setIndices / ... (增量更新)    │
+│  setHoldings / setIndices / ... (增量更新)    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -164,7 +157,7 @@ Popup 打开
    │
    ├──▶ ConfigPort.getConfig()           [同步读 localStorage，立即渲染框架]
    │
-   ├──▶ DataPort.fetchHoldings() / fetchWatchlist() / ...   [异步读 cache-*]
+   ├──▶ DataPort.fetchHoldings() / ...   [异步读 cache-*]
    │         │
    │         └──▶ setState，填充数据（避免等事件）
    │
@@ -200,7 +193,7 @@ fundOps.updateSettings(ports, patch)   [packages/ui/src/lib/fundOps.ts]
 |---|---|---|
 | 定时刷新 | `chrome.alarms`（SW 30s 唤醒，单次 `delayInMinutes` + 重排） | `tokio::time::interval`（常驻，无需重排） |
 | 数据请求 | `@fund01/services`（fetch） | Rust `reqwest` 或 JS sidecar 跑 services |
-| 合并计算 | SW 调 `@fund01/core` 的 `calcHoldings` / `mergeWatchlist` | Rust 重写或 sidecar 调 TS core |
+| 合并计算 | SW 调 `@fund01/core` 的 `calcHoldings` | Rust 重写或 sidecar 调 TS core |
 | 结果缓存 | `chrome.storage.local`（`cache-*` keys） | Rust 内存 + 文件 / Tauri store |
 | 事件推送 | `chrome.storage.onChanged`（监听 `cache-time`） | `app.emit('quote-update', payload)` + 前端 `listen` |
 | UI 拉取 | `chrome.runtime.sendMessage` → SW | `invoke('fetch_holdings')` → Rust command |
@@ -292,7 +285,7 @@ tsconfig 的 `paths` 字段只对 TypeScript 类型检查生效，rsbuild 打包
 
 ### 9.5 SW 合并计算结果的结构
 
-`mergeWatchlist` 返回 `{ list: WatchlistPayload, ... }`，SW 写 `cache-watchlist` 时取 `.list` 字段；`calcHoldings` 直接返回 `HoldingsPayload`。这是原 `lib/api.ts` 的实现细节，迁移时保持一致。
+`calcHoldings` 直接返回 `HoldingsPayload`（已含计算后的持仓收益率、市值等），SW 写 `cache-holdings`；指数行情（`getIndices`，含黄金 AU9999 / COMEX 黄金指数入口）直接写 `cache-indices`。这是原 `lib/api.ts` 迁移后的结构，与原先「合并计算在 SW」的设计保持一致。
 
 ### 9.6 市场时段过滤
 

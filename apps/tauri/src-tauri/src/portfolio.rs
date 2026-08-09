@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::model::{AppConfig, AppSettings, FundRecord, GoldConfig, RefreshInterval};
+use crate::model::{AppConfig, AppSettings, FundRecord, RefreshInterval};
 
 pub const DEFAULT_SELECTED_INDICES: [&str; 5] = ["000001", "399001", "399006", "000300", "NDX"];
 pub const MAX_SELECTED_INDICES: usize = 5;
@@ -19,7 +19,6 @@ pub const MIN_REFRESH_INTERVAL: RefreshInterval = RefreshInterval {
 pub fn default_config() -> AppConfig {
     AppConfig {
         settings: AppSettings {
-            show_gold: true,
             refresh_interval: Some(DEFAULT_REFRESH_INTERVAL),
             quote_source: Some("fundmnfinfo".to_string()),
             badge_mode: Some("percent".to_string()),
@@ -44,8 +43,6 @@ pub fn default_config() -> AppConfig {
             menubar_fall_color: Some("#34C759".to_string()),
         },
         holdings: HashMap::new(),
-        watchlist: HashMap::new(),
-        gold: GoldConfig::default(),
     }
 }
 
@@ -218,9 +215,8 @@ pub fn normalize_fund_map(source: &serde_json::Value, fallback_type: &str) -> Ha
 /// 配置归一化（对应 normalizeConfig，兼容旧 funds 字段）
 pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let mut holdings: HashMap<String, FundRecord> = HashMap::new();
-    let mut watchlist: HashMap<String, FundRecord> = HashMap::new();
 
-    // 旧格式：单一 funds map
+    // 旧格式：单一 funds map（兼容迁移；type != "hold" 的旧自选条目不再纳入持仓）
     if let Some(funds) = payload.get("funds").and_then(|v| v.as_object()) {
         for (key, raw) in funds {
             let code_raw = raw.get("code").and_then(|v| v.as_str()).unwrap_or(key);
@@ -234,11 +230,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
                 o.insert("code".to_string(), serde_json::Value::String(code));
                 o.insert("type".to_string(), serde_json::Value::String(t.to_string()));
             }
-            if let Some(f) = normalize_fund(&copy, None, t) {
-                if t == "hold" {
+            if t == "hold" {
+                if let Some(f) = normalize_fund(&copy, None, t) {
                     holdings.insert(f.code.clone(), f);
-                } else {
-                    watchlist.insert(f.code.clone(), f);
                 }
             }
         }
@@ -247,9 +241,6 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     // 新格式覆盖
     for (k, v) in normalize_fund_map(&payload.get("holdings").cloned().unwrap_or(serde_json::Value::Null), "hold") {
         holdings.insert(k, v);
-    }
-    for (k, v) in normalize_fund_map(&payload.get("watchlist").cloned().unwrap_or(serde_json::Value::Null), "watch") {
-        watchlist.insert(k, v);
     }
 
     // holdingGroups：去重 + 去空白 + 保序
@@ -373,9 +364,6 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         .unwrap_or_default();
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
-    let show_gold = settings_raw
-        .and_then(|s| s.get("showGold").and_then(|v| v.as_bool()))
-        .unwrap_or(true);
     let quote_source = if settings_raw.and_then(|s| s.get("quoteSource").and_then(|v| v.as_str())) == Some("fund123") {
         "fund123".to_string()
     } else {
@@ -419,14 +407,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             .as_ref(),
     );
 
-    let gold = GoldConfig {
-        holding: payload.pointer("/gold/holding").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        avg_price: payload.pointer("/gold/avgPrice").and_then(|v| v.as_f64()).unwrap_or(0.0),
-    };
-
     AppConfig {
         settings: AppSettings {
-            show_gold,
             refresh_interval: Some(refresh_interval),
             quote_source: Some(quote_source),
             badge_mode: Some(badge_mode),
@@ -451,8 +433,6 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_fall_color: Some(menubar_fall_color),
         },
         holdings,
-        watchlist,
-        gold,
     }
 }
 

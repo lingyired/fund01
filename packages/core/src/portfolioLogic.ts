@@ -48,7 +48,6 @@ export function normalizeFontFamily(v: unknown, fallback: string): string {
 
 export const DEFAULT_CONFIG: AppConfig = {
   settings: {
-    showGold: true,
     refreshInterval: {...DEFAULT_REFRESH_INTERVAL},
     quoteSource: 'fundmnfinfo',
     badgeMode: 'percent',
@@ -72,8 +71,6 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
   },
   holdings: {},
-  watchlist: {},
-  gold: {holding: 0, avgPrice: 0},
 }
 
 /** 把用户配置的刷新间隔夹到合法区间 */
@@ -166,7 +163,7 @@ export function normalizeFund(
 
 type FundMap = Record<string, FundRecord>
 
-/** 把一个基金 map 归一化，强制指定 type（用于 holdings/watchlist 两个独立集合） */
+/** 把一个基金 map 归一化，强制指定 type（用于 holdings 集合） */
 export function normalizeFundMap(
   source: any,
   fallbackType: 'hold' | 'watch',
@@ -253,9 +250,8 @@ export function normalizeMenubarGroupColors(
 }
 
 export function normalizeConfig(payload: LegacyAppConfig | null | undefined): AppConfig {
-  // 兼容旧格式：单一 funds map（按 type 字段拆分到 holdings / watchlist）
+  // 兼容旧格式：单一 funds map（仅纳入 type='hold' 的持仓；旧自选条目不再迁移）
   const holdings: FundMap = {}
-  const watchlist: FundMap = {}
 
   const legacyFunds =
     payload?.funds && typeof payload.funds === 'object' ? (payload.funds as FundMap) : null
@@ -263,18 +259,18 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
     for (const [key, raw] of Object.entries(legacyFunds)) {
       const code = String(raw?.code || key).padStart(6, '0')
       if (!/^\d{6}$/.test(code)) continue
-      const type: 'hold' | 'watch' = raw?.type === 'hold' ? 'hold' : 'watch'
-      ;(type === 'hold' ? holdings : watchlist)[code] = normalizeFund(
-        {...raw, code, type},
-        undefined,
-        type,
-      )
+      if (raw?.type === 'hold') {
+        holdings[code] = normalizeFund(
+          {...raw, code, type: 'hold'},
+          undefined,
+          'hold',
+        )
+      }
     }
   }
 
-  // 新格式：holdings / watchlist 两个独立集合（覆盖旧格式同名条目）
+  // 新格式：holdings 集合
   Object.assign(holdings, normalizeFundMap(payload?.holdings, 'hold'))
-  Object.assign(watchlist, normalizeFundMap(payload?.watchlist, 'watch'))
 
   // 归一化 holdingGroups：去重 + 去空白 + 保序
   const holdingGroups: string[] = []
@@ -301,10 +297,6 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
 
   return {
     settings: {
-      showGold:
-        typeof payload?.settings?.showGold === 'boolean'
-          ? payload.settings.showGold
-          : DEFAULT_CONFIG.settings.showGold,
       refreshInterval: clampRefreshInterval(payload?.settings?.refreshInterval),
       quoteSource:
         payload?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo',
@@ -395,10 +387,5 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       ),
     },
     holdings,
-    watchlist,
-    gold: {
-      holding: Number(payload?.gold?.holding ?? 0) || 0,
-      avgPrice: Number(payload?.gold?.avgPrice ?? 0) || 0,
-    },
   }
 }

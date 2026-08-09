@@ -5,14 +5,11 @@ const STORAGE_KEY = 'fund01-config'
 
 // storage key → QuoteUpdate 字段映射（onChanged 增量读取用）
 const CACHE_KEYS: Record<
-  'cache-holdings' | 'cache-watchlist' | 'cache-indices' | 'cache-market' | 'cache-gold' | 'cache-time',
-  'holdings' | 'watchlist' | 'indices' | 'market' | 'gold' | 'time'
+  'cache-holdings' | 'cache-indices' | 'cache-time',
+  'holdings' | 'indices' | 'time'
 > = {
   'cache-holdings': 'holdings',
-  'cache-watchlist': 'watchlist',
   'cache-indices': 'indices',
-  'cache-market': 'market',
-  'cache-gold': 'gold',
   'cache-time': 'time',
 }
 
@@ -38,7 +35,7 @@ export class ChromeEventPort implements EventPort {
       if (!changes['cache-time']) return
       const next: QuoteUpdate = this.lastQuote
         ? {...this.lastQuote}
-        : {holdings: null, watchlist: null, indices: null, market: null, gold: null, time: 0}
+        : {holdings: null, indices: null, time: 0}
       for (const key of Object.keys(CACHE_KEYS) as (keyof typeof CACHE_KEYS)[]) {
         const change = changes[key]
         if (!change) continue

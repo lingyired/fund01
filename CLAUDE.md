@@ -75,10 +75,7 @@ UI 首次打开主动拉一次缓存，避免等事件：
 export interface DataPort {
   triggerRefresh(): Promise<void>
   fetchHoldings(): Promise<HoldingsPayload>
-  fetchWatchlist(): Promise<WatchlistPayload>
   fetchIndices(): Promise<IndexItem[]>
-  fetchMarketOverview(): Promise<MarketOverview | null>
-  fetchGold(): Promise<GoldPayload | null>
   fetchFundHistory(code: string, count?: number): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
@@ -178,9 +175,9 @@ export interface EventPort {
 
 1. **两个动态 alarm**（日盘 / 夜盘）：`chrome.alarms.create` 用单次 `delayInMinutes`，每次触发后只重排自身，按窗口判定（日盘 `isDayMarketActive` 09:00–15:30 / 夜盘 `isNightMarketActive` 20:00–次日 04:00）自动切换 trading / nonTrading 间隔
 2. **配置驱动**：SW 通过 `chrome.storage.onChanged` 监听 `session-config` 变化（前端 `ConfigPort.saveConfig` 写入），自动按新间隔重排两个 alarm
-3. **市场时段过滤**：用 `shouldRefreshFund` / `shouldRefreshAShareMarket` / `isGoldDaySession` / `shouldRefreshUSIndex` / `isGoldNightSession` 跳过非交易时段的数据源（保留旧缓存，避免无谓请求）；日盘 alarm 只刷基金+A股指数+大盘+黄金日盘，夜盘 alarm 只刷 NDX/SPX+黄金夜盘；指数看板无美股指数则不拉美股、无黄金持仓则不拉黄金（夜盘 alarm 退化为低频空转）
+3. **市场时段过滤**：用 `shouldRefreshFund` / `shouldRefreshAShareMarket` / `isGoldDaySession` / `shouldRefreshUSIndex` / `isGoldNightSession` 跳过非交易时段的数据源（保留旧缓存，避免无谓请求）；日盘 alarm 只刷基金 + A 股指数（含黄金 AU9999 / COMEX 黄金指数入口），夜盘 alarm 只刷美股指数（NDX/SPX）；指数看板无美股指数则不拉美股（夜盘 alarm 退化为低频空转）
 4. **并发拉取**：`Promise.allSettled` 并发拉取基金 / 指数 / 大盘 / 黄金，任一失败不影响其他
-5. **后端合并计算**（关键）：SW 调 `@fund01/core` 的 `calcHoldings` / `mergeWatchlist` 把行情与配置合并成 UI 可直接渲染的 payload，结果写 `chrome.storage.local` 的 `cache-*` keys
+5. **后端合并计算**（关键）：SW 调 `@fund01/core` 的 `calcHoldings` 把行情与配置合并成 UI 可直接渲染的 payload，结果写 `chrome.storage.local` 的 `cache-*` keys
 6. **badge 更新**：合并完成后用 `chrome.action.setBadgeText` 显示持仓总收益率（如 `↑0.8%` / `-1.2%`），颜色红涨绿跌
 7. **消息分发**：`chrome.runtime.onMessage` 处理 `REFRESH` / `FETCH_FUND_HISTORY` / `FETCH_INDEX_HISTORY` / `FETCH_FUND_INTRADAY` / `RESOLVE_FUND` 等同步类请求（DataPort 转发到此）
 

@@ -157,59 +157,6 @@ export async function getIndices(scope: IndexScope = 'all') {
   })
 }
 
-export async function getSectorBoards({sort = 'desc', size = 10} = {}) {
-  const data = await eastmoneyGet(
-    '/api/qt/clist/get',
-    {
-      pn: 1,
-      pz: 80,
-      po: sort === 'asc' ? 0 : 1,
-      np: 1,
-      fltt: 2,
-      invt: 2,
-      fid: 'f3',
-      fs: 'm:90+t:2',
-      fields: 'f12,f14,f2,f3',
-    },
-    PUSH_HOSTS,
-  )
-  const list = (data?.data?.diff || [])
-    .map((d: any) => ({
-      code: d.f12,
-      name: d.f14,
-      percent: typeof d.f3 === 'number' ? d.f3 : null,
-    }))
-    .filter((d: any) => d.percent != null)
-    .sort((a: any, b: any) => (sort === 'asc' ? a.percent - b.percent : b.percent - a.percent))
-    .slice(0, size)
-  return list
-}
-
-export async function getUpDownStats() {
-  const data = await httpGet('https://emdatah5.eastmoney.com/dc/NXFXB/GetUpDownData', {
-    params: {type: 0},
-    headers: {Referer: 'https://emdatah5.eastmoney.com/'},
-    timeout: 12000,
-  })
-  const row = Array.isArray(data) ? data[0] : data?.[0]
-  if (!row) return {up: 0, down: 0, flat: 0, time: null}
-  return {
-    up: Number(row.up) || 0,
-    down: Number(row.down) || 0,
-    flat: Number(row.t) || 0,
-    time: row.time || null,
-  }
-}
-
-export async function getMarketOverview() {
-  const [upDown, topGainers, topLosers] = await Promise.all([
-    getUpDownStats(),
-    getSectorBoards({sort: 'desc', size: 10}),
-    getSectorBoards({sort: 'asc', size: 10}),
-  ])
-  return {upDown, topGainers, topLosers}
-}
-
 function findIndexMeta(code: string) {
   const key = String(code || '').trim()
   return INDEX_LIST.find((i) => i.code === key || i.secid.endsWith(`.${key}`))

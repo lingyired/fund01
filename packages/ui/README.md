@@ -6,7 +6,7 @@ React 组件库，无运行时耦合。通过 `PortsContext` 接受 `DataPort` /
 
 | 文件 / 目录 | 内容 |
 |---|---|
-| `App.tsx` | 主界面：持仓 + 自选 + 指数 + 大盘 + 黄金，含主题切换、版本号显示 |
+| `App.tsx` | 主界面：持仓 + 指数（含黄金 AU9999 指数入口），含主题切换、版本号显示 |
 | `context.ts` | `PortsContext` + `usePorts()` hook |
 | `hooks.ts` | `useMarketData()`：订阅 `EventPort.onQuoteUpdate` + 首次拉 `DataPort` |
 | `theme.ts` | 主题（亮 / 暗）切换与持久化 |
@@ -57,7 +57,7 @@ import { useMarketData } from '../hooks'
 
 function MyComponent() {
   const { data, config, event } = usePorts()
-  const { holdings, watchlist, indices, market, gold, lastUpdate, loading, refresh } = useMarketData()
+  const { holdings, indices, lastUpdate, loading, refresh } = useMarketData()
   // ...
 }
 ```
@@ -69,7 +69,6 @@ function MyComponent() {
 - `createFund(ports, payload)` — 录入基金（含金额反推份额、成本反推）
 - `updateFund(ports, code, payload, type)` — 更新基金
 - `removeFund(ports, code, type)` — 删除基金
-- `updateGoldConfig(ports, payload)` — 更新黄金配置
 - `fetchSettings(ports)` / `updateSettings(ports, patch)` — 设置读写
 - `listFunds(ports, type?)` / `listHoldingGroups(ports)` — 查询
 - `addHoldingGroup` / `removeHoldingGroup` / `removeHoldingGroupWithFunds` / `renameHoldingGroup` — 分组管理
@@ -98,9 +97,6 @@ const handleCreate = async () => {
 | 组件 | 职责 |
 |---|---|
 | `HoldingsModule` | 持仓列表（按分组展示，含收益率、市值） |
-| `WatchlistModule` | 自选列表 |
-| `MarketModules` | 指数 + 大盘 + 涨跌统计 |
-| `GoldHoldingsRow` | 黄金持仓行 |
 | `FundDetailDialog` | 基金详情弹窗（点击持仓弹窗） |
 | `FundTrendDialog` | 盘中估值走势图（echarts） |
 | `IndexTrendDialog` | 指数 K 线图（echarts） |

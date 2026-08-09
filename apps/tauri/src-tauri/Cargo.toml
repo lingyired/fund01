@@ -22,7 +22,6 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"] }
 chrono = "0.4"
 regex = "1"
-encoding_rs = "0.8"
 futures = "0.3"
 # 多行 menubar 插件（用户自研）：固定 GitHub v1.4.0（新增 setMonospaced 等宽数字渲染 + render dedup 缓存，现有 API 向后兼容），与本地工作区解耦
 tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.4.0" }

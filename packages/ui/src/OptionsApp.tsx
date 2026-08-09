@@ -2107,9 +2107,8 @@ function DataBackupSection() {
       const parsed = JSON.parse(text) as AppConfig & {funds?: unknown}
       const hasFunds = parsed?.funds && typeof parsed.funds === 'object'
       const hasHoldings = parsed?.holdings && typeof parsed.holdings === 'object'
-      const hasWatchlist = parsed?.watchlist && typeof parsed.watchlist === 'object'
-      if (!hasFunds && !hasHoldings && !hasWatchlist) {
-        throw new Error('文件缺少 holdings/watchlist 字段')
+      if (!hasFunds && !hasHoldings) {
+        throw new Error('文件缺少 holdings 字段')
       }
       await importConfig(ports, parsed)
       setMessage('配置已导入（覆盖了本机配置）')
@@ -2143,9 +2142,9 @@ function DataBackupSection() {
     setError('')
     setMessage('')
     try {
-      // 重置为出厂默认：持仓/自选/黄金/设置全清（saveConfig 已 await，落库完成才继续）
+      // 重置为出厂默认：持仓与设置全清（saveConfig 已 await，落库完成才继续）
       await resetConfig(ports)
-      // 清行情缓存并强制刷新：popup 的持仓/自选来自 SW 按旧 config 写入的 cache-* 缓存，
+      // 清行情缓存并强制刷新：popup 的持仓来自 SW 按旧 config 写入的 cache-* 缓存，
       // 必须清掉并按新 config 重建，否则 popup 仍显示旧持仓（非交易时段 alarm 不会自动刷新）。
       // Tauri 无缓存概念（fetchHoldings 实时按 config 算）→ 回退仅强制刷新。
       // 此处失败不阻断重置：cache-* 已先被移除，即使网络拉取失败，popup 也会读到空数据。
@@ -2168,7 +2167,7 @@ function DataBackupSection() {
   return (
     <SectionCard title="数据备份">
       <p className="text-xs text-muted">
-        持仓、自选、黄金与开关保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
+        持仓与设置保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={handleExport}>
@@ -2212,8 +2211,7 @@ function DataBackupSection() {
             <AlertDialog.Description>
               <p>将清空以下内容，且无法撤销：</p>
               <ul className="mt-1 list-inside list-disc text-sm text-ink">
-                <li>全部持仓与自选基金</li>
-                <li>黄金持仓与平均成本</li>
+                <li>全部持仓基金</li>
                 <li>所有设置（主题、菜单栏、角标、刷新频率等）</li>
               </ul>
               <p className="mt-2">如有需要，请先在上方「导出配置」备份。</p>

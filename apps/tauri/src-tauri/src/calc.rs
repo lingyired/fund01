@@ -242,51 +242,6 @@ pub fn calc_holdings(
     (HoldingsPayload { summary, list: rows }, persist_patches)
 }
 
-/// 自选合并（对应 mergeWatchlist）
-pub fn merge_watchlist(
-    local_funds: &[FundRecord],
-    quotes: &[FundQuote],
-) -> (Vec<FundQuoteRow>, Vec<PersistPatch>) {
-    let quote_map: std::collections::HashMap<&str, &FundQuote> =
-        quotes.iter().map(|q| (q.code.as_str(), q)).collect();
-    let mut persist_patches = Vec::new();
-    let list = local_funds
-        .iter()
-        .map(|f| {
-            let q = quote_map.get(f.code.as_str()).copied().unwrap_or(&EMPTY_QUOTE);
-            let sectors = if !f.sectors.is_empty() {
-                f.sectors.clone()
-            } else if !q.sectors.is_empty() {
-                q.sectors.clone()
-            } else {
-                vec![]
-            };
-            if f.sectors.is_empty() && !sectors.is_empty() {
-                persist_patches.push(PersistPatch { code: f.code.clone(), sectors: Some(sectors.clone()) });
-            }
-            let mut row_fund = f.clone();
-            if !q.name.is_empty() {
-                row_fund.name = q.name.clone();
-            }
-            if !q.fund_key.is_empty() {
-                row_fund.fund_key = Some(q.fund_key.clone());
-            }
-            row_fund.sectors = sectors;
-            FundQuoteRow {
-                fund: row_fund,
-                percent: q.percent.or(q.estimate_growth).or(q.day_growth),
-                estimate_growth: q.estimate_growth,
-                day_growth: q.day_growth,
-                time: q.time.clone(),
-                trend: q.trend.clone(),
-                is_qdii: q.is_qdii,
-                ..Default::default()
-            }
-        })
-        .collect();
-    (list, persist_patches)
-}
-
 static EMPTY_QUOTE: FundQuote = FundQuote {
     code: String::new(),
     name: String::new(),

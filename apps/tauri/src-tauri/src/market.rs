@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::http::{self, DESKTOP_UA};
-use crate::model::{IndexHistoryPayload, IndexHistoryPoint, IndexItem, MarketOverview, SectorItem, UpDownStats};
+use crate::model::{IndexHistoryPayload, IndexHistoryPoint, IndexItem};
 
 const PUSH_HOSTS: &[&str] = &[
     "https://push2delay.eastmoney.com",
@@ -154,93 +154,6 @@ async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
             }
         })
         .collect()
-}
-
-/// 板块排行（对应 getSectorBoards）
-async fn get_sector_boards(sort: &str, size: usize) -> Vec<SectorItem> {
-    let query = http::params(&[
-        ("pn", "1"),
-        ("pz", "80"),
-        ("po", if sort == "asc" { "0" } else { "1" }),
-        ("np", "1"),
-        ("fltt", "2"),
-        ("invt", "2"),
-        ("fid", "f3"),
-        ("fs", "m:90+t:2"),
-        ("fields", "f12,f14,f2,f3"),
-    ]);
-    let data = match http::eastmoney_get("/api/qt/clist/get", &query, PUSH_HOSTS).await {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[fund01] getSectorBoards 失败: {e}");
-            return vec![];
-        }
-    };
-    let mut list: Vec<SectorItem> = data
-        .pointer("/data/diff")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|d| {
-            let code = d.get("f12").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let name = d.get("f14").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let percent = d.get("f3").and_then(|v| v.as_f64());
-            if code.is_empty() || percent.is_none() {
-                None
-            } else {
-                Some(SectorItem { code, name, percent })
-            }
-        })
-        .collect();
-    list.sort_by(|a, b| {
-        let cmp = a.percent.partial_cmp(&b.percent).unwrap_or(std::cmp::Ordering::Equal);
-        if sort == "asc" {
-            cmp
-        } else {
-            cmp.reverse()
-        }
-    });
-    list.truncate(size);
-    list
-}
-
-/// 涨跌家数（对应 getUpDownStats，emdatah5）
-async fn get_up_down_stats() -> UpDownStats {
-    let query = http::params(&[("type", "0")]);
-    match http::http_get_json(
-        "https://emdatah5.eastmoney.com/dc/NXFXB/GetUpDownData",
-        &query,
-        DESKTOP_UA,
-        Some("https://emdatah5.eastmoney.com/"),
-        Duration::from_secs(12),
-    )
-    .await
-    {
-        Ok(data) => {
-            let row = data.as_array().and_then(|a| a.first()).cloned().unwrap_or(Value::Null);
-            UpDownStats {
-                up: row.get("up").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32,
-                down: row.get("down").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32,
-                flat: row.get("t").and_then(|v| v.as_f64()).unwrap_or(0.0) as u32,
-                time: row.get("time").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            }
-        }
-        Err(e) => {
-            eprintln!("[fund01] getUpDownStats 失败: {e}");
-            UpDownStats::default()
-        }
-    }
-}
-
-/// 大盘总览（对应 getMarketOverview）
-pub async fn get_market_overview() -> MarketOverview {
-    let (up_down, top_gainers, top_losers) = futures::join!(
-        get_up_down_stats(),
-        get_sector_boards("desc", 10),
-        get_sector_boards("asc", 10),
-    );
-    MarketOverview { up_down, top_gainers, top_losers }
 }
 
 // ----------------------------- 指数历史 K 线 -----------------------------

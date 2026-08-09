@@ -256,34 +256,3 @@ export function calcHoldings(
   }
 }
 
-export function mergeWatchlist(
-  localFunds: FundRecord[],
-  quotes: QuoteLike[],
-): {list: FundQuoteRow[]; persistPatches: Array<{code: string; sectors?: string[]}>} {
-  const quoteMap = new Map(quotes.map((q) => [q.code, q]))
-  const persistPatches: Array<{code: string; sectors?: string[]}> = []
-  const list = localFunds.map((f) => {
-    const q = quoteMap.get(f.code) || ({} as QuoteLike)
-    const sectors = f.sectors?.length
-      ? f.sectors
-      : q.sectors?.length
-        ? q.sectors
-        : []
-    if (!f.sectors?.length && sectors.length) {
-      persistPatches.push({code: f.code, sectors})
-    }
-    return {
-      ...f,
-      name: q.name || f.name,
-      // 同 calcHoldings：不回退 dayGrowth（QDII 未披露日 percent 有意为 null → 显示「-」）
-      percent: q.percent ?? q.estimateGrowth ?? null,
-      estimateGrowth: q.estimateGrowth,
-      dayGrowth: q.dayGrowth,
-      time: q.time,
-      trend: q.trend || [],
-      sectors,
-      isQdii: q.isQdii,
-    } as FundQuoteRow
-  })
-  return {list, persistPatches}
-}

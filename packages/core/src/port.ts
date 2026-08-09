@@ -3,15 +3,12 @@ import type {
   FundHistoryPayload,
   FundHistoryRange,
   FundIntradayPayload,
-  GoldPayload,
   HoldingsPayload,
   IndexHistoryPayload,
   IndexItem,
   IntradayPoint,
-  MarketOverview,
   QuoteUpdate,
   ResolveFundPayload,
-  WatchlistPayload,
 } from './types'
 
 /** UI 数据访问抽象 —— 各 app 必须提供实现 */
@@ -25,16 +22,13 @@ export interface DataPort {
   clearCache?(): Promise<void>
   /** 持仓汇总（后端已合并行情 + 配置） */
   fetchHoldings(): Promise<HoldingsPayload>
-  fetchWatchlist(): Promise<WatchlistPayload>
   fetchIndices(): Promise<IndexItem[]>
-  fetchMarketOverview(): Promise<MarketOverview | null>
-  fetchGold(): Promise<GoldPayload | null>
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
   resolveFund(payload: {
     code: string
-    type?: 'hold' | 'watch'
+    type?: 'hold'
     name?: string
     sectors?: string[]
   }): Promise<ResolveFundPayload>

@@ -30,23 +30,8 @@ pub fn fetch_holdings(state: State<AppState>) -> Option<HoldingsPayload> {
 }
 
 #[tauri::command]
-pub fn fetch_watchlist(state: State<AppState>) -> Option<Vec<FundQuoteRow>> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.watchlist.clone())
-}
-
-#[tauri::command]
 pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
     state.quote.read().unwrap().as_ref().and_then(|q| q.indices.clone()).unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn fetch_market_overview(state: State<AppState>) -> Option<MarketOverview> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.market.clone())
-}
-
-#[tauri::command]
-pub fn fetch_gold(state: State<AppState>) -> Option<GoldPayload> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.gold.clone())
 }
 
 #[tauri::command]
@@ -101,7 +86,7 @@ pub fn get_config(state: State<AppState>) -> AppConfig {
 
 /// 判断配置变更是否「仅涉及菜单栏展示」（隐藏分组 / 布局 / 字号 / 数值显示）。
 /// 此类变更不改变行情数据口径，保存后无需触发行情刷新。
-/// 注意比较的是整个 AppConfig：持仓/自选/黄金/分组等任何数据口径变更都会触发刷新，
+/// 注意比较的是整个 AppConfig：持仓/分组等任何数据口径变更都会触发刷新，
 /// 保证「修改持仓后 menubar（及 badge/列表）能随最新配置实时更新」。
 fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     let mut a = old.clone();

@@ -2,10 +2,7 @@ import {useCallback, useEffect, useState} from 'react'
 import {usePorts} from './context'
 import type {
   HoldingsPayload,
-  WatchlistPayload,
   IndexItem,
-  MarketOverview,
-  GoldPayload,
   QuoteUpdate,
 } from '@fund01/core'
 
@@ -13,10 +10,7 @@ import type {
 export function useMarketData() {
   const {data, event} = usePorts()
   const [holdings, setHoldings] = useState<HoldingsPayload | null>(null)
-  const [watchlist, setWatchlist] = useState<WatchlistPayload | null>(null)
   const [indices, setIndices] = useState<IndexItem[]>([])
-  const [market, setMarket] = useState<MarketOverview | null>(null)
-  const [gold, setGold] = useState<GoldPayload | null>(null)
   const [lastUpdate, setLastUpdate] = useState<number>(0)
   const [loading, setLoading] = useState(true)
 
@@ -24,17 +18,11 @@ export function useMarketData() {
     // 1. 首次拉缓存
     Promise.all([
       data.fetchHoldings(),
-      data.fetchWatchlist(),
       data.fetchIndices(),
-      data.fetchMarketOverview(),
-      data.fetchGold(),
     ])
-      .then(([h, w, i, m, g]) => {
+      .then(([h, i]) => {
         setHoldings(h)
-        setWatchlist(w)
         setIndices(i)
-        setMarket(m)
-        setGold(g)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -42,10 +30,7 @@ export function useMarketData() {
     // 2. 订阅事件增量更新
     const off = event.onQuoteUpdate((q: QuoteUpdate) => {
       if (q.holdings) setHoldings(q.holdings)
-      if (q.watchlist) setWatchlist(q.watchlist)
       if (q.indices) setIndices(q.indices)
-      if (q.market) setMarket(q.market)
-      if (q.gold !== undefined) setGold(q.gold)
       setLastUpdate(q.time)
     })
 
@@ -57,5 +42,5 @@ export function useMarketData() {
   // （refresh → SW 写 cache-time → storage.onChanged → setState → re-render → refresh 变 → 再 refresh...）
   const refresh = useCallback(() => data.triggerRefresh(), [data])
 
-  return {holdings, watchlist, indices, market, gold, lastUpdate, loading, refresh}
+  return {holdings, indices, lastUpdate, loading, refresh}
 }
