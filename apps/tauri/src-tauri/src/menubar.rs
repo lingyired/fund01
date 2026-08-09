@@ -1,5 +1,6 @@
 //! menubar 多实例编排：总览恒在 + 每个持仓分组一个实例 + 未分组兜底。
-//! 实例 id：menubar-overview / menubar-group-{idx} / menubar-ungrouped；上限 6 个。
+//! 实例 id：menubar-overview / menubar-group-{idx} / menubar-ungrouped。
+//! 实例总数不限制，用户可在设置页隐藏单个分组来控制数量。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -14,7 +15,6 @@ use crate::model::{AppConfig, FundQuoteRow, QuoteUpdate};
 use crate::window::{open_settings_window, show_popup};
 
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
-const MAX_INSTANCES: usize = 6;
 
 const COLOR_RISE_DEFAULT: &str = "#FF4F44"; // 涨/红（默认，可配置 menubarRiseColor）
 const COLOR_FALL_DEFAULT: &str = "#34C759"; // 跌/绿（默认，可配置 menubarFallColor）
@@ -188,7 +188,6 @@ fn desired_instances(
             group_pnl(config, &rows, ""),
         ));
     }
-    out.truncate(MAX_INSTANCES);
     out
 }
 
