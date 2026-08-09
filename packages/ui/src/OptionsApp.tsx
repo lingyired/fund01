@@ -1,4 +1,5 @@
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import type * as React from 'react'
 import {
   Check,
   Copy,
@@ -809,10 +810,175 @@ function HoldingGroupsSection({
     }
   }
 
+  // 分组拖拽排序（对齐「指数看板」的 Pointer Events 方案，Chrome / Tauri WKWebView 通用）：
+  // 按住行拖动实时交换（只改 UI），松手时把最终顺序一次性持久化。
+  // 相比看板的两处健壮性增强（分组行数无上限，看板最多 5 行）：
+  // ① 指针捕获挂在 keyed 行 div 上（而非内部元素）——行重排时 React 只会移动该节点、不会
+  //    重建，捕获不丢，避免「松手后拖拽状态不释放」；
+  // ② 行矩形在拖动起点与每次行交换后快照缓存，命中检测不再每个 pointermove 都读
+  //    getBoundingClientRect（分组多时逐个强制布局会卡顿、拖慢 pointerup 处理）。
+  const groupDragState = useRef<{
+    from: number
+    index: number
+    pointerId: number
+    startY: number
+    active: boolean
+  } | null>(null)
+  const groupDragOrder = useRef<string[] | null>(null)
+  const groupRowEls = useRef<(HTMLDivElement | null)[]>([])
+  const groupRects = useRef<(DOMRect | null)[]>([])
+  const [groupDragIndex, setGroupDragIndex] = useState<number | null>(null)
+
+  function snapshotGroupRects() {
+    groupRects.current = groupRowEls.current.map((el) =>
+      el && el.isConnected ? el.getBoundingClientRect() : null,
+    )
+  }
+
+  // 拖动期间 DOM 每重排一次（setGroups 提交后）就刷新一次矩形快照，命中检测始终用缓存
+  useLayoutEffect(() => {
+    if (groupDragIndex === null) return
+    snapshotGroupRects()
+  }, [groups, groupDragIndex])
+
+  function findGroupRowIndex(y: number): number | null {
+    const rects = groupRects.current
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i]
+      if (r && y >= r.top && y <= r.bottom) return i
+    }
+    return null
+  }
+
+  function swapGroupTo(d: NonNullable<typeof groupDragState.current>, target: number) {
+    if (target === d.index) return
+    const base = groupDragOrder.current ?? groups
+    const next = [...base]
+    const [moved] = next.splice(d.index, 1)
+    next.splice(target, 0, moved)
+    d.index = target
+    groupDragOrder.current = next
+    setGroups(next)
+  }
+
+  // 持久化 debounce：松手后 400ms 内不再拖拽才真正写后端。写后端会触发 saveConfig →
+  // menubar 重建 / 行情刷新 / 兄弟分区 groupsReload 重渲染，都是重活；连续多次拖拽只合并为
+  // 最后一次整体写入（用完整顺序而非 from/to，避免第二次拖拽基于本地顺序而 move 语义错位）。
+  // 组件卸载（切 tab / 关页）时立即 flush，挂起的顺序不丢。
+  const pendingGroupsRef = useRef<string[] | null>(null)
+  const flushTimerRef = useRef<number | null>(null)
+
+  function schedulePersistGroups(order: string[]) {
+    pendingGroupsRef.current = order
+    if (flushTimerRef.current != null) {
+      window.clearTimeout(flushTimerRef.current)
+    }
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null
+      const pending = pendingGroupsRef.current
+      pendingGroupsRef.current = null
+      if (pending) {
+        void persistGroups(pending)
+      }
+    }, 400)
+  }
+
+  async function persistGroups(order: string[]) {
+    try {
+      await updateSettings(ports, {holdingGroups: order})
+      // 顺序变化影响 popup 分组 Tab 与 menubar 分组实例顺序，通知父级同步
+      onGroupsChanged()
+    } catch (err: unknown) {
+      setGroupError((err as Error)?.message || '保存分组顺序失败')
+    }
+  }
+
+  // 卸载兜底：清定时器并立即写入挂起的顺序（updateSettings 同步发起保存，fire-and-forget）
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
+      const pending = pendingGroupsRef.current
+      pendingGroupsRef.current = null
+      if (pending) {
+        try {
+          updateSettings(ports, {holdingGroups: pending})
+        } catch {
+          /* 忽略：卸载时保存失败不阻塞 */
+        }
+      }
+    }
+  }, [ports])
+
+  function handleGroupRowPointerDown(e: React.PointerEvent<HTMLDivElement>, idx: number) {
+    if (e.button !== 0 || editingIdx !== null) return
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    groupDragState.current = {
+      from: idx,
+      index: idx,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      active: false,
+    }
+    groupDragOrder.current = null
+    setGroupDragIndex(idx)
+  }
+
+  function handleGroupRowPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = groupDragState.current
+    if (!d || e.pointerId !== d.pointerId) return
+    if (!d.active) {
+      if (Math.abs(e.clientY - d.startY) < 6) return
+      d.active = true
+    }
+    const target = findGroupRowIndex(e.clientY)
+    if (target != null) swapGroupTo(d, target)
+  }
+
+  function handleGroupRowPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = groupDragState.current
+    if (!d || e.pointerId !== d.pointerId) return
+    groupDragState.current = null
+    setGroupDragIndex(null)
+    groupRects.current = []
+    const order = groupDragOrder.current
+    groupDragOrder.current = null
+    // 本地顺序已在 swapGroupTo 实时更新，这里只安排持久化（debounce 合并连续拖拽）
+    if (d.active && order && d.index !== d.from) {
+      schedulePersistGroups(order)
+    }
+  }
+
+  // 拖拽中断（pointercancel：元素被移除 / 系统手势接管等）兜底：清除拖拽状态并把顺序恢复到
+  // 拖起前。⚠️ 不要挂 onLostPointerCapture 复用此函数 —— 在 Tauri WKWebView 中拖动期每次
+  // swap 重排行（DOM 布局变化）都会提前触发 lostpointercapture，会把拖拽立刻取消（表现为
+  // 「完全拖不动」）；指数看板也只挂 onPointerCancel，无此问题。
+  function handleGroupRowPointerCancel() {
+    const d = groupDragState.current
+    if (!d) return
+    const {from, index, active} = d
+    groupDragState.current = null
+    groupDragOrder.current = null
+    setGroupDragIndex(null)
+    groupRects.current = []
+    if (active && from != null && index != null && from !== index) {
+      const restored = [...groups]
+      const [moved] = restored.splice(index, 1)
+      restored.splice(from, 0, moved)
+      setGroups(restored)
+    }
+  }
+
   return (
     <SectionCard id="holdings-groups" title="持仓分组">
       <p className="text-xs text-muted">
-        管理持仓的分组。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
+        管理持仓的分组。按住每行左侧的拖拽手柄（⠿）上下拖动可调整分组顺序，该顺序会同步影响 popup 内分组 Tab 的排列与菜单栏分组实例的顺序。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
       <div className="space-y-1 pt-1">
         {groups.length === 0 ? (
@@ -821,7 +987,25 @@ function HoldingGroupsSection({
           groups.map((g, idx) => (
             <div
               key={g}
-              className="flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5"
+              ref={(el) => {
+                groupRowEls.current[idx] = el
+              }}
+              onPointerDown={(e) => handleGroupRowPointerDown(e, idx)}
+              onPointerMove={handleGroupRowPointerMove}
+              onPointerUp={(e) => void handleGroupRowPointerUp(e)}
+              onPointerCancel={handleGroupRowPointerCancel}
+              className={cn(
+                'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
+                groupDragIndex === idx && 'opacity-60',
+              )}
+              style={{
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                touchAction: 'none',
+                cursor:
+                  editingIdx === idx ? 'default' : groupDragIndex === idx ? 'grabbing' : 'grab',
+              }}
+              title={editingIdx === idx ? undefined : '按住拖动调整分组顺序'}
             >
               {editingIdx === idx ? (
                 <>
@@ -840,6 +1024,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => handleRenameGroup(idx)}
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -848,6 +1033,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => setEditingIdx(null)}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -855,11 +1041,13 @@ function HoldingGroupsSection({
                 </>
               ) : (
                 <>
+                  <GripVertical className="h-4 w-4 shrink-0 text-muted" />
                   <span className="flex-1 truncate text-sm text-ink">{g}</span>
                   <IconButton
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       setEditingIdx(idx)
                       setEditingName(g)
@@ -872,6 +1060,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => handleRemoveGroup(g)}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-rise" />
