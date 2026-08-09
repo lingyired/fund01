@@ -168,6 +168,80 @@ html[data-theme='light'] .radix-themes {
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background: color-mix(in srgb, var(--app-muted) 75%, transparent);
   }
+
+  /* 分组 Tab 横向滚动：边缘渐隐 + 左右箭头
+     箭头只在有内容可滚的方向出现；渐隐与箭头共享显隐状态，提示"还有更多"。
+     颜色跟随 --app-* 变量，自动适配亮/暗主题；箭头用半透明面板色 + 毛玻璃 + 阴影，
+     浮在渐隐之上，点击平滑滚动一个屏宽比例。 */
+  .gt-fade {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40px;
+    z-index: 4;
+    pointer-events: none;
+  }
+  .gt-fade--left {
+    left: 0;
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+    /* 从内容侧（右）向外（左）逐渐变透明，像一圈阴影光晕 */
+    background: linear-gradient(to right, var(--app-bg) 0%, transparent 100%);
+  }
+  .gt-fade--right {
+    right: 0;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background: linear-gradient(to left, var(--app-bg) 0%, transparent 100%);
+  }
+  .gt-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    border: 1px solid var(--app-line);
+    background: color-mix(in oklab, var(--app-panel) 88%, transparent);
+    color: var(--app-ink-soft);
+    cursor: pointer;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow: var(--app-panel-shadow);
+    transition: background 150ms ease, color 150ms ease, transform 120ms ease;
+  }
+  .gt-nav--left {
+    left: 8px;
+    /* 朝内容侧更实、朝外缘更透，自然融进左侧光晕 */
+    background: linear-gradient(
+      to right,
+      color-mix(in oklab, var(--app-panel) 70%, transparent),
+      color-mix(in oklab, var(--app-panel) 92%, transparent)
+    );
+  }
+  .gt-nav--right {
+    right: 8px;
+    background: linear-gradient(
+      to left,
+      color-mix(in oklab, var(--app-panel) 70%, transparent),
+      color-mix(in oklab, var(--app-panel) 92%, transparent)
+    );
+  }
+  .gt-nav:hover {
+    background: var(--app-panel);
+    color: var(--app-ink);
+  }
+  .gt-nav:active {
+    transform: translateY(-50%) scale(0.92);
+  }
+  .gt-nav:focus-visible {
+    outline: 2px solid var(--accent-8);
+    outline-offset: 2px;
+  }
 }
 
 /* Radix Dialog 关闭按钮（DialogContent 适配器内置） */
