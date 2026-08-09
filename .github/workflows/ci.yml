@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  guard-shim:
+    name: tw-shim 白名单守卫
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # guard-shim.mjs 是纯 Node 脚本，无需安装依赖，直接在仓库根目录运行。
+      # 任何「源码用到、但 tw-shim.css 白名单缺失」的原子类都会让此步失败（exit 1），
+      # 把手写垫片「静默失败」的隐患变成 CI 红。
+      - name: Run tw-shim guard
+        run: node packages/ui/scripts/guard-shim.mjs

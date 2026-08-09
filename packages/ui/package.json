@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "guard:shim": "node scripts/guard-shim.mjs"
   },
   "dependencies": {
     "@fund01/core": "workspace:*",

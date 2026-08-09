@@ -255,6 +255,18 @@ declare module '*.css';
 
 原 plan 设想 SW 读 `chrome.storage.session`。实际实现中，`ChromeConfigPort.saveConfig` 直接写 `chrome.storage.local`（key=`session-config`），SW 的 `getSessionConfig()` 也从 `chrome.storage.local` 读。`chrome.storage.session` 在 popup 关闭后仍可访问，但跨 SW 重启行为不如 local 稳定，统一用 local 更简单。
 
+## 样式系统：tw-shim 手写垫片（重要）
+
+本项目**没有 Tailwind 引擎**。原子类（`px-3` / `pb-3` / `flex` / `space-y-2` / `bg-paper-deep/50` 等）来自手写白名单 `packages/ui/src/tw-shim.css`，置于 `@layer utilities`（优先级高于 `radix-themes` 层）。Radix Themes 只提供组件与 CSS 变量（`--gray-*` / `--accent-*` / `--app-rise/-fall/-gold`），**不提供原子类**。
+
+**铁律（新增/修改 JSX 类名前必读）**：
+- tw-shim.css 里的类都是**人工维护的白名单**，缺哪个类就**静默失败**——类名照样挂到 DOM，但生成不出 CSS 规则，devtools 计算样式里查不到该规则，表现是「写了类名却没生效」，且**不报任何错**。
+- 在 JSX 里写任何 Tailwind 风格原子类之前，**先 grep `tw-shim.css` 确认它存在**；不存在就**先在 tw-shim.css 补上对应规则**，再在 JSX 使用。
+- 新增规则对齐既有写法：间距用 4px 刻度（`p-2`=8px、`p-3`=12px、`p-4`=16px）；颜色透明度用 `color-mix(in oklab, var(--xxx) NN%, transparent)`；任意值要转义（`h-[52px]` → `.h-\[52px\]{height:52px}`）。
+- 改完类名后**必须跑守卫**：`pnpm --filter @fund01/ui guard:shim`（等价于 `node packages/ui/scripts/guard-shim.mjs`）。它扫描 `packages/ui/src` 所有 `className=` / `cn(...)` 字面量类名并逐个比对白名单，**缺类即 exit 1**；`.github/workflows/ci.yml` 在 push/PR 也会跑它，缺失类的提交会被 CI 拦下。
+
+> 不要把 tw-shim 当「Tailwind」用：没有 JIT、没有 content 扫描、没有 safelist。它是固定白名单，靠人和守卫共同维护。
+
 ## Pitfalls
 
 - **MV3 SW 生命周期**：空闲约 30 秒休眠，所有模块级状态（含 CSRF 缓存 Map）丢失。alarm 唤醒后重新获取可接受；不要依赖 SW 内存做持久状态
