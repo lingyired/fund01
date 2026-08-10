@@ -482,11 +482,20 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
     spawn_startup_recovery(app);
 }
 
-/// 实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）
+/// 实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）。
+/// macOS 13+ 的 `statusItem.visible` 可能为 true 但实例并未真正挂在菜单栏窗口上渲染
+/// （系统记忆/移除列表残留时 `button.window` 为 nil）。用插件 rect 校验：rect 非零 =
+/// 真正渲染在菜单栏；rect 为零（window nil）→ 视为不可见，触发自愈（set_visible →
+/// 销毁重建 → killall SystemUIServer）。实例不存在时 rect() 返回 Err → 不误判，按 visible 处理。
 fn instance_is_visible(app: &AppHandle, id: &str) -> bool {
-    app.multiline_menubar()
-        .is_visible(id.to_string())
-        .unwrap_or(false)
+    let mb = app.multiline_menubar();
+    if !mb.is_visible(id.to_string()).unwrap_or(false) {
+        return false;
+    }
+    match mb.rect(id.to_string()) {
+        Ok(r) => r.width > 0.5 && r.height > 0.5,
+        Err(_) => true,
+    }
 }
 
 /// 销毁实例并清掉跟踪/点击/移除监听/用户移除标记（销毁后需重新 create）
@@ -517,16 +526,22 @@ fn destroy_instance(app: &AppHandle, id: &str) {
 /// 返回 true 表示执行过销毁重建（调用方需重新收敛实例集合并重刷文字/样式）。
 fn ensure_instance_visible(app: &AppHandle, id: &str, force: bool) -> bool {
     let mb = app.multiline_menubar();
-    let was_visible = mb.is_visible(id.to_string()).unwrap_or(false);
+    let raw_visible = mb.is_visible(id.to_string()).unwrap_or(false);
+    let was_visible = instance_is_visible(app, id);
     if was_visible && !force {
         return false;
     }
     if !was_visible {
-        eprintln!("[fund01] 实例 {id} 当前不可见（macOS 记忆/系统设置），尝试 set_visible(true) 恢复");
+        if raw_visible {
+            // visible=true 但 rect 为零（未挂到菜单栏窗口）——系统移除列表残留/渲染异常
+            eprintln!("[fund01] 实例 {id} visible=true 但未渲染（rect 为零），尝试恢复");
+        } else {
+            eprintln!("[fund01] 实例 {id} 当前不可见（macOS 记忆/系统设置），尝试 set_visible(true) 恢复");
+        }
     }
-    // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）
+    // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）；以「真正渲染」为成功标准
     let _ = mb.set_visible(id.to_string(), true);
-    if mb.is_visible(id.to_string()).unwrap_or(false) {
+    if instance_is_visible(app, id) {
         if !was_visible {
             eprintln!("[fund01] 实例 {id} set_visible(true) 成功，已恢复显示");
         }
@@ -543,7 +558,7 @@ fn ensure_instance_visible(app: &AppHandle, id: &str, force: bool) -> bool {
     let _ = mb.create(id.to_string());
     tracked().lock().unwrap().insert(id.to_string());
     let _ = mb.set_visible(id.to_string(), true);
-    if mb.is_visible(id.to_string()).unwrap_or(false) {
+    if instance_is_visible(app, id) {
         eprintln!("[fund01] 实例 {id} 重建后可见");
         return true;
     }
