@@ -23,8 +23,7 @@ const MNFINFO_DEVICEID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
     let mut out = HashMap::new();
     for chunk in codes.chunks(200) {
-        #[cfg(debug_assertions)]
-        eprintln!("[fund01] FundMNFInfo 请求 chunk={} codes={}", chunk.len(), chunk.join(","));
+        crate::dbg_log!("FundMNFInfo 请求 chunk={} codes={}", chunk.len(), chunk.join(","));
         let query = http::params(&[
             ("pageIndex", "1"),
             ("pageSize", "200"),
@@ -68,20 +67,15 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
         }
         if let Some(data) = data {
             if let Some(list) = data.get("Datas").and_then(|v| v.as_array()) {
-                #[cfg(debug_assertions)]
                 let mut hit = 0;
                 for item in list {
                     let code = pad6(item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""));
                     if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) {
                         out.insert(code, item.clone());
-                        #[cfg(debug_assertions)]
-                        {
-                            hit += 1;
-                        }
+                        hit += 1;
                     }
                 }
-                #[cfg(debug_assertions)]
-                eprintln!("[fund01] FundMNFInfo 响应 Datas={} 有效命中={hit}", list.len());
+                crate::dbg_log!("FundMNFInfo 响应 Datas={} 有效命中={hit}", list.len());
             } else {
                 eprintln!(
                     "[fund01] FundMNFInfo 响应无 Datas 字段（Success={}，原始前 120 字: {}）",
@@ -93,8 +87,7 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
             eprintln!("[fund01] FundMNFInfo chunk 全部尝试失败（网络层）");
         }
     }
-    #[cfg(debug_assertions)]
-    eprintln!("[fund01] FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
+    crate::dbg_log!("FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
     out
 }
 
@@ -129,11 +122,14 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
         let nav_day = crate::calendar::normalize_net_value_date(&pdate, &now);
         !nav_day.is_empty() && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
     };
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "[fund01] parse item code={code} name={name} pdate={pdate} gztime_day={gztime_day} qdii={nav_qdii} has_replace={has_replace}",
-        code = item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""),
-        name = item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
+    crate::dbg_log!(
+        "parse item code={} name={} pdate={} gztime_day={} qdii={} has_replace={}",
+        item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""),
+        item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
+        pdate,
+        gztime_day,
+        nav_qdii,
+        has_replace
     );
     let estimate_stale = !gztime_day.is_empty() && !pdate.is_empty() && pdate != "--" && gztime_day < pdate;
 
@@ -475,12 +471,12 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         net_value_date = p.net_value_date;
         mnf_time = p.time;
         use_calc_needed = p.use_calc_needed;
-        eprintln!(
-            "[fund01] FundMNFInfo 行情 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} est_growth={estimate_growth:?} est_net={estimate_net_value:?} net_value={net_value:?} prev_net={prev_net_value:?} date={net_value_date} time={mnf_time:?} use_calc_needed={use_calc_needed}"
+        crate::dbg_log!(
+            "FundMNFInfo 行情 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} est_growth={estimate_growth:?} est_net={estimate_net_value:?} net_value={net_value:?} prev_net={prev_net_value:?} date={net_value_date} time={mnf_time:?} use_calc_needed={use_calc_needed}"
         );
     } else {
-        eprintln!(
-            "[fund01] FundMNFInfo 无该基金行情 code={code} name={name} —— 批量接口未返回该 code（可能请求被业务拒绝或 code 不合法）"
+        crate::dbg_log!(
+            "FundMNFInfo 无该基金行情 code={code} name={name} —— 批量接口未返回该 code（可能请求被业务拒绝或 code 不合法）"
         );
     }
 
@@ -500,8 +496,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
             // 在 A 股交易日会被误当成「今日」收益（用户反对点：15:30-20:00 空窗期把美股
             // 08-06 涨跌当今日）。严格走披露日窗口：东财披露 PDATE 更新后才 confirmed 显示，
             // 否则保持 `-`（且 fund123 无 QDII 分时估值、matiaria 昨日涨幅冒充今日，均不可用）。
-            eprintln!(
-                "[fund01] FundMNFInfo 自算失败 code={code} name={name} —— QDII 跳过自算估值，严格按披露日窗口（PDATE={net_value_date} 今日未更新则当日收益保持 -）"
+            crate::dbg_log!(
+                "FundMNFInfo 自算失败 code={code} name={name} —— QDII 跳过自算估值，严格按披露日窗口（PDATE={net_value_date} 今日未更新则当日收益保持 -）"
             );
         } else if let Some(calc_gszzl) = get_calc_gszzl(&code).await {
             if calc_gszzl.is_finite() {
@@ -511,10 +507,9 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 percent = Some(calc_gszzl);
                 percent_source = Some("estimate".to_string());
                 use_calc = true;
-                #[cfg(debug_assertions)]
-                eprintln!("[fund01] FundMNFInfo 自算估值成功 code={code} calc_gszzl={calc_gszzl} calc_gsz={calc_gsz}");
+                crate::dbg_log!("FundMNFInfo 自算估值成功 code={code} calc_gszzl={calc_gszzl} calc_gsz={calc_gsz}");
             } else {
-                eprintln!("[fund01] FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
+                crate::dbg_log!("FundMNFInfo 自算估值非有限值 code={code} calc_gszzl={calc_gszzl}");
             }
         } else {
             // 自算失败（无重仓股可加权：黄金/商品等）→ fallback fund123 官方分时估值
@@ -525,7 +520,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                     percent = Some(eg);
                     percent_source = Some("estimate".to_string());
                     use_calc = true;
-                    eprintln!("[fund01] FundMNFInfo 自算失败→fund123 兜底成功 code={code} growth={eg} est_net={en}");
+                    crate::dbg_log!("FundMNFInfo 自算失败→fund123 兜底成功 code={code} growth={eg} est_net={en}");
                 }
                 None => {
                     // 黄金等：fund123 兜底亦不可用 → 历史净值对齐（盘后 confirmed 时填真实 prev）
@@ -538,7 +533,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                         confirmed,
                     )
                     .await;
-                    eprintln!("[fund01] FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用，改走历史净值对齐）");
+                    crate::dbg_log!("FundMNFInfo 自算估值失败 code={code}（无重仓股/无股票行情/请求失败，fund123 兜底亦不可用，改走历史净值对齐）");
                 }
             }
         }
@@ -567,8 +562,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         percent = Some(eg);
         percent_source = Some("estimate".to_string());
     }
-    eprintln!(
-        "[fund01] FundMNFInfo 展示 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} estimate_growth={estimate_growth:?} percent={percent:?} src={percent_source:?} use_calc={use_calc} net={net_value:?} prev={prev_net_value:?} date={net_value_date}"
+    crate::dbg_log!(
+        "FundMNFInfo 展示 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} estimate_growth={estimate_growth:?} percent={percent:?} src={percent_source:?} use_calc={use_calc} net={net_value:?} prev={prev_net_value:?} date={net_value_date}"
     );
 
     // 板块推断

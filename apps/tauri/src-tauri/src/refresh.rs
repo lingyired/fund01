@@ -194,12 +194,11 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             }
             let provider = get_quote_provider(source);
             let quotes = provider.fetch_quotes(&inputs).await;
-            #[cfg(debug_assertions)]
             {
                 let with_percent = quotes.iter().filter(|q| q.percent.is_some()).count();
                 let with_nav = quotes.iter().filter(|q| q.net_value.is_some()).count();
-                eprintln!(
-                    "[fund01] refresh 基金 source={} inputs={} quotes={} with_percent={} with_nav={}",
+                crate::dbg_log!(
+                    "refresh 基金 source={} inputs={} quotes={} with_percent={} with_nav={}",
                     config.settings.quote_source.as_deref().unwrap_or("fundmnfinfo"),
                     inputs.len(),
                     quotes.len(),

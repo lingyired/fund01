@@ -4,6 +4,7 @@ mod badge;
 mod calc;
 mod calendar;
 mod commands;
+mod dbglog;
 mod error;
 mod format;
 mod fundname;
