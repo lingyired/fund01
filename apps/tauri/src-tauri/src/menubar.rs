@@ -398,11 +398,42 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
     let event_name = format!("multiline-menubar://{id}//remove");
     let app_listener = app.clone();
     let instance_id = id.to_string();
-    let event_id = app_listener.listen(event_name, move |_event| {
+    let event_id = app_listener
+        .clone()
+        .listen(event_name, move |_event| {
         let mut set = removed_by_user().lock().unwrap();
         set.insert(instance_id.clone());
         // 诊断日志：谁被用户 ⌘-拖出、当前移除集合内容
         eprintln!("[fund01] menubar remove 事件：id={instance_id}，REMOVED_BY_USER={set:?}");
+        drop(set);
+        // ⌘-拖出 = 用户不想在菜单栏显示该实例 → 同步隐藏到设置（menubarHiddenGroups），
+        // 设置页对应分组的「显示」开关随之置灰、实例保持消失不被自愈重建。
+        // 总览恒显不可隐藏；未分组 id 对应隐藏列表中的 ''。
+        let group = if instance_id == "menubar-ungrouped" {
+            Some(String::new())
+        } else if instance_id == INSTANCE_OVERVIEW {
+            None
+        } else {
+            instance_id
+                .strip_prefix("menubar-group-")
+                .map(decode_group_id)
+                .filter(|n| !n.is_empty())
+        };
+        if let Some(g) = group {
+            let state = app_listener.state::<crate::state::AppState>();
+            let mut cfg = state.config.write().unwrap();
+            let hidden = cfg.settings.menubar_hidden_groups.get_or_insert_with(Vec::new);
+            if !hidden.iter().any(|h| h == &g) {
+                hidden.push(g.clone());
+            }
+            let snapshot = cfg.clone();
+            drop(cfg);
+            let quote = state.quote.read().unwrap().clone();
+            // 持久化 + 广播 config-change（设置页订阅后实时更新开关）+ 重建（隐藏的分组不再 desired）
+            crate::commands::persist_config(&app_listener, &snapshot);
+            rebuild_menubar(&app_listener, &snapshot, quote.as_ref());
+            eprintln!("[fund01] ⌘-拖出 → 分组「{g}」已隐藏（menubarHiddenGroups 已同步）");
+        }
     });
     map.insert(id.to_string(), event_id);
 }

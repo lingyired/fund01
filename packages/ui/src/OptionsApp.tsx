@@ -2525,6 +2525,18 @@ function MenubarSection() {
     )
   }, [ports])
 
+  // 监听配置变更（如 macOS ⌘-拖出分组实例 → Rust 侧自动写入 menubarHiddenGroups 并广播）：
+  // 实时同步设置页的隐藏列表与分组列表，开关状态与菜单栏保持一致。
+  useEffect(() => {
+    return ports.event.onConfigChange(() => {
+      const s = fetchSettings(ports)
+      const h = s.menubarHiddenGroups ?? []
+      hiddenRef.current = h
+      setHidden(h)
+      setGroups(listHoldingGroups(ports))
+    })
+  }, [ports])
+
   // 保存中门控：点击后所有「显示」开关立即禁用（disabled={saving}），等 save_config 回调
   // 完成才放开——从交互层杜绝「快速连点导致写入乱序/互相覆盖」；配合 ConfigPort 全局串行队列
   // 与乐观镜像，一次点击 = 一次有序写入，UI 与菜单栏始终一致。
