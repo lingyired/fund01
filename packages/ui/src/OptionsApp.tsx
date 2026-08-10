@@ -2558,8 +2558,8 @@ function MenubarSection() {
       /* 保存失败：保留乐观值，不阻塞后续操作 */
     } finally {
       savingRef.current = false
-      // 至少保持 150ms 禁用态：让「保存中」的置灰肉眼可见、杜绝快速连点（数据门控已在 await 内）
-      const remain = 150 - (performance.now() - t0)
+      // 至少保持 300ms 禁用态：让「保存中」的置灰肉眼可见、彻底杜绝快速连点（数据门控已在 await 内）
+      const remain = 300 - (performance.now() - t0)
       if (remain > 0) {
         window.setTimeout(() => setSaving(false), remain)
       } else {
@@ -2734,7 +2734,7 @@ function MenubarSection() {
                   <input
                     type="color"
                     value={groupColors[MENUBAR_OVERVIEW_KEY] ?? topColor}
-                    disabled={!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    disabled={!groupColors[MENUBAR_OVERVIEW_KEY] || saving}
                     onChange={(e) => void commitGroupColor(MENUBAR_OVERVIEW_KEY, e.target.value)}
                     aria-label="总览 上行颜色"
                     className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2742,6 +2742,7 @@ function MenubarSection() {
                   />
                   <Switch
                     checked={!!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    disabled={saving}
                     onCheckedChange={(c) => void toggleGroupColor(MENUBAR_OVERVIEW_KEY, c)}
                     aria-label="总览 自定义颜色"
                   />
@@ -2761,7 +2762,7 @@ function MenubarSection() {
                     <input
                       type="color"
                       value={groupColors[g] ?? topColor}
-                      disabled={!groupColors[g]}
+                      disabled={!groupColors[g] || saving}
                       onChange={(e) => void commitGroupColor(g, e.target.value)}
                       aria-label={`${g} 上行颜色`}
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2769,6 +2770,7 @@ function MenubarSection() {
                     />
                     <Switch
                       checked={!!groupColors[g]}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor(g, c)}
                       aria-label={`${g} 自定义颜色`}
                     />
@@ -2794,7 +2796,7 @@ function MenubarSection() {
                     <input
                       type="color"
                       value={groupColors[''] ?? topColor}
-                      disabled={!groupColors['']}
+                      disabled={!groupColors[''] || saving}
                       onChange={(e) => void commitGroupColor('', e.target.value)}
                       aria-label="未分组 上行颜色"
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2802,6 +2804,7 @@ function MenubarSection() {
                     />
                     <Switch
                       checked={!!groupColors['']}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor('', c)}
                       aria-label="未分组 自定义颜色"
                     />
