@@ -55,6 +55,11 @@ export interface EventPort {
    * payload 即 popup 分组 tab id：'all' / 分组名 / '__ungrouped__'
    */
   onPopupOpenGroup?(cb: (tabId: string) => void): () => void
+  /**
+   * 前端调试日志转发（可选）：Tauri 实现 → invoke dbg_log 打到终端 stdout；Chrome 实现 → console.log。
+   * webview 的 console 在 Tauri 默认不进终端，UI 交互链路（开关点击等）用它对齐 Rust 侧日志排查。
+   */
+  emitDebug?(msg: string): void
 }
 
 /** 设置页一级 tab 标识（OptionsApp 与 openSettings 共用） */

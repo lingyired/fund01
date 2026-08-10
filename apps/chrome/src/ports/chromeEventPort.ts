@@ -25,6 +25,12 @@ const CACHE_KEYS: Record<
 export class ChromeEventPort implements EventPort {
   private lastQuote: QuoteUpdate | null = null
 
+  /** 前端调试日志：Chrome 端直接走 devtools console（Tauri 端走 invoke dbg_log） */
+  emitDebug(msg: string): void {
+    // eslint-disable-next-line no-console
+    console.log('[fund01]', msg)
+  }
+
   onQuoteUpdate(cb: (payload: QuoteUpdate) => void): () => void {
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,

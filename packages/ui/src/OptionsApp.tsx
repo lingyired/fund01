@@ -2553,7 +2553,8 @@ function MenubarSection() {
 
   /** 分组显示开关：本地即时反馈 + 防抖持久化。
    *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next，连续快速切换正确叠加，
-   *  不会出现「开关 A 却覆盖成隐藏 B」。每次切换都打日志，便于排查 menubar 分组显示异常。 */
+   *  不会出现「开关 A 却覆盖成隐藏 B」。每次切换都打日志（emitDebug 直达终端 + console），
+   *  便于与 Rust 侧 save_config 日志对齐、确认「点的是哪个开关」。 */
   function toggleGroup(g: string, show: boolean) {
     const cur = hiddenRef.current
     const next = show
@@ -2561,6 +2562,8 @@ function MenubarSection() {
       : Array.from(new Set([...cur, g]))
     hiddenRef.current = next
     setHidden(next)
+    const detail = `toggleGroup group=${g} show=${show} cur=${JSON.stringify(cur)} next=${JSON.stringify(next)}`
+    ports.event.emitDebug?.(detail)
     console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
     scheduleHiddenPersist(next)
   }

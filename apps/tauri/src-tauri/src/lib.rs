@@ -43,6 +43,7 @@ pub fn run() {
             commands::save_config,
             commands::open_settings_window,
             commands::get_version,
+            commands::dbg_log,
         ])
         .setup(|app| {
             // macOS: 不出现在 Dock（menubar 常驻应用）

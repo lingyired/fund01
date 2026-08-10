@@ -155,6 +155,13 @@ pub async fn save_config(
     Ok(normalized)
 }
 
+/// 前端诊断日志转发：webview 的 console.log 默认不进终端，UI 交互链路（如开关点击）通过
+/// EventPort.emitDebug → 本命令打到 stdout，便于与 Rust 侧 save_config/sync_instances 日志对齐排查。
+#[tauri::command]
+pub fn dbg_log(msg: String) {
+    eprintln!("[fund01][web] {msg}");
+}
+
 // ------------------------- WindowPort -------------------------
 
 #[tauri::command]

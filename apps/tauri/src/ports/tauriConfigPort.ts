@@ -29,6 +29,11 @@ export class TauriConfigPort implements ConfigPort {
   }
 
   async saveConfig(config: AppConfig): Promise<void> {
+    // 乐观同步：先把本次 patch 后的完整配置写进内存镜像 → getConfig() 立即读到最新值。
+    // 否则保存回包前 getConfig() 返回旧值：切 tab 重挂载等读取会把 hiddenRef 重置成过期列表，
+    // 后续开关基于旧列表覆盖写 → 「开关 A 却影响 B」。写入已全局串行化（saveChain），乐观值即
+    // 最新值；回包后再次覆盖为服务端归一化结果（同源，一致）。
+    memo.set(normalizeConfig(config))
     const run = saveChain.then(async () => {
       const next = await invoke<AppConfig>('save_config', { config })
       memo.set(next)
