@@ -2471,6 +2471,9 @@ function MenubarSection() {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [hidden, setHidden] = useState<string[]>([])
+  // hidden 的同步镜像：toggleGroup 以它为基准计算（setHidden 是异步生效的 state，闭包可能读到旧值；
+  // config 内存镜像在异步保存返回前也不会更新）→ 连续快速切换多个开关时正确叠加、不互相覆盖
+  const hiddenRef = useRef<string[]>([])
   const [layout, setLayout] = useState<MenubarLayout>(0)
   const [top, setTop] = useState(7)
   const [bottom, setBottom] = useState(12)
@@ -2492,6 +2495,7 @@ function MenubarSection() {
     const l: MenubarLayout = s.menubarLayout === 2 ? 2 : 0
     setLayout(l)
     setHidden(s.menubarHiddenGroups ?? [])
+    hiddenRef.current = s.menubarHiddenGroups ?? []
     // 每种布局的字号独立存储：布局 0 用 top/bottom，布局 2 用 equal
     setTop(clampToRange(s.menubarTopFontSize, MENUBAR_FONT_RANGES[0].top, 7))
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
@@ -2514,14 +2518,25 @@ function MenubarSection() {
         Object.entries(f.allocations || {}).some(([g, sh]) => Number(sh) > 0 && !known.has(g)),
       ),
     )
+    // 诊断日志：挂载时读到的分组与隐藏状态（排查「开关 A 却隐藏 B」）
+    console.log(
+      '[fund01] MenubarSection 挂载',
+      JSON.stringify({groups: gs, hidden: s.menubarHiddenGroups ?? []}),
+    )
   }, [ports])
 
-  /** 分组显示开关：即时保存（低频操作） */
+  /** 分组显示开关：即时保存（低频操作）。
+   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next，不依赖异步的 React state / config
+   *  保存回包 → 连续快速切换多个开关也能正确叠加，不会出现「开关 A 却覆盖成隐藏 B」。
+   *  每次切换都打日志，便于排查 menubar 分组显示异常。 */
   async function toggleGroup(g: string, show: boolean) {
+    const cur = hiddenRef.current
     const next = show
-      ? hidden.filter((x) => x !== g)
-      : Array.from(new Set([...hidden, g]))
+      ? cur.filter((x) => x !== g)
+      : Array.from(new Set([...cur, g]))
+    hiddenRef.current = next
     setHidden(next)
+    console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
     try {
       await updateSettings(ports, {menubarHiddenGroups: next})
     } catch {

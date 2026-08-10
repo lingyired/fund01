@@ -133,6 +133,17 @@ pub async fn save_config(
     let normalized = crate::portfolio::normalize_config(&raw);
     *state.config.write().unwrap() = normalized.clone();
     persist_config(&app, &normalized);
+    // 诊断日志：menubar 分组显示 / 分组顺序相关变更（排查「开关 A 却隐藏 B」与排序问题）
+    let oh = old.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    let nh = normalized.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    if oh != nh {
+        eprintln!("[fund01] save_config: menubarHiddenGroups {oh:?} -> {nh:?}");
+    }
+    let og = old.settings.holding_groups.clone().unwrap_or_default();
+    let ng = normalized.settings.holding_groups.clone().unwrap_or_default();
+    if og != ng {
+        eprintln!("[fund01] save_config: holdingGroups {og:?} -> {ng:?}");
+    }
     // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
     crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());

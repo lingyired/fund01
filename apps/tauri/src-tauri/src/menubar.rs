@@ -349,18 +349,21 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
 /// 幂等，rebuild 与 update 共用——保证任何时刻菜单栏实例与「最新 config + 行情」对齐，
 /// 避免分组/持仓变更后（尤其刷新完成后）多余实例残留、正确实例缺失。
 fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
+    let mut created: Vec<String> = Vec::new();
     // 1. 创建缺失实例 + 监听点击/移除
     for (id, _, _, _) in desired {
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
             let _ = mb.create(id.clone());
             tracked().lock().unwrap().insert(id.clone());
+            created.push(id.clone());
         }
         ensure_click_listener(app, id);
         ensure_remove_listener(app, id);
     }
 
     // 2. 销毁多余实例（同步移除 click/remove 监听，释放闭包持有的 AppHandle）
+    let mut removed: Vec<String> = Vec::new();
     let mut tracked_set = tracked().lock().unwrap();
     let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _, _)| id).collect();
     let stale: Vec<String> = tracked_set.iter().filter(|id| !desired_ids.contains(id)).cloned().collect();
@@ -375,6 +378,14 @@ fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
         }
         // 实例被销毁（分组删除/隐藏）时清掉「用户移除」标记，避免下次重建时被误跳过
         removed_by_user().lock().unwrap().remove(&id);
+        removed.push(id.clone());
+    }
+    if !created.is_empty() || !removed.is_empty() {
+        eprintln!(
+            "[fund01] sync_instances created=[{}] removed=[{}]",
+            created.join(","),
+            removed.join(",")
+        );
     }
 }
 
@@ -390,7 +401,10 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
     let app_listener = app.clone();
     let instance_id = id.to_string();
     let event_id = app_listener.listen(event_name, move |_event| {
-        removed_by_user().lock().unwrap().insert(instance_id.clone());
+        let mut set = removed_by_user().lock().unwrap();
+        set.insert(instance_id.clone());
+        // 诊断日志：谁被用户 ⌘-拖出、当前移除集合内容
+        eprintln!("[fund01] menubar remove 事件：id={instance_id}，REMOVED_BY_USER={set:?}");
     });
     map.insert(id.to_string(), event_id);
 }
@@ -428,31 +442,55 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ],
     );
 
-    // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等；
-    //    开头自带总览可见性兜底，系统记忆/系统设置导致的隐藏会自动恢复）
+    // 3. 强制恢复总览显示（无条件）：app 启动/配置变更后「全部」无论如何都要重新显示，
+    //    不受 macOS 系统记忆 / 系统设置开关影响；若销毁重建了实例，update_menubar 会重新
+    //    收敛实例集合并刷新文字。
+    ensure_overview_visible(app, true);
     update_menubar(app, quote);
+
+    // 4. 延迟复核：macOS 系统记忆/时序可能在启动稍后才把实例隐藏，2s 后再强制恢复一次
+    //   （用 AppState 里最新行情重刷，避免把文字覆盖成空数据）。
+    let app_delayed = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+        let state = app_delayed.state::<crate::state::AppState>();
+        let quote = state.quote.read().unwrap().clone();
+        if ensure_overview_visible(&app_delayed, true) {
+            update_menubar(&app_delayed, quote.as_ref());
+        }
+    });
 }
 
 /// 兜底：确保「总览」（全部）实例显示。
 ///
 /// 场景：macOS 在用户拖出第三方 status item（含旧版本无 RemovalAllowed 时的异常拖出）后会持久
-/// 记忆，重启后创建的同款实例默认不可见。恢复手段（macOS 13+）：显式 `visible = true` 可覆盖
-/// 系统记忆；仍无效则销毁重建全新 `NSStatusItem`（旧实例被系统隐藏，新实例 + visible=true 可
-/// 恢复）。
+/// 记忆，重启后创建的同款实例默认不可见；系统设置（控制中心→菜单栏）也可能把 app 或单一项取消
+/// 勾选。恢复手段（macOS 13+）：显式 `visible = true` 可覆盖；仍无效则销毁重建全新
+/// `NSStatusItem`（旧实例被系统隐藏，新实例 + visible=true 可恢复）。
 ///
-/// 返回 true 表示执行了销毁重建（调用方需重新同步实例并应用文字/样式）。
-fn ensure_overview_visible(app: &AppHandle) -> bool {
+/// - `force=true`（启动/配置变更）：无条件 `set_visible(true)` 再校验——「总览无论如何都要显示」；
+/// - `force=false`（周期刷新）：仅当当前不可见时才处理，避免空转。
+/// 返回 true 表示销毁重建了实例（调用方随后 sync_instances 会创建全新实例并刷新文字）。
+fn ensure_overview_visible(app: &AppHandle, force: bool) -> bool {
     let mb = app.multiline_menubar();
-    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+    let visible = mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false);
+    if visible && !force {
         return false;
+    }
+    if !visible {
+        eprintln!("[fund01] 总览实例当前不可见（macOS 记忆/系统设置），尝试 set_visible(true) 恢复");
     }
     // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）
     let _ = mb.set_visible(INSTANCE_OVERVIEW.to_string(), true);
-    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+    let now_visible = mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false);
+    if now_visible {
+        if !visible {
+            eprintln!("[fund01] 总览实例 set_visible(true) 成功，已恢复显示");
+        }
         return false;
     }
     // 2) 仍不可见 → 销毁旧实例并清跟踪/监听，让下一次 sync_instances 创建全新实例
-    eprintln!("[fund01] 总览实例不可见（macOS 可能记住了用户移除），销毁重建");
+    eprintln!("[fund01] 总览实例 set_visible(true) 无效，销毁重建全新 NSStatusItem");
     let _ = mb.remove(INSTANCE_OVERVIEW.to_string());
     tracked().lock().unwrap().remove(INSTANCE_OVERVIEW);
     if let Some(eid) = listeners().lock().unwrap().remove(INSTANCE_OVERVIEW) {
@@ -462,6 +500,7 @@ fn ensure_overview_visible(app: &AppHandle) -> bool {
         app.unlisten(eid);
     }
     removed_by_user().lock().unwrap().remove(INSTANCE_OVERVIEW);
+    eprintln!("[fund01] 总览实例已销毁，等待下一次同步重建");
     true
 }
 
@@ -471,7 +510,8 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // 兜底（每次刷新/重建都跑）：总览实例不可见（macOS 系统设置里被取消勾选 / 用户移除记忆
     // 残留）时强制恢复——重建后本函数的 sync_instances 会创建全新实例并刷新文字，无需额外重刷。
     // 这样用户即使运行中在系统设置里开关了菜单栏项，最迟 60s 内「全部」也会自动回来。
-    ensure_overview_visible(app);
+    // 周期路径用非 force（仅不可见时处理）；启动/配置变更路径已在 rebuild 里 force 过一次。
+    ensure_overview_visible(app, false);
 
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）
