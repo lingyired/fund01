@@ -51,6 +51,7 @@ import {
   todayDateStr,
 } from '@fund01/core'
 import {cn} from '@fund01/core'
+import {ConfirmDialog, type ConfirmAction} from './components/ConfirmDialog'
 import {
   addHoldingGroup,
   createFund,
@@ -758,6 +759,7 @@ function HoldingGroupsSection({
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
   const [editingName, setEditingName] = useState('')
   const [groupError, setGroupError] = useState('')
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
 
   useEffect(() => {
     setGroups(listHoldingGroups(ports))
@@ -805,7 +807,6 @@ function HoldingGroupsSection({
   }
 
   async function handleRemoveGroup(name: string) {
-    if (!confirm(`删除分组「${name}」？该分组下的持仓将变成未分组。`)) return
     setGroupError('')
     try {
       const next = await removeHoldingGroup(ports, name)
@@ -1078,7 +1079,16 @@ function HoldingGroupsSection({
                     variant="ghost"
                     className="h-7 w-7"
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => handleRemoveGroup(g)}
+                    onClick={() =>
+                      setConfirmAction({
+                        title: `删除分组「${g}」？`,
+                        description: '该分组下的持仓将变成未分组。',
+                        confirmText: '确认删除',
+                        onConfirm: () => {
+                          void handleRemoveGroup(g)
+                        },
+                      })
+                    }
                   >
                     <Trash2 className="h-3.5 w-3.5 text-rise" />
                   </IconButton>
@@ -1112,6 +1122,7 @@ function HoldingGroupsSection({
         </Button>
       </div>
       {groupError ? <p className="text-xs text-rise">{groupError}</p> : null}
+      <ConfirmDialog action={confirmAction} onOpenChange={() => setConfirmAction(null)} />
     </SectionCard>
   )
 }
@@ -1187,6 +1198,7 @@ function EditHoldingsSection({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   // 净值缓存（code → resolveFund 完整结果，含今/昨净值与日期），供折算份额与只读派生用
   const [navMeta, setNavMeta] = useState<Record<string, ResolveFundResult>>({})
   /**
@@ -1328,6 +1340,42 @@ function EditHoldingsSection({
     setRows((cur) => cur.filter((_, i) => i !== index))
   }
 
+  /** 把 index 行合并进同 code 的 targetIdx 行（金额/收益相加），并移除 index 行 */
+  function mergeRows(index: number, targetIdx: number) {
+    const cur = rows[index]
+    const target = rows[targetIdx]
+    if (!cur || !target) return
+    const label = target.group || '未分组'
+    const a1 = Number(cur.amount) || 0
+    const a2 = Number(target.amount) || 0
+    const p1 = cur.holdProfit.trim() === '' ? Number.NaN : Number(cur.holdProfit)
+    const p2 = target.holdProfit.trim() === '' ? Number.NaN : Number(target.holdProfit)
+    const mergedProfit =
+      Number.isFinite(p1) && Number.isFinite(p2)
+        ? String(Math.round((p1 + p2) * 100) / 100)
+        : Number.isFinite(p1)
+          ? String(Math.round(p1 * 100) / 100)
+          : Number.isFinite(p2)
+            ? String(Math.round(p2 * 100) / 100)
+            : ''
+    setRows((curRows) =>
+      curRows
+        .map((r, i) =>
+          i === targetIdx
+            ? {
+                ...r,
+                amount: String(Math.round((a1 + a2) * 100) / 100),
+                holdProfit: mergedProfit,
+                initialized: true,
+                touched: true,
+              }
+            : r,
+        )
+        .filter((_, i) => i !== index),
+    )
+    setMessage(`已合并到「${label}」，保存后生效`)
+  }
+
   /** 修改某行份额所属分组；目标分组已有同一基金时先确认再合并累加（金额/收益相加） */
   function handleGroupChange(index: number, next: string) {
     const cur = rows[index]
@@ -1336,47 +1384,28 @@ function EditHoldingsSection({
       (r, i) => i !== index && r.code === cur.code && r.group === next,
     )
     if (targetIdx !== -1) {
-      const target = rows[targetIdx]
       const label = next || '未分组'
-      const msg = `「${cur.name}」在分组「${label}」已有持仓，确定合并累加吗？\n合并后：持有金额与持有收益相加，成本单价按合并结果自动派生。`
-      if (!confirm(msg)) return
-      const a1 = Number(cur.amount) || 0
-      const a2 = Number(target.amount) || 0
-      const p1 = cur.holdProfit.trim() === '' ? Number.NaN : Number(cur.holdProfit)
-      const p2 = target.holdProfit.trim() === '' ? Number.NaN : Number(target.holdProfit)
-      const mergedProfit =
-        Number.isFinite(p1) && Number.isFinite(p2)
-          ? String(Math.round((p1 + p2) * 100) / 100)
-          : Number.isFinite(p1)
-            ? String(Math.round(p1 * 100) / 100)
-            : Number.isFinite(p2)
-              ? String(Math.round(p2 * 100) / 100)
-              : ''
-      setRows((curRows) =>
-        curRows
-          .map((r, i) =>
-            i === targetIdx
-              ? {
-                  ...r,
-                  amount: String(Math.round((a1 + a2) * 100) / 100),
-                  holdProfit: mergedProfit,
-                  initialized: true,
-                  touched: true,
-                }
-              : r,
-          )
-          .filter((_, i) => i !== index),
-      )
-      setMessage(`已合并到「${label}」，保存后生效`)
-    } else {
-      updateRow(index, {group: next})
-      setMessage(`已移到「${next || '未分组'}」，保存后生效`)
+      setConfirmAction({
+        title: `合并到分组「${label}」？`,
+        description: (
+          <>
+            「{cur.name}」在分组「{label}」已有持仓，确定合并累加吗？
+            <br />
+            合并后：持有金额与持有收益相加，成本单价按合并结果自动派生。
+          </>
+        ),
+        confirmText: '合并',
+        confirmColor: 'blue',
+        onConfirm: () => mergeRows(index, targetIdx),
+      })
+      return
     }
+    updateRow(index, {group: next})
+    setMessage(`已移到「${next || '未分组'}」，保存后生效`)
   }
 
   async function deleteGroup(group: string) {
     const label = group || '未分组'
-    if (!confirm(`删除分组「${label}」及其内所有基金？此操作不可撤销。`)) return
     setSaving(true)
     setError('')
     try {
@@ -1574,7 +1603,16 @@ function EditHoldingsSection({
                     size="1"
                     variant="ghost"
                     disabled={saving}
-                    onClick={() => deleteGroup(groupKey ?? '')}
+                    onClick={() =>
+                      setConfirmAction({
+                        title: `删除分组「${groupKey || '未分组'}」及其内所有基金？`,
+                        description: '此操作不可撤销。',
+                        confirmText: '确认删除',
+                        onConfirm: () => {
+                          void deleteGroup(groupKey ?? '')
+                        },
+                      })
+                    }
                     className="h-7 text-rise hover:bg-rise/10"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -1739,6 +1777,7 @@ function EditHoldingsSection({
           {saving ? '保存中...' : '保存'}
         </Button>
       </div>
+      <ConfirmDialog action={confirmAction} onOpenChange={() => setConfirmAction(null)} />
     </SectionCard>
   )
 }

@@ -683,7 +683,7 @@ export async function removeHoldingGroupWithFunds(ports: Ports, name: string): P
       delete config.holdings[key]
     }
   }
-  ports.config.saveConfig(config)
+  await ports.config.saveConfig(config)
   return config.settings.holdingGroups
 }
 
