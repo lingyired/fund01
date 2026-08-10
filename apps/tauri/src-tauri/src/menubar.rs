@@ -475,11 +475,11 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
     //    开头自带总览可见性温和兜底：不可见则 set_visible(true)，不销毁重建）
     update_menubar(app, quote);
 
-    // 4. 启动总览恢复任务（会话级一次，rebuild 多次触发时幂等跳过）：
-    //    macOS 系统记忆可能在实例创建后才把 visible 置 NO，需延迟重试；
-    //    逐步升级：set_visible(true) → 销毁重建 → 终极手段 killall SystemUIServer 重建菜单栏，
-    //    实现「总览无论如何都重新显示」。
-    spawn_overview_recovery(app);
+    // 4. 启动全实例恢复任务（会话级一次，rebuild 多次触发时幂等跳过）：
+    //    macOS 系统记忆可能在实例创建后才把任意实例的 visible 置 NO（实测重启后全部被压），
+    //    需延迟重试；逐步升级：反复自愈 → 终极手段 killall SystemUIServer 重建菜单栏，
+    //    保证「设置里显示的分组 + 总览」启动后都出现在菜单栏。
+    spawn_startup_recovery(app);
 }
 
 /// 实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）
@@ -487,11 +487,6 @@ fn instance_is_visible(app: &AppHandle, id: &str) -> bool {
     app.multiline_menubar()
         .is_visible(id.to_string())
         .unwrap_or(false)
-}
-
-/// 总览实例可见性（供启动恢复任务使用）
-fn overview_is_visible(app: &AppHandle) -> bool {
-    instance_is_visible(app, INSTANCE_OVERVIEW)
 }
 
 /// 销毁实例并清掉跟踪/点击/移除监听/用户移除标记（销毁后需重新 create）
@@ -556,19 +551,16 @@ fn ensure_instance_visible(app: &AppHandle, id: &str, force: bool) -> bool {
     true
 }
 
-/// 总览可见性兜底（供启动恢复任务使用；周期路径由 update_menubar 的全实例自愈覆盖）
-fn ensure_overview_visible(app: &AppHandle, force: bool) -> bool {
-    ensure_instance_visible(app, INSTANCE_OVERVIEW, force)
-}
+/// 会话级：启动恢复是否已执行完（避免每次 rebuild/配置变更都重复跑恢复任务）
+static STARTUP_RECOVERY_DONE: AtomicBool = AtomicBool::new(false);
 
-/// 会话级：总览启动恢复是否已执行完（避免每次 rebuild/配置变更都重复跑恢复任务）
-static OVERVIEW_RECOVERY_DONE: AtomicBool = AtomicBool::new(false);
-
-/// 启动总览恢复任务：macOS 系统记忆可能在实例创建后才把 visible 置 NO，且 set_visible / 销毁
-/// 重建单次尝试可能被系统持续压制——延迟反复尝试，最后用 `killall SystemUIServer`（社区验证可
-/// 重建菜单栏、恢复第三方图标）兜底，实现「总览无论如何都重新显示」。
-fn spawn_overview_recovery(app: &AppHandle) {
-    if OVERVIEW_RECOVERY_DONE.load(Ordering::Relaxed) {
+/// 启动全实例恢复任务：macOS 系统记忆可能在实例创建后才把**任意实例**（总览/分组/未分组）的
+/// visible 置 NO，且 set_visible / 销毁重建单次尝试可能被系统持续压制（实测重启后全部实例都被
+/// 压，只有延迟重试能救回）。延迟反复重试（每轮跑 update_menubar 自带的全实例自愈），最后用
+/// `killall SystemUIServer`（社区验证可重建菜单栏、恢复第三方图标）兜底——保证「设置里显示的
+/// 分组 + 总览」在启动后都出现在菜单栏。
+fn spawn_startup_recovery(app: &AppHandle) {
+    if STARTUP_RECOVERY_DONE.load(Ordering::Relaxed) {
         return;
     }
     let app = app.clone();
@@ -576,40 +568,42 @@ fn spawn_overview_recovery(app: &AppHandle) {
         // 多次延迟重试（约 6 次 × 700ms）：覆盖「创建后才被系统隐藏」的时序
         for attempt in 0..6 {
             tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            // update_menubar 自带全实例可见性自愈（不可见 → set_visible → 销毁重建）
             let state = app.state::<crate::state::AppState>();
             let quote = state.quote.read().unwrap().clone();
-            if !overview_is_visible(&app) {
-                let recreated = ensure_overview_visible(&app, true);
-                if recreated {
-                    // 销毁重建过 → 重刷文字/样式（sync 不再重复创建）
-                    update_menubar(&app, quote.as_ref());
-                }
-            }
-            if overview_is_visible(&app) {
-                eprintln!("[fund01] 启动总览恢复成功（第 {} 次尝试）", attempt + 1);
+            update_menubar(&app, quote.as_ref());
+            let state = app.state::<crate::state::AppState>();
+            let config = state.config.read().unwrap().clone();
+            let quote = state.quote.read().unwrap().clone();
+            let desired = desired_instances(&config, quote.as_ref());
+            if desired.iter().all(|(id, _, _, _)| instance_is_visible(&app, id)) {
+                eprintln!("[fund01] 启动实例恢复成功（第 {} 次尝试）", attempt + 1);
                 break;
             }
         }
         // 仍不可见 → 终极手段：重启 SystemUIServer（自动拉起），重建菜单栏
-        if !overview_is_visible(&app) {
-            eprintln!("[fund01] 总览仍不可见，执行 killall SystemUIServer 重建菜单栏");
+        let state = app.state::<crate::state::AppState>();
+        let config = state.config.read().unwrap().clone();
+        let quote = state.quote.read().unwrap().clone();
+        let desired = desired_instances(&config, quote.as_ref());
+        if !desired.iter().all(|(id, _, _, _)| instance_is_visible(&app, id)) {
+            eprintln!("[fund01] 仍有实例不可见，执行 killall SystemUIServer 重建菜单栏");
             let _ = std::process::Command::new("killall").arg("SystemUIServer").spawn();
             tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
             let state = app.state::<crate::state::AppState>();
             let quote = state.quote.read().unwrap().clone();
-            if !overview_is_visible(&app) {
-                let recreated = ensure_overview_visible(&app, true);
-                if recreated {
-                    update_menubar(&app, quote.as_ref());
-                }
-            }
-            if overview_is_visible(&app) {
-                eprintln!("[fund01] SystemUIServer 重建后总览已恢复");
+            update_menubar(&app, quote.as_ref());
+            let state = app.state::<crate::state::AppState>();
+            let config = state.config.read().unwrap().clone();
+            let quote = state.quote.read().unwrap().clone();
+            let desired = desired_instances(&config, quote.as_ref());
+            if desired.iter().all(|(id, _, _, _)| instance_is_visible(&app, id)) {
+                eprintln!("[fund01] SystemUIServer 重建后实例已全部恢复");
             } else {
-                eprintln!("[fund01] 总览仍不可见：请在 系统设置→控制中心→菜单栏 确认 fund01-tauri 已勾选显示");
+                eprintln!("[fund01] 仍有实例不可见：请在 系统设置→控制中心→菜单栏 确认 fund01-tauri 已勾选显示");
             }
         }
-        OVERVIEW_RECOVERY_DONE.store(true, Ordering::Relaxed);
+        STARTUP_RECOVERY_DONE.store(true, Ordering::Relaxed);
     });
 }
 
