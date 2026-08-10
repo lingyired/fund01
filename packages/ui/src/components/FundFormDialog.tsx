@@ -1,27 +1,17 @@
 import {useEffect, useState} from 'react'
 import {X} from 'lucide-react'
-import {Button, Dialog, RadioCards, TextField} from '@radix-ui/themes'
+import {Button, Dialog, TextField} from '@radix-ui/themes'
 import type {FundQuoteRow} from '@fund01/core'
 import {usePorts} from '../context'
-
-/** 录入金额对应哪一版确认净值市值 */
-export type AmountBasis = 'prev' | 'today'
 
 type Payload = {
   code: string
   amount?: number
-  /** 持仓金额口径：昨确认 / 今确认 */
-  amountBasis?: AmountBasis
   type?: 'hold' | 'watch'
   /** 持仓分组（仅 hold 有效；空字符串=未分组）。指定本次金额对应的分组份额 */
   group?: string
   /** 该分组的持有收益（元，可选；用于反推成本单价） */
   holdProfit?: number
-}
-
-function defaultBasis(initial: FundQuoteRow | null): AmountBasis {
-  if (!initial) return 'prev'
-  return initial.percentSource === 'confirmed' ? 'today' : 'prev'
 }
 
 /** 表单内容（不含 Dialog 包装），可在弹窗里用，也可在设置页里内联常驻。
@@ -65,7 +55,6 @@ export function FundFormBody({
   const [code, setCode] = useState('')
   const [amount, setAmount] = useState('')
   const [holdProfit, setHoldProfit] = useState('')
-  const [amountBasis, setAmountBasis] = useState<AmountBasis>('prev')
   /** 当前选中的单一分组（'' = 未分组） */
   const [selectedGroup, setSelectedGroup] = useState<string>('')
   const [addingGroup, setAddingGroup] = useState(false)
@@ -78,7 +67,6 @@ export function FundFormBody({
     const amt = initialAmount != null ? initialAmount : initial?.amount
     setAmount(amt != null ? String(amt) : '')
     setHoldProfit(initialHoldProfit != null ? String(initialHoldProfit) : '')
-    setAmountBasis(defaultBasis(initial))
     setSelectedGroup(editingGroup ?? '')
     setAddingGroup(false)
     setError('')
@@ -98,7 +86,6 @@ export function FundFormBody({
           }
           if (mode === 'hold') {
             payload.amount = Number(amount) || 0
-            payload.amountBasis = amountBasis
             payload.group = selectedGroup
             // 持有收益：空字符串=不传（保留原值/无成本）；>0 或 <0 均传，用于反推成本单价
             const hpNum = holdProfit.trim() === '' ? undefined : Number(holdProfit)
@@ -187,31 +174,6 @@ export function FundFormBody({
             )}
           </div>
 
-          <fieldset className="space-y-2">
-            <legend className="text-sm font-medium text-ink">金额口径</legend>
-            <RadioCards.Root
-              value={amountBasis}
-              onValueChange={(v) => setAmountBasis(v as AmountBasis)}
-              columns={{initial: '1', sm: '2'}}
-            >
-              <RadioCards.Item value="prev">
-                <div className="text-left">
-                  <div className="text-sm font-medium text-ink">昨日结算的持仓金额</div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    用昨确认净值算份额；列表金额之后按最新净值实时计算
-                  </div>
-                </div>
-              </RadioCards.Item>
-              <RadioCards.Item value="today">
-                <div className="text-left">
-                  <div className="text-sm font-medium text-ink">今日结算的持仓金额</div>
-                  <div className="mt-0.5 text-xs text-muted">
-                    输入即今日确认市值（与列表一致）；用今净值算份额
-                  </div>
-                </div>
-              </RadioCards.Item>
-            </RadioCards.Root>
-          </fieldset>
           <div className="space-y-1.5">
             <label
               htmlFor="amount"

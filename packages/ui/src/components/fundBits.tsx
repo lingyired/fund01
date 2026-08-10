@@ -21,12 +21,24 @@ export function ConfirmedUpdatedBadge({
   show,
   percent,
   netValue,
+  compact,
 }: {
   show?: boolean
   percent?: number | null
   netValue?: number | null
+  compact?: boolean
 }) {
   if (!show) return null
+  if (compact) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center rounded border border-emerald-400/40 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-500"
+        title="该基金今日已披露确认净值，录入金额按今日净值折算份额"
+      >
+        已更新
+      </span>
+    )
+  }
   const pctText = formatPct(percent)
   const navText =
     netValue != null && Number.isFinite(netValue) ? netValue.toFixed(4) : '--'

@@ -19,8 +19,8 @@ import {
   todayDateStr,
 } from '@fund01/core'
 
-/** 录入金额对应哪一版确认净值市值 */
-export type AmountBasis = 'prev' | 'today'
+/** 录入金额对应哪一版确认净值市值；'auto' = 自动取当前最新可用确认净值（默认） */
+export type AmountBasis = 'prev' | 'today' | 'auto'
 
 function sharesFromAmount(amount: number, netValue?: number | null): number {
   if (!(amount > 0) || !(netValue != null && netValue > 0)) return 0
@@ -65,6 +65,15 @@ export function pickBasisNav(
       return {nav: prior, date: priorDate}
     }
     throw new Error(`navDate=${navDate} 无对应确认净值${known}，请核对日期或改用 amountBasis`)
+  }
+
+  // ①½ auto：自动取「当前最新可用确认净值」——今日已确认净值优先，否则用最新确认
+  // 净值（盘中今日未确认 → 即昨日净值）。这是默认口径：用户录入的「持有金额」就是此刻
+  // 看到的当前市值，无需在昨日/今日间手动抉择。
+  if (basis === 'auto') {
+    if (latest != null && latest > 0) return {nav: latest, date: latestDate}
+    if (prior != null && prior > 0) return {nav: prior, date: priorDate}
+    throw new Error('暂无确认净值，无法按金额反推份额，请稍后重试')
   }
 
   // ② today：金额已含今日收益，必须用今日确认净值折算，否则份额会偏一整天涨跌幅
@@ -287,7 +296,8 @@ export async function createFund(
   }
 
   const amount = payload.amount ?? 0
-  const basis: AmountBasis = payload.amountBasis === 'today' ? 'today' : 'prev'
+  const basis: AmountBasis =
+    payload.amountBasis === 'today' ? 'today' : payload.amountBasis === 'prev' ? 'prev' : 'auto'
 
   let shares = 0
   let basisDate: string | undefined
@@ -398,7 +408,7 @@ export async function updateFund(
     } else if (amount != null && Number(amount) > 0) {
       // 仅正金额需要净值折算；0 金额（关注/待加仓）份额恒 0，不依赖数据源是否有净值
       const meta = await ports.data.resolveFund({code, type: 'hold'})
-      const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
+      const basis: AmountBasis = amountBasis === 'today' ? 'today' : amountBasis === 'prev' ? 'prev' : 'auto'
       nextShares = deriveHoldShares(Number(amount) || 0, pickBasisNav(basis, meta, navDate))
     }
     const group = payload.group ?? ''
