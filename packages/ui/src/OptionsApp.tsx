@@ -2755,7 +2755,7 @@ function MenubarSection() {
                     className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
                     style={{opacity: groupColors[MENUBAR_OVERVIEW_KEY] ? 1 : 0.3}}
                   />
-                  <Switch
+                  <Switch radius="full"
                     checked={!!groupColors[MENUBAR_OVERVIEW_KEY]}
                     disabled={saving}
                     onCheckedChange={(c) => void toggleGroupColor(MENUBAR_OVERVIEW_KEY, c)}
@@ -2765,7 +2765,7 @@ function MenubarSection() {
               </td>
               <td className="py-2 pl-3">
                 <div className="flex justify-end">
-                  <Switch checked disabled aria-label="总览固定显示" />
+                  <Switch radius="full" checked disabled aria-label="总览固定显示" />
                 </div>
               </td>
             </tr>
@@ -2783,7 +2783,7 @@ function MenubarSection() {
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
                       style={{opacity: groupColors[g] ? 1 : 0.3}}
                     />
-                    <Switch
+                    <Switch radius="full"
                       checked={!!groupColors[g]}
                       disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor(g, c)}
@@ -2793,7 +2793,7 @@ function MenubarSection() {
                 </td>
                 <td className="py-2 pl-3">
                   <div className="flex justify-end">
-                    <Switch
+                    <Switch radius="full"
                       checked={!hidden.includes(g)}
                       disabled={saving}
                       onCheckedChange={(c) => void toggleGroup(g, c)}
@@ -2817,7 +2817,7 @@ function MenubarSection() {
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
                       style={{opacity: groupColors[''] ? 1 : 0.3}}
                     />
-                    <Switch
+                    <Switch radius="full"
                       checked={!!groupColors['']}
                       disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor('', c)}
@@ -2827,7 +2827,7 @@ function MenubarSection() {
                 </td>
                 <td className="py-2 pl-3">
                   <div className="flex justify-end">
-                    <Switch
+                    <Switch radius="full"
                       checked={!hidden.includes('')}
                       disabled={saving}
                       onCheckedChange={(c) => void toggleGroup('', c)}
@@ -2974,7 +2974,7 @@ function MenubarSection() {
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
             <span className="text-sm text-ink-soft">上行加粗</span>
-            <Switch
+            <Switch radius="full"
               checked={topBold}
               onCheckedChange={(c) => void handleBoldChange('top', c)}
               aria-label="上行加粗"
@@ -2982,7 +2982,7 @@ function MenubarSection() {
           </div>
           <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
             <span className="text-sm text-ink-soft">下行加粗</span>
-            <Switch
+            <Switch radius="full"
               checked={bottomBold}
               onCheckedChange={(c) => void handleBoldChange('bottom', c)}
               aria-label="下行加粗"
