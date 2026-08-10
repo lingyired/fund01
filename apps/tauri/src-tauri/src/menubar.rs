@@ -344,24 +344,36 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
 }
 
 /// 收敛实例集合：创建缺失实例（+点击监听）、销毁多余实例（+移除监听）。
+/// 实例 id → 人类可读标签（总览 / 未分组 / 分组名），用于日志排查
+fn instance_label(id: &str) -> String {
+    if id == INSTANCE_OVERVIEW {
+        "总览".to_string()
+    } else if id == "menubar-ungrouped" {
+        "未分组".to_string()
+    } else {
+        id.strip_prefix("menubar-group-")
+            .map(decode_group_id)
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| id.to_string())
+    }
+}
+
 /// 幂等，rebuild 与 update 共用——保证任何时刻菜单栏实例与「最新 config + 行情」对齐，
 /// 避免分组/持仓变更后（尤其刷新完成后）多余实例残留、正确实例缺失。
 fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
-    let mut created: Vec<String> = Vec::new();
     // 1. 创建缺失实例 + 监听点击/移除
     for (id, _, _, _) in desired {
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
             let _ = mb.create(id.clone());
             tracked().lock().unwrap().insert(id.clone());
-            created.push(id.clone());
+            eprintln!("[fund01] create 实例 {id}（{}）", instance_label(id));
         }
         ensure_click_listener(app, id);
         ensure_remove_listener(app, id);
     }
 
     // 2. 销毁多余实例（同步移除 click/remove 监听，释放闭包持有的 AppHandle）
-    let mut removed: Vec<String> = Vec::new();
     let mut tracked_set = tracked().lock().unwrap();
     let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _, _)| id).collect();
     let stale: Vec<String> = tracked_set.iter().filter(|id| !desired_ids.contains(id)).cloned().collect();
@@ -376,14 +388,7 @@ fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
         }
         // 实例被销毁（分组删除/隐藏）时清掉「用户移除」标记，避免下次重建时被误跳过
         removed_by_user().lock().unwrap().remove(&id);
-        removed.push(id.clone());
-    }
-    if !created.is_empty() || !removed.is_empty() {
-        eprintln!(
-            "[fund01] sync_instances created=[{}] removed=[{}]",
-            created.join(","),
-            removed.join(",")
-        );
+        eprintln!("[fund01] remove 实例 {id}（{}）", instance_label(&id));
     }
 }
 
@@ -574,6 +579,7 @@ fn ensure_instance_visible(app: &AppHandle, id: &str, force: bool) -> bool {
     destroy_instance(app, id);
     let _ = mb.create(id.to_string());
     tracked().lock().unwrap().insert(id.to_string());
+    eprintln!("[fund01] create 实例 {id}（{}，自愈重建）", instance_label(id));
     let _ = mb.set_visible(id.to_string(), true);
     if instance_is_visible(app, id) {
         eprintln!("[fund01] 实例 {id} 重建后可见");
