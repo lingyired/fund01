@@ -147,37 +147,26 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
     })
 }
 
-/// 分组名 → menubar 实例 id 后缀：percent-encode（仅保留 ASCII 字母数字与 -_.~，其余按字节 %XX）。
+/// 分组名 → menubar 实例 id 后缀：按字节 hex 编码（每字节两位小写 hex）。
 /// 实例 id 只依赖分组名（与 holding_groups 下标无关）→ 分组排序变化不重建实例，
-/// macOS 原生「按住 ⌘ 拖拽」调整的菜单栏顺序得以保留；分组名特殊字符也不会破坏
-/// `multiline-menubar://{id}//click` 事件名解析。
+/// macOS 原生「按住 ⌘ 拖拽」调整的菜单栏顺序得以保留。
+/// ⚠️ 不能用 percent-encoding：tauri 事件名（`multiline-menubar://{id}//click`）只允许
+/// 字母数字 + `-`/`/`/`:`/`_`，`%` 非法（IllegalEventName panic）；hex 字符全部合法且无歧义。
 fn encode_group_id(name: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(name.len() * 2);
     for b in name.as_bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
-            out.push(*b as char);
-        } else {
-            out.push('%');
-            out.push_str(&format!("{:02X}", b));
-        }
+        out.push_str(&format!("{:02x}", b));
     }
     out
 }
 
 fn decode_group_id(enc: &str) -> String {
-    let bytes = enc.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(enc.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                out.push(h * 16 + l);
-                i += 3;
-                continue;
-            }
+    let mut out: Vec<u8> = Vec::with_capacity(enc.len() / 2);
+    let mut chars = enc.bytes();
+    while let (Some(h), Some(l)) = (chars.next(), chars.next()) {
+        if let (Some(h), Some(l)) = (hex_val(h), hex_val(l)) {
+            out.push(h * 16 + l);
         }
-        out.push(bytes[i]);
-        i += 1;
     }
     String::from_utf8(out).unwrap_or_default()
 }
@@ -518,5 +507,18 @@ mod tests {
         assert_eq!(format_pct(12.345), "+12.35%");
         assert_eq!(format_pct(-0.5), "-0.50%");
         assert_eq!(format_pct(123.4), "+123%");
+    }
+
+    #[test]
+    fn group_id_roundtrip_and_event_safe() {
+        for name in ["人工智能", "测试-分组", "A B_C.D", "a/b:中", "x%y", "纯ASCII"] {
+            let enc = encode_group_id(name);
+            // 事件名合法字符（tauri 校验：字母数字 + - / : _，`%` 非法）→ id 后缀必须只含字母数字
+            assert!(
+                enc.chars().all(|c| c.is_ascii_alphanumeric()),
+                "enc 含非法事件名字符: {enc}",
+            );
+            assert_eq!(decode_group_id(&enc), name, "roundtrip 失败: {name}");
+        }
     }
 }
