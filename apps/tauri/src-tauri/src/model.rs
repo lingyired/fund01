@@ -112,10 +112,6 @@ pub struct AppSettings {
     /// 未配置的分组回落 menubar_top_color（全局）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_group_colors: Option<HashMap<String, String>>,
-    /// 菜单栏分组实例顺序（分组名有序列表）。未配置（空）时跟随 holding_groups；
-    /// 一旦配置即与持仓分组顺序独立（持仓分组拖拽不再联动菜单栏位置）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub menubar_group_order: Option<Vec<String>>,
     /// 菜单栏下行涨色（hex，默认 #FF4F44）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_rise_color: Option<String>,
@@ -147,7 +143,6 @@ impl Default for AppSettings {
             menubar_bottom_bold: None,
             menubar_top_color: None,
             menubar_group_colors: None,
-            menubar_group_order: None,
             menubar_rise_color: None,
             menubar_fall_color: None,
         }

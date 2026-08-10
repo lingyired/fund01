@@ -39,7 +39,6 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_bold: Some(true),
             menubar_top_color: Some("#ffffff".to_string()),
             menubar_group_colors: Some(HashMap::new()),
-            menubar_group_order: Some(vec![]),
             menubar_rise_color: Some("#FF4F44".to_string()),
             menubar_fall_color: Some("#34C759".to_string()),
         },
@@ -363,22 +362,6 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             map
         })
         .unwrap_or_default();
-    // menubarGroupOrder：去重保序，仅保留有效分组；空 = 未自定义（跟随 holdingGroups）
-    let mut menubar_group_order: Vec<String> = Vec::new();
-    if let Some(order) = settings_raw
-        .and_then(|s| s.get("menubarGroupOrder"))
-        .and_then(|v| v.as_array())
-    {
-        for g in order {
-            let name = g.as_str().unwrap_or("").trim().to_string();
-            if !name.is_empty()
-                && holding_groups.contains(&name)
-                && !menubar_group_order.contains(&name)
-            {
-                menubar_group_order.push(name);
-            }
-        }
-    }
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
     let quote_source = if settings_raw.and_then(|s| s.get("quoteSource").and_then(|v| v.as_str())) == Some("fund123") {
@@ -446,7 +429,6 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_bottom_bold: Some(menubar_bottom_bold),
             menubar_top_color: Some(menubar_top_color),
             menubar_group_colors: Some(menubar_group_colors),
-            menubar_group_order: Some(menubar_group_order),
             menubar_rise_color: Some(menubar_rise_color),
             menubar_fall_color: Some(menubar_fall_color),
         },

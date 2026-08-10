@@ -198,13 +198,6 @@ export type AppSettings = {
    * 未配置的分组回落到 menubarTopColor（全局）。仅 tauri 生效
    */
   menubarGroupColors?: Record<string, string>
-  /**
-   * 菜单栏分组实例顺序（仅 tauri 生效；分组名有序列表，按顺序展示）。
-   * 未配置（空数组/缺省）时跟随 holdingGroups 顺序；一旦配置即与持仓分组顺序独立——
-   * 设置页拖拽调整持仓分组顺序只影响 popup 分组 Tab，不再联动菜单栏分组实例顺序。
-   * 有效分组保序，未列出的分组追加末尾；增删改名时同步（removeHoldingGroup 等）。
-   */
-  menubarGroupOrder?: string[]
   /** 菜单栏下行涨色（hex，默认 #FF4F44）。仅 tauri 生效 */
   menubarRiseColor?: string
   /** 菜单栏下行跌色（hex，默认 #34C759）。仅 tauri 生效 */

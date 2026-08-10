@@ -147,28 +147,48 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
     })
 }
 
-/// menubar 视角的分组顺序：menubar_group_order 非空 → 有效分组保序 + 未列出的分组追加末尾；
-/// 空（未自定义）→ 跟随 holding_groups。
-/// 实例 id 用此顺序的下标（menubar-group-{idx}），desired_instances 与 popup_tab_for 必须共用，
-/// 保证「menubar 分组实例顺序」与「点击实例 → 分组 tab」映射一致。
-fn menubar_groups(config: &AppConfig) -> Vec<String> {
-    let groups = config.settings.holding_groups.clone().unwrap_or_default();
-    let order = config.settings.menubar_group_order.clone().unwrap_or_default();
-    if order.is_empty() {
-        return groups;
-    }
-    let mut list: Vec<String> = Vec::new();
-    for g in &order {
-        if groups.contains(g) && !list.contains(g) {
-            list.push(g.clone());
+/// 分组名 → menubar 实例 id 后缀：percent-encode（仅保留 ASCII 字母数字与 -_.~，其余按字节 %XX）。
+/// 实例 id 只依赖分组名（与 holding_groups 下标无关）→ 分组排序变化不重建实例，
+/// macOS 原生「按住 ⌘ 拖拽」调整的菜单栏顺序得以保留；分组名特殊字符也不会破坏
+/// `multiline-menubar://{id}//click` 事件名解析。
+fn encode_group_id(name: &str) -> String {
+    let mut out = String::new();
+    for b in name.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(*b as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{:02X}", b));
         }
     }
-    for g in &groups {
-        if !list.contains(g) {
-            list.push(g.clone());
+    out
+}
+
+fn decode_group_id(enc: &str) -> String {
+    let bytes = enc.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(enc.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                out.push(h * 16 + l);
+                i += 3;
+                continue;
+            }
         }
+        out.push(bytes[i]);
+        i += 1;
     }
-    list
+    String::from_utf8(out).unwrap_or_default()
+}
+
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        _ => None,
+    }
 }
 
 /// 计算期望实例列表：(id, 顶行文字, 涨跌%, 收益额)
@@ -177,7 +197,7 @@ fn desired_instances(
     config: &AppConfig,
     quote: Option<&QuoteUpdate>,
 ) -> Vec<(String, String, f64, f64)> {
-    let groups = menubar_groups(config);
+    let groups = config.settings.holding_groups.clone().unwrap_or_default();
     let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
     let rows = quote_rows(quote);
 
@@ -192,13 +212,15 @@ fn desired_instances(
         overview_amount,
     ));
 
-    // 总览恒在；每个分组一个实例（隐藏的分组跳过，idx 保持原始序号 → id 稳定）
-    for (idx, g) in groups.iter().enumerate() {
+    // 总览恒在；每个分组一个实例（隐藏的分组跳过）。
+    // 实例 id 基于分组名（稳定）：持仓分组拖拽排序只改 holding_groups 顺序、不改 id，
+    // sync_instances 按 id 集合增删不会重建已有实例 → 菜单栏位置（含 mac 原生拖拽结果）不受影响。
+    for g in &groups {
         if hidden.iter().any(|h| h == g) {
             continue;
         }
         out.push((
-            format!("menubar-group-{idx}"),
+            format!("menubar-group-{}", encode_group_id(g)),
             g.clone(),
             group_percent(config, &rows, g),
             group_pnl(config, &rows, g),
@@ -216,8 +238,8 @@ fn desired_instances(
 }
 
 /// 点击实例 id → popup 分组 tab id（与前端 GroupTabs 的 tab id 对齐）：
-/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{idx} → menubar_groups()[idx]（分组名）。
-fn popup_tab_for(config: &AppConfig, id: &str) -> Option<String> {
+/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{enc} → 解码出的分组名。
+fn popup_tab_for(id: &str) -> Option<String> {
     if id == INSTANCE_OVERVIEW {
         return Some("all".to_string());
     }
@@ -225,8 +247,8 @@ fn popup_tab_for(config: &AppConfig, id: &str) -> Option<String> {
         return Some("__ungrouped__".to_string());
     }
     id.strip_prefix("menubar-group-")
-        .and_then(|s| s.parse::<usize>().ok())
-        .and_then(|i| menubar_groups(config).get(i).cloned())
+        .map(decode_group_id)
+        .filter(|name| !name.is_empty())
 }
 
 /// 点击事件监听（每个实例一次，记录 EventId 供销毁时移除）：解析状态项 rect → 弹出浮窗，
@@ -255,11 +277,8 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
             .filter(|(_, _, w, h)| *w > 0.0 && *h > 0.0);
         // 右键（菜单）由原生层处理；这里只处理左键
         if payload.get("button").and_then(|v| v.as_str()) == Some("left") {
-            // 实例 id 与分组归属以最新 config 为权威（分组可能已重命名/删除）
-            let state = app_handler.state::<crate::state::AppState>();
-            let config = state.config.read().unwrap().clone();
-            let tab = popup_tab_for(&config, &instance_id);
-            drop(state);
+            // 实例 id 自带分组名（percent-encode），点击映射直接解码即可
+            let tab = popup_tab_for(&instance_id);
             show_popup(&app_handler, rect, tab.as_deref());
         }
     });
@@ -419,11 +438,9 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         } else if id == "menubar-ungrouped" {
             Some(String::new())
         } else {
-            let groups = menubar_groups(&config);
             id.strip_prefix("menubar-group-")
-                .and_then(|s| s.parse::<usize>().ok())
-                .and_then(|i| groups.get(i))
-                .map(|g| g.clone())
+                .map(decode_group_id)
+                .filter(|n| !n.is_empty())
         };
         let instance_top_color = group_key
             .and_then(|k| {

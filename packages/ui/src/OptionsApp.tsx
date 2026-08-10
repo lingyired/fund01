@@ -1,8 +1,6 @@
 import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import type * as React from 'react'
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   Copy,
   Database,
@@ -886,25 +884,12 @@ function HoldingGroupsSection({
   }
 
   /**
-   * 写后端（同步发起，fire-and-forget）：持仓分组顺序 + menubar 顺序冻结/保持。
-   * menubar 顺序独立于持仓分组顺序：若尚未自定义 menubarGroupOrder，把「后端当前
-   * holdingGroups 顺序」（= 本次拖拽前的顺序，拖拽只改本地 state 未落库）冻结为
-   * menubarGroupOrder，之后持仓分组拖拽只影响 popup 分组 Tab，不再联动菜单栏分组实例位置；
-   * 已自定义（menubar 设置页排序过）则保持不变。
+   * 写后端（同步发起，fire-and-forget）：持仓分组顺序整体写入。
+   * 菜单栏分组实例顺序由 macOS 原生管理（按住 ⌘ 拖拽排序，实例 id 按分组名稳定，不随
+   * holdingGroups 顺序变化重建），这里只写 holdingGroups，不干预菜单栏位置。
    */
   function persistGroupOrder(order: string[]) {
-    const s = fetchSettings(ports)
-    const mbOrder = s.menubarGroupOrder
-    const mbNext =
-      mbOrder && mbOrder.length
-        ? undefined
-        : s.holdingGroups && s.holdingGroups.length
-          ? s.holdingGroups
-          : undefined
-    updateSettings(ports, {
-      holdingGroups: order,
-      ...(mbNext ? {menubarGroupOrder: mbNext} : {}),
-    })
+    updateSettings(ports, {holdingGroups: order})
   }
 
   async function persistGroups(order: string[]) {
@@ -1002,7 +987,7 @@ function HoldingGroupsSection({
   return (
     <SectionCard id="holdings-groups" title="持仓分组">
       <p className="text-xs text-muted">
-        管理持仓的分组。按住每行左侧的拖拽手柄（⠿）上下拖动可调整分组顺序，该顺序影响 popup 内分组 Tab 的排列；菜单栏分组实例的顺序独立，可在「菜单栏 · 分组显示」中单独调整。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
+        管理持仓的分组。按住每行左侧的拖拽手柄（⠿）上下拖动可调整分组顺序，该顺序影响 popup 内分组 Tab 的排列；菜单栏分组实例的顺序由 macOS 原生管理（按住 ⌘ 拖拽菜单栏图标排序），不随持仓分组顺序变化。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
       <div className="space-y-1 pt-1">
         {groups.length === 0 ? (
@@ -2500,8 +2485,6 @@ function MenubarSection() {
   const [groupColors, setGroupColors] = useState<Record<string, string>>({})
   const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
   const [fallColor, setFallColor] = useState(MENUBAR_DEFAULTS.fallColor)
-  /** menubar 分组顺序（独立于 holdingGroups；空 = 跟随持仓分组顺序） */
-  const [mbOrder, setMbOrder] = useState<string[]>([])
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
@@ -2524,8 +2507,6 @@ function MenubarSection() {
     setFallColor(normalizeHexColor(s.menubarFallColor, MENUBAR_DEFAULTS.fallColor))
     const gs = listHoldingGroups(ports)
     setGroups(gs)
-    // menubar 分组顺序：已自定义用 menubarGroupOrder，未自定义跟随 holdingGroups
-    setMbOrder(s.menubarGroupOrder && s.menubarGroupOrder.length ? s.menubarGroupOrder : gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
     const known = new Set(gs)
     setHasUngrouped(
@@ -2534,34 +2515,6 @@ function MenubarSection() {
       ),
     )
   }, [ports])
-
-  // 分组显示表格按 menubar 顺序展示：mbOrder 有效分组保序 + 未在 order 的分组追加末尾（增删后自愈）
-  const mbOrderList = useMemo(() => {
-    const order = mbOrder.length ? mbOrder : groups
-    const list: string[] = []
-    for (const g of order) {
-      if (groups.includes(g) && !list.includes(g)) list.push(g)
-    }
-    for (const g of groups) {
-      if (!list.includes(g)) list.push(g)
-    }
-    return list
-  }, [mbOrder, groups])
-
-  /** menubar 分组顺序调整：即时保存（低频操作） */
-  async function moveGroupOrder(idx: number, dir: -1 | 1) {
-    const to = idx + dir
-    if (to < 0 || to >= mbOrderList.length) return
-    const next = [...mbOrderList]
-    const [moved] = next.splice(idx, 1)
-    next.splice(to, 0, moved)
-    setMbOrder(next)
-    try {
-      await updateSettings(ports, {menubarGroupOrder: next})
-    } catch {
-      /* ignore */
-    }
-  }
 
   /** 分组显示开关：即时保存（低频操作） */
   async function toggleGroup(g: string, show: boolean) {
@@ -2724,7 +2677,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
-          用分组左侧的上下箭头调整菜单栏分组实例的顺序（与设置页「持仓分组」的顺序相互独立，拖拽持仓分组不会影响这里）；开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
+          菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
         </p>
         <table className="w-full pt-1 text-sm">
           <thead>
@@ -2761,33 +2714,9 @@ function MenubarSection() {
                 </div>
               </td>
             </tr>
-            {mbOrderList.map((g, idx) => (
+            {groups.map((g) => (
               <tr key={g} className="border-t border-line/50">
-                <td className="py-2 pr-2">
-                  <div className="flex items-center gap-0.5">
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      className="h-6 w-6"
-                      disabled={idx === 0}
-                      onClick={() => void moveGroupOrder(idx, -1)}
-                      aria-label={`上移分组 ${g}`}
-                    >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                    </IconButton>
-                    <IconButton
-                      type="button"
-                      variant="ghost"
-                      className="h-6 w-6"
-                      disabled={idx === mbOrderList.length - 1}
-                      onClick={() => void moveGroupOrder(idx, 1)}
-                      aria-label={`下移分组 ${g}`}
-                    >
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </IconButton>
-                    <span className="text-ink">{g}</span>
-                  </div>
-                </td>
+                <td className="py-2 pr-2 text-ink">{g}</td>
                 <td className="py-2">
                   <div className="flex items-center justify-end gap-1.5" title="自定义该分组上行颜色">
                     <input

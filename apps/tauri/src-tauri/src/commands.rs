@@ -103,7 +103,6 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_bottom_bold = None;
     a.settings.menubar_top_color = None;
     a.settings.menubar_group_colors = None;
-    a.settings.menubar_group_order = None;
     a.settings.menubar_rise_color = None;
     a.settings.menubar_fall_color = None;
     b.settings.menubar_hidden_groups = None;
@@ -118,7 +117,6 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_bottom_bold = None;
     b.settings.menubar_top_color = None;
     b.settings.menubar_group_colors = None;
-    b.settings.menubar_group_order = None;
     b.settings.menubar_rise_color = None;
     b.settings.menubar_fall_color = None;
     a == b
