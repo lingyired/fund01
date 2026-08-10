@@ -5,7 +5,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -429,27 +428,9 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ],
     );
 
-    // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等）
+    // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等；
+    //    开头自带总览可见性兜底，系统记忆/系统设置导致的隐藏会自动恢复）
     update_menubar(app, quote);
-
-    // 4. 兜底：macOS 可能记住了「用户移除过该 app 的 status item」（旧版本拖出导致全部消失的
-    // 残留），重启后创建的总览实例会被系统隐藏。检测到总览不可见则强制恢复（先 visible=true，
-    // 无效则销毁重建全新 NSStatusItem），重建后重刷文字/样式。
-    if ensure_overview_visible(app) {
-        update_menubar(app, quote);
-    }
-
-    // 5. 延迟兜底：系统记忆/时序可能在启动稍后才把实例隐藏，1.5s 后再检查一次
-    //（此时用 AppState 里的最新行情重刷，避免覆盖成空数据）。
-    let app_delayed = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        let state = app_delayed.state::<crate::state::AppState>();
-        let quote = state.quote.read().unwrap().clone();
-        if ensure_overview_visible(&app_delayed) {
-            update_menubar(&app_delayed, quote.as_ref());
-        }
-    });
 }
 
 /// 兜底：确保「总览」（全部）实例显示。
@@ -487,6 +468,11 @@ fn ensure_overview_visible(app: &AppHandle) -> bool {
 /// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
 /// 修改持仓/分组后即使尚未触发 rebuild，刷新也会让实例集合与最新配置对齐。
 pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
+    // 兜底（每次刷新/重建都跑）：总览实例不可见（macOS 系统设置里被取消勾选 / 用户移除记忆
+    // 残留）时强制恢复——重建后本函数的 sync_instances 会创建全新实例并刷新文字，无需额外重刷。
+    // 这样用户即使运行中在系统设置里开关了菜单栏项，最迟 60s 内「全部」也会自动回来。
+    ensure_overview_visible(app);
+
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）
     let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
