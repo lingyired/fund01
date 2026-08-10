@@ -1,11 +1,33 @@
-# menubar 分组实例重启后不显示 —— 诊断记录（暂停处理）
+# menubar 分组实例重启后不显示 —— 诊断记录（已修复）
 
-> 状态：**暂停修复**（2026-08-10 用户决定先记录，后续再处理）
-> 分支：`feat/holding-group-order`（本问题相关提交见文末「提交时间线」）
+> 状态：**已修复**（2026-08-10 完成，分支 `fix/menubar-visible-model`，`cargo check` + `cargo test --lib` 通过）
+> 根因：自造的「显隐 = 实例销毁重建」churn，叠加原生 setter 异步 / getter 同步不对称，导致重启后分组实例被 macOS 布局簿记错乱到屏幕外（y=-22）。
+> 对照插件 demo 的合并模型（实例仅 create 一次、显隐只走 `set_visible`、只有分组删除才 `remove`）完成改造。
 
 ---
 
-## 一、问题现象
+## 〇、根因与修复（2026-08-10 已修复，取代下方「未解之谜」）
+
+### 根因（三层，从前到后叠加）
+
+1. **架构层**：我们把「显隐」编码成「实例存不存在」——隐藏分组 → `remove` 实例，显示分组 → 重新 `create`。而插件 `multiline_menubar.mm` 注释明示 macOS 13+ 用 `statusItem.visible` 而非 `removeStatusItem`，正是因为 **`removeStatusItem` loses position**（位置靠系统运行时簿记，不写 autosaveName）。销毁重建必然丢位置。
+2. **引爆点（最致命）**：插件原生层 setter（`create`/`show`/`hide`/`set_*`）全部 `dispatch_async(main)` **异步入队**；而 getter（`is_visible`/`get_rect`）用 `run_on_main_sync` **同步立即执行**。`lib.rs:78` 在 **主线程** `setup` 阶段 `rebuild_menubar` → `create` 入队后**同一 runloop turn 内**就同步回读 `is_visible` → 此刻 `g_instances[key]` 还是 nil → 恒定 `false` → 误判「不可见」→ 强制 `set_visible(true)` + 销毁重建。一个 turn 内 6 个实例齐做 churn，macOS 布局簿记彻底错乱 → 分组被推到 `y=-22`（屏幕外）。
+3. **自激层**：78ba060 的「屏幕边界校验」把 `y=-22` 判为「不可见」→ 又触发销毁重建 → 更乱 → `spawn_startup_recovery` 再追加 6 轮 killall。**补丁在喂养病因**，所以用户复测「还是一样」。
+
+### 修复（完整改造，对齐插件 demo INTEGRATION-NOTES / examples/demo）
+
+- **合并模型**：`desired_instances` 返回**全集**（`Vec<InstanceSpec>`，含 `visible` 字段）；隐藏分组照样进列表，仅 `visible=false`。总览恒 `visible=true`。
+- **`sync_instances` 三步**：① `tracked().insert()` 去重守卫下 `create` 缺失实例（一次终生不销毁）；② **对每个实例 `set_visible(id, spec.visible)` 声明式下发**——显隐唯一通道，不销毁不重建；③ 仅销毁「不该存在」的 stale id（分组被删除 / 未分组消失）。
+- **删除全部自激代码**：`instance_is_visible` / `ensure_instance_visible` / `destroy_instance` / `spawn_startup_recovery`（含 `STARTUP_RECOVERY_DONE` AtomicBool、`killall SystemUIServer`）整段移除；`REMOVED_BY_USER` / `removed_by_user()` / `AtomicBool` 导入一并删除。
+- **`update_menubar`**：删除回读 `is_visible` 的自愈循环与 `recreated` 重建分支，显隐只在 `sync_instances` 内 `set_visible` 下发；结尾循环改为 `for spec in desired` 按字段访问。
+- **`ensure_remove_listener`**：⌘-拖出语义对齐 demo = 「取消勾选」——只写 `menubarHiddenGroups` + persist + `rebuild_menubar`（`desired` 里该分组变 `visible=false` → `set_visible(false)`，实例保留原位可复活），不再写 `removed_by_user` 标记。
+- **验证**：`cargo check` ✅、`cargo test --lib` ✅（10 passed / 3 ignored 网络探针）。**重启验证由用户手动进行**（应用不在此环境启动）。
+
+### 为何重启后分组现在能显示
+
+`setup()` 主线程 `rebuild_menubar` → `sync_instances`：`create`（异步入队）+ `set_visible`（异步入队，FIFO 紧随其后），**全程不再同步回读 `is_visible`**。create 与 set_visible 都在 main queue 顺序执行，原生层有机会真正建出 NSStatusItem 后再设可见性；系统运行时簿记不再被打断，位置（含用户 ⌘-拖拽结果）完整保留。
+
+---
 
 - **重启（重新运行）应用后**，菜单栏只有「总览（全部）」一个实例，**设置页勾选为显示的分组实例全部不出现**（约 5~6 个分组）。
 - 系统设置 → 控制中心 → 菜单栏 里 fund01-tauri **只有一个 app 级开关且已勾选**（没有 per-item 开关）——否则总览也无法显示。
@@ -95,10 +117,12 @@
 
 ## 七、涉及代码位置
 
-- `apps/tauri/src-tauri/src/menubar.rs`：`instance_is_visible` / `ensure_instance_visible` / `destroy_instance` / `spawn_startup_recovery` / `update_menubar` / `desired_instances` / `ensure_remove_listener`
-- `apps/tauri/src-tauri/src/window.rs`：popup 窗口（无关本次，但同属 menubar 体系）
-- 插件：`lingyired/tauri-plugin-multiline-menubar`（git 依赖，tag v1.6.0）
-- 前端：`packages/ui/src/OptionsApp.tsx`（MenubarSection 开关/订阅 config-change）
+> 改造后：`menubar.rs` 已删除 `instance_is_visible` / `ensure_instance_visible` / `destroy_instance` / `spawn_startup_recovery` / `REMOVED_BY_USER` / `STARTUP_RECOVERY_DONE`；显隐唯一入口是 `sync_instances` 内的 `set_visible`。
+
+- `apps/tauri/src-tauri/src/menubar.rs`：`desired_instances`（`Vec<InstanceSpec>` 全集 + `visible`）、`sync_instances`（create 去重 + set_visible 下发 + 仅删分组）、`apply_menubar_style`、`update_menubar`、`rebuild_menubar`、`ensure_remove_listener`（⌘-拖出=取消勾选，实例保留）
+- `apps/tauri/src-tauri/src/lib.rs`：`setup()` 主线程调 `rebuild_menubar`（不再同步回读 `is_visible`，不再触发 churn）
+- 插件：`lingyired/tauri-plugin-multiline-menubar`（git 依赖，tag v1.6.0）——参照 `docs/INTEGRATION-NOTES.md` 与 `examples/demo` 的合并模型
+- 前端：`packages/ui/src/OptionsApp.tsx`（MenubarSection 开关/订阅 config-change，行为不变）
 
 ## 八、回滚参考
 
