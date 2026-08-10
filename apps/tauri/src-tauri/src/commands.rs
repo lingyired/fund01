@@ -30,23 +30,8 @@ pub fn fetch_holdings(state: State<AppState>) -> Option<HoldingsPayload> {
 }
 
 #[tauri::command]
-pub fn fetch_watchlist(state: State<AppState>) -> Option<Vec<FundQuoteRow>> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.watchlist.clone())
-}
-
-#[tauri::command]
 pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
     state.quote.read().unwrap().as_ref().and_then(|q| q.indices.clone()).unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn fetch_market_overview(state: State<AppState>) -> Option<MarketOverview> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.market.clone())
-}
-
-#[tauri::command]
-pub fn fetch_gold(state: State<AppState>) -> Option<GoldPayload> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.gold.clone())
 }
 
 #[tauri::command]
@@ -101,7 +86,7 @@ pub fn get_config(state: State<AppState>) -> AppConfig {
 
 /// 判断配置变更是否「仅涉及菜单栏展示」（隐藏分组 / 布局 / 字号 / 数值显示）。
 /// 此类变更不改变行情数据口径，保存后无需触发行情刷新。
-/// 注意比较的是整个 AppConfig：持仓/自选/黄金/分组等任何数据口径变更都会触发刷新，
+/// 注意比较的是整个 AppConfig：持仓/分组等任何数据口径变更都会触发刷新，
 /// 保证「修改持仓后 menubar（及 badge/列表）能随最新配置实时更新」。
 fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     let mut a = old.clone();
@@ -148,6 +133,17 @@ pub async fn save_config(
     let normalized = crate::portfolio::normalize_config(&raw);
     *state.config.write().unwrap() = normalized.clone();
     persist_config(&app, &normalized);
+    // 诊断日志：menubar 分组显示 / 分组顺序相关变更（排查「开关 A 却隐藏 B」与排序问题）
+    let oh = old.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    let nh = normalized.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    if oh != nh {
+        eprintln!("[fund01] save_config: menubarHiddenGroups {oh:?} -> {nh:?}");
+    }
+    let og = old.settings.holding_groups.clone().unwrap_or_default();
+    let ng = normalized.settings.holding_groups.clone().unwrap_or_default();
+    if og != ng {
+        eprintln!("[fund01] save_config: holdingGroups {og:?} -> {ng:?}");
+    }
     // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
     crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());
@@ -157,6 +153,13 @@ pub async fn save_config(
         crate::refresh::trigger_refresh(app);
     }
     Ok(normalized)
+}
+
+/// 前端诊断日志转发：webview 的 console.log 默认不进终端，UI 交互链路（如开关点击）通过
+/// EventPort.emitDebug → 本命令打到 stdout，便于与 Rust 侧 save_config/sync_instances 日志对齐排查。
+#[tauri::command]
+pub fn dbg_log(msg: String) {
+    eprintln!("[fund01][web] {msg}");
 }
 
 // ------------------------- WindowPort -------------------------

@@ -90,36 +90,6 @@ export type IndexItem = {
   error?: string
 }
 
-export type SectorItem = {
-  code: string
-  name: string
-  percent: number | null
-}
-
-export type MarketOverview = {
-  upDown: {up: number; down: number; flat: number; time: string | null}
-  topGainers: SectorItem[]
-  topLosers: SectorItem[]
-}
-
-export type GoldPayload = {
-  code: string
-  name: string
-  price: number | null
-  prevClose?: number | null
-  percent: number | null
-  change: number | null
-  time: string
-  holding: number
-  avgPrice: number
-  pnl: number | null
-  pnlPercent: number | null
-  costPnl?: number | null
-  costPnlPercent?: number | null
-  show?: boolean
-  trend: {time: string; price: number; percent: number | null}[]
-}
-
 export type RefreshInterval = {
   /** 任一市场开盘时的刷新间隔（秒），默认 60，最低 30（chrome.alarms 限制） */
   trading: number
@@ -178,7 +148,6 @@ export type MenubarLayout = 0 | 2
 export type HoldingsNavPosition = 'top' | 'side'
 
 export type AppSettings = {
-  showGold: boolean
   /** 定时刷新间隔配置（秒） */
   refreshInterval?: RefreshInterval
   /** 基金当日行情数据源，默认 fundmnfinfo */
@@ -237,11 +206,8 @@ export type AppSettings = {
 
 export type AppConfig = {
   settings: AppSettings
-  /** 持仓列表（与 watchlist 互相独立，同一基金可同时存在两边） */
+  /** 持仓列表 */
   holdings: Record<string, FundRecord>
-  /** 自选列表（与 holdings 互相独立） */
-  watchlist: Record<string, FundRecord>
-  gold: {holding: number; avgPrice: number}
 }
 
 export type IndexHistoryRange = '1m' | '3m' | '6m' | '1y' | '3y'
@@ -308,13 +274,8 @@ export type ResolveFundPayload = ResolveFundResult
 
 export type IntradayPoint = { time: string; growth: number | null; netValue?: number | null }
 
-export type WatchlistPayload = FundQuoteRow[]
-
 export type QuoteUpdate = {
   holdings: HoldingsPayload | null
-  watchlist: WatchlistPayload | null
   indices: IndexItem[] | null
-  market: MarketOverview | null
-  gold: GoldPayload | null
   time: number
 }

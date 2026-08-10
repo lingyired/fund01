@@ -5,14 +5,11 @@ const STORAGE_KEY = 'fund01-config'
 
 // storage key → QuoteUpdate 字段映射（onChanged 增量读取用）
 const CACHE_KEYS: Record<
-  'cache-holdings' | 'cache-watchlist' | 'cache-indices' | 'cache-market' | 'cache-gold' | 'cache-time',
-  'holdings' | 'watchlist' | 'indices' | 'market' | 'gold' | 'time'
+  'cache-holdings' | 'cache-indices' | 'cache-time',
+  'holdings' | 'indices' | 'time'
 > = {
   'cache-holdings': 'holdings',
-  'cache-watchlist': 'watchlist',
   'cache-indices': 'indices',
-  'cache-market': 'market',
-  'cache-gold': 'gold',
   'cache-time': 'time',
 }
 
@@ -28,6 +25,12 @@ const CACHE_KEYS: Record<
 export class ChromeEventPort implements EventPort {
   private lastQuote: QuoteUpdate | null = null
 
+  /** 前端调试日志：Chrome 端直接走 devtools console（Tauri 端走 invoke dbg_log） */
+  emitDebug(msg: string): void {
+    // eslint-disable-next-line no-console
+    console.log('[fund01]', msg)
+  }
+
   onQuoteUpdate(cb: (payload: QuoteUpdate) => void): () => void {
     const listener = (
       changes: Record<string, chrome.storage.StorageChange>,
@@ -38,7 +41,7 @@ export class ChromeEventPort implements EventPort {
       if (!changes['cache-time']) return
       const next: QuoteUpdate = this.lastQuote
         ? {...this.lastQuote}
-        : {holdings: null, watchlist: null, indices: null, market: null, gold: null, time: 0}
+        : {holdings: null, indices: null, time: 0}
       for (const key of Object.keys(CACHE_KEYS) as (keyof typeof CACHE_KEYS)[]) {
         const change = changes[key]
         if (!change) continue

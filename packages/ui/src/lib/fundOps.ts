@@ -198,7 +198,7 @@ function runImportChecks(opts: {
   }
 }
 
-/** 内部：upsert 一条基金记录（归一化后写回配置） */
+/** 内部：upsert 一条持仓记录（归一化后写回配置） */
 async function upsertFund(
   ports: Ports,
   payload: Partial<FundRecord> & {code: string},
@@ -206,30 +206,26 @@ async function upsertFund(
   const config = ports.config.getConfig()
   const code = String(payload.code).padStart(6, '0')
   if (!/^\d{6}$/.test(code)) throw new Error('基金代码须为6位数字')
-  const type: 'hold' | 'watch' = payload.type === 'hold' ? 'hold' : 'watch'
-  const prev = type === 'hold' ? config.holdings[code] : config.watchlist[code]
-  const next = normalizeFund({...payload, code, type}, prev, type)
-  if (type === 'hold') config.holdings[code] = next
-  else config.watchlist[code] = next
+  const prev = config.holdings[code]
+  const next = normalizeFund({...payload, code, type: 'hold'}, prev, 'hold')
+  config.holdings[code] = next
   // await 确保 chrome.storage.local.set 完成，避免 SW 读到旧 config
   await ports.config.saveConfig(config)
   return next
 }
 
-/** 内部：更新一条基金记录（合并 patch 后归一化写回） */
+/** 内部：更新一条持仓记录（合并 patch 后归一化写回） */
 function patchFund(
   ports: Ports,
   code: string,
   patch: Partial<FundRecord>,
-  type: 'hold' | 'watch',
 ): FundRecord {
   const config = ports.config.getConfig()
   const key = String(code).padStart(6, '0')
-  const map = type === 'hold' ? config.holdings : config.watchlist
-  const prev = map[key]
+  const prev = config.holdings[key]
   if (!prev) throw new Error('基金不存在')
-  const next = normalizeFund({...prev, ...patch, code: key, type}, prev, type)
-  map[key] = next
+  const next = normalizeFund({...prev, ...patch, code: key, type: 'hold'}, prev, 'hold')
+  config.holdings[key] = next
   ports.config.saveConfig(config)
   return next
 }
@@ -240,7 +236,7 @@ export async function createFund(
     code: string
     amount?: number
     amountBasis?: AmountBasis
-    /** 持仓分组（仅 hold 有效；空字符串=未分组） */
+    /** 持仓分组（空字符串=未分组） */
     group?: string
     /** 该分组的持仓成本单价（元/份，可选） */
     cost?: number
@@ -260,12 +256,12 @@ export async function createFund(
 ): Promise<FundRecord> {
   const meta = await ports.data.resolveFund({
     code: payload.code,
-    type: payload.type || 'watch',
+    type: 'hold',
     name: payload.name,
     sectors: payload.sectors,
   })
 
-  // 代码 ↔ 名称核对结果（对持仓/自选都生效）。
+  // 代码 ↔ 名称核对结果（对持仓生效）。
   // AI 识别截图时基金代码常错一两位，而错误代码往往也是一只真实基金，
   // 不核对就会静默导入完全不相干的标的。
   // 约定：codeCorrected（已按名称反查出正确代码）→ 告警后照常导入；
@@ -295,23 +291,21 @@ export async function createFund(
 
   let shares = 0
   let basisDate: string | undefined
-  if (payload.type === 'hold') {
-    if (payload.shares != null && payload.shares > 0) {
-      // 直接给了份额：完全跳过净值折算。基准净值只用于校验，取不到也不影响导入。
-      shares = payload.shares
-      try {
-        basisDate = pickBasisNav(basis, meta, payload.navDate).date
-      } catch {
-        basisDate = undefined
-      }
-    } else if (amount > 0) {
-      const picked = pickBasisNav(basis, meta, payload.navDate)
-      basisDate = picked.date
-      shares = deriveHoldShares(amount, picked)
+  if (payload.shares != null && payload.shares > 0) {
+    // 直接给了份额：完全跳过净值折算。基准净值只用于校验，取不到也不影响导入。
+    shares = payload.shares
+    try {
+      basisDate = pickBasisNav(basis, meta, payload.navDate).date
+    } catch {
+      basisDate = undefined
     }
-    // amount <= 0（0 金额 = 关注/待加仓）：份额恒 0，无需净值折算，
-    // 也不依赖数据源是否有确认净值（否则净值缺失时 0 金额导入会失败）
+  } else if (amount > 0) {
+    const picked = pickBasisNav(basis, meta, payload.navDate)
+    basisDate = picked.date
+    shares = deriveHoldShares(amount, picked)
   }
+  // amount <= 0（0 金额 = 关注/待加仓）：份额恒 0，无需净值折算，
+  // 也不依赖数据源是否有确认净值（否则净值缺失时 0 金额导入会失败）
 
   // 持有收益：显式 holdProfit 优先；缺失时可由收益率反推 holdProfit = amount × rate / (1 + rate)
   let holdProfit = payload.holdProfit
@@ -326,7 +320,7 @@ export async function createFund(
     holdProfit = (amount * r) / (1 + r)
   }
 
-  if (payload.type === 'hold' && payload.onWarn) {
+  if (payload.onWarn) {
     runImportChecks({
       code: meta.code,
       amount,
@@ -340,55 +334,43 @@ export async function createFund(
     })
   }
 
-  if (payload.type === 'hold') {
-    // 持仓：合并 prev 的其他分组 allocation/cost，覆盖/设置当前分组份额与成本单价
-    const group = payload.group ?? ''
-    const prev = ports.config.getConfig().holdings[meta.code]
-    const prevAllocations = prev?.allocations || {}
-    const allocations = {...prevAllocations, [group]: shares}
-    // 成本单价优先级：显式 cost > holdProfit 反推 > 保留 prev
-    const prevCosts = prev?.costs || {}
-    let costs = prevCosts
-    if (payload.cost != null && payload.cost > 0) {
-      costs = {...prevCosts, [group]: Number(payload.cost) || 0}
-    } else if (holdProfit != null && Number.isFinite(holdProfit) && shares > 0) {
-      // 总成本 = 市值 - 持有收益；成本单价 = 总成本 / 份额
-      const totalCost = amount - Number(holdProfit)
-      const price = Math.round((totalCost / shares) * 1e6) / 1e6
-      if (price > 0) {
-        costs = {...prevCosts, [group]: price}
-      } else if (payload.onWarn) {
-        // 持有收益 ≥ 持有金额：成本单价反推 ≤0，未写入；提示用户核对数据口径
-        //（常见于金额是某口径市值、收益是另一口径收益，或录错）。持有成本显示 -- 是数据
-        // 层语义正确的体现，不是 bug；用户在导入「数据校验提醒」框可看到本条警告。
-        const gp = group || '未分组'
-        payload.onWarn(
-          `${meta.code}（${gp}）：持有收益（${holdProfit}）≥ 持有金额（${amount}），` +
-            `成本单价反推 ${price.toFixed(6)} 元/份 ≤0，未写入；` +
-            `请检查金额与收益口径是否一致（今日/昨日结算）。`,
-        )
-      }
+  // 持仓：合并 prev 的其他分组 allocation/cost，覆盖/设置当前分组份额与成本单价
+  const group = payload.group ?? ''
+  const prev = ports.config.getConfig().holdings[meta.code]
+  const prevAllocations = prev?.allocations || {}
+  const allocations = {...prevAllocations, [group]: shares}
+  // 成本单价优先级：显式 cost > holdProfit 反推 > 保留 prev
+  const prevCosts = prev?.costs || {}
+  let costs = prevCosts
+  if (payload.cost != null && payload.cost > 0) {
+    costs = {...prevCosts, [group]: Number(payload.cost) || 0}
+  } else if (holdProfit != null && Number.isFinite(holdProfit) && shares > 0) {
+    // 总成本 = 市值 - 持有收益；成本单价 = 总成本 / 份额
+    const totalCost = amount - Number(holdProfit)
+    const price = Math.round((totalCost / shares) * 1e6) / 1e6
+    if (price > 0) {
+      costs = {...prevCosts, [group]: price}
+    } else if (payload.onWarn) {
+      // 持有收益 ≥ 持有金额：成本单价反推 ≤0，未写入；提示用户核对数据口径
+      //（常见于金额是某口径市值、收益是另一口径收益，或录错）。持有成本显示 -- 是数据
+      // 层语义正确的体现，不是 bug；用户在导入「数据校验提醒」框可看到本条警告。
+      const gp = group || '未分组'
+      payload.onWarn(
+        `${meta.code}（${gp}）：持有收益（${holdProfit}）≥ 持有金额（${amount}），` +
+          `成本单价反推 ${price.toFixed(6)} 元/份 ≤0，未写入；` +
+          `请检查金额与收益口径是否一致（今日/昨日结算）。`,
+      )
     }
-    return await upsertFund(ports, {
-      code: meta.code,
-      // 官方名优先：传入名可能来自 AI 识图，与代码不符时以数据源为准，
-      // 否则会出现「显示的名字是对的、数据却是另一只基金」的隐形错配。
-      name: meta.name || payload.name,
-      fundKey: meta.fundKey,
-      type: 'hold',
-      allocations,
-      costs: Object.keys(costs).length ? costs : undefined,
-      sectors: payload.sectors?.length ? payload.sectors : meta.sectors,
-    })
   }
-
-  // 自选：allocations 为空对象
   return await upsertFund(ports, {
     code: meta.code,
+    // 官方名优先：传入名可能来自 AI 识图，与代码不符时以数据源为准，
+    // 否则会出现「显示的名字是对的、数据却是另一只基金」的隐形错配。
     name: meta.name || payload.name,
     fundKey: meta.fundKey,
-    type: 'watch',
-    allocations: {},
+    type: 'hold',
+    allocations,
+    costs: Object.keys(costs).length ? costs : undefined,
     sectors: payload.sectors?.length ? payload.sectors : meta.sectors,
   })
 }
@@ -404,19 +386,18 @@ export async function updateFund(
     shares?: number
     navDate?: string
   },
-  type: 'hold' | 'watch',
 ): Promise<FundRecord> {
   const {amount, amountBasis, cost, shares, navDate, ...rest} = payload
-  const patch: Partial<FundRecord> = {...rest, type}
+  const patch: Partial<FundRecord> = {...rest, type: 'hold'}
 
   // 仅在显式传了份额或金额时才动 allocations，否则会把该分组份额清零
-  if (type === 'hold' && ((shares != null && shares > 0) || amount != null)) {
+  if ((shares != null && shares > 0) || amount != null) {
     let nextShares = 0
     if (shares != null && shares > 0) {
       nextShares = shares
     } else if (amount != null && Number(amount) > 0) {
       // 仅正金额需要净值折算；0 金额（关注/待加仓）份额恒 0，不依赖数据源是否有净值
-      const meta = await ports.data.resolveFund({code, type})
+      const meta = await ports.data.resolveFund({code, type: 'hold'})
       const basis: AmountBasis = amountBasis === 'today' ? 'today' : 'prev'
       nextShares = deriveHoldShares(Number(amount) || 0, pickBasisNav(basis, meta, navDate))
     }
@@ -426,7 +407,7 @@ export async function updateFund(
     patch.allocations = {...prevAllocations, [group]: nextShares}
   }
 
-  if (cost != null && type === 'hold') {
+  if (cost != null) {
     const group = payload.group ?? ''
     const prev = ports.config.getConfig().holdings[code.padStart(6, '0')]
     const prevCosts = prev?.costs || {}
@@ -441,15 +422,14 @@ export async function updateFund(
     }
   }
 
-  return patchFund(ports, code, patch, type)
+  return patchFund(ports, code, patch)
 }
 
-export function removeFund(ports: Ports, code: string, type: 'hold' | 'watch'): void {
+export function removeFund(ports: Ports, code: string): void {
   const config = ports.config.getConfig()
   const key = String(code).padStart(6, '0')
-  const map = type === 'hold' ? config.holdings : config.watchlist
-  if (!map[key]) throw new Error('基金不存在')
-  delete map[key]
+  if (!config.holdings[key]) throw new Error('基金不存在')
+  delete config.holdings[key]
   ports.config.saveConfig(config)
 }
 
@@ -476,31 +456,15 @@ export async function refreshHoldingsCache(ports: Ports): Promise<void> {
   }
 }
 
-export function updateGoldConfig(
-  ports: Ports,
-  payload: {holding: number; avgPrice: number},
-): {holding: number; avgPrice: number} {
-  const config = ports.config.getConfig()
-  config.gold = {
-    holding: Number(payload.holding ?? config.gold.holding ?? 0) || 0,
-    avgPrice: Number(payload.avgPrice ?? config.gold.avgPrice ?? 0) || 0,
-  }
-  ports.config.saveConfig(config)
-  return config.gold
-}
-
 export function fetchSettings(ports: Ports): AppSettings {
   return ports.config.getConfig().settings
 }
 
-export function updateSettings(
+export async function updateSettings(
   ports: Ports,
   patch: Partial<AppSettings>,
-): AppSettings {
+): Promise<AppSettings> {
   const config = ports.config.getConfig()
-  if (typeof patch.showGold === 'boolean') {
-    config.settings.showGold = patch.showGold
-  }
   if (patch.quoteSource === 'fund123' || patch.quoteSource === 'fundmnfinfo') {
     config.settings.quoteSource = patch.quoteSource
   }
@@ -633,8 +597,9 @@ export function updateSettings(
   if (typeof patch.menubarFallColor === 'string') {
     config.settings.menubarFallColor = patch.menubarFallColor
   }
-  ports.config.saveConfig(config)
-  return config.settings
+  await ports.config.saveConfig(config)
+  // 回读服务端归一化后的最新设置（ConfigPort 已乐观同步镜像 + 回包覆盖），保证返回值与后端一致
+  return ports.config.getConfig().settings
 }
 
 /** 返回所有持仓分组名称（保序） */
@@ -642,22 +607,9 @@ export function listHoldingGroups(ports: Ports): string[] {
   return ports.config.getConfig().settings.holdingGroups || []
 }
 
-/** 返回指定类型的基金记录列表（hold/watch） */
-export function listFunds(
-  ports: Ports,
-  type?: 'hold' | 'watch',
-): FundRecord[] {
-  const {holdings, watchlist} = ports.config.getConfig()
-  if (type === 'hold') return Object.values(holdings)
-  if (type === 'watch') {
-    return Object.values(watchlist).sort((a, b) => {
-      const ac = a.createdAt || ''
-      const bc = b.createdAt || ''
-      if (ac && bc && ac !== bc) return ac < bc ? -1 : 1
-      return 0
-    })
-  }
-  return [...Object.values(holdings), ...Object.values(watchlist)]
+/** 返回持仓基金记录列表 */
+export function listFunds(ports: Ports, _type?: 'hold'): FundRecord[] {
+  return Object.values(ports.config.getConfig().holdings)
 }
 
 /** 新增一个持仓分组（已存在则忽略），返回最新分组列表。
@@ -861,9 +813,8 @@ export function exportConfig(ports: Ports): AppConfig {
 export function importConfig(ports: Ports, payload: Partial<AppConfig> & {funds?: unknown}): AppConfig {
   const hasFunds = payload?.funds && typeof payload.funds === 'object'
   const hasHoldings = payload?.holdings && typeof payload.holdings === 'object'
-  const hasWatchlist = payload?.watchlist && typeof payload.watchlist === 'object'
-  if (!hasFunds && !hasHoldings && !hasWatchlist) {
-    throw new Error('配置缺少 holdings/watchlist')
+  if (!hasFunds && !hasHoldings) {
+    throw new Error('配置缺少 holdings 字段')
   }
   const next = normalizeConfig(payload as any)
   ports.config.saveConfig(next)
@@ -871,7 +822,7 @@ export function importConfig(ports: Ports, payload: Partial<AppConfig> & {funds?
 }
 
 /**
- * 重置为出厂默认：清空全部持仓 / 自选 / 黄金持仓，恢复默认设置（不可撤销，请先导出备份）。
+ * 重置为出厂默认：清空全部持仓，恢复默认设置（不可撤销，请先导出备份）。
  * await 保存完成后才 resolve，保证调用方随后重载到的配置是最新的。
  */
 export async function resetConfig(ports: Ports): Promise<AppConfig> {

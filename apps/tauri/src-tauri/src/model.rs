@@ -58,8 +58,6 @@ impl FundRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    #[serde(default = "default_show_gold")]
-    pub show_gold: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_interval: Option<RefreshInterval>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,14 +120,9 @@ pub struct AppSettings {
     pub menubar_fall_color: Option<String>,
 }
 
-fn default_show_gold() -> bool {
-    true
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            show_gold: true,
             refresh_interval: None,
             quote_source: None,
             badge_mode: None,
@@ -169,18 +162,6 @@ pub struct AppConfig {
     pub settings: AppSettings,
     #[serde(default)]
     pub holdings: HashMap<String, FundRecord>,
-    #[serde(default)]
-    pub watchlist: HashMap<String, FundRecord>,
-    pub gold: GoldConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldConfig {
-    #[serde(default)]
-    pub holding: f64,
-    #[serde(default)]
-    pub avg_price: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -304,64 +285,6 @@ pub struct IndexItem {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SectorItem {
-    pub code: String,
-    pub name: String,
-    pub percent: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct UpDownStats {
-    pub up: u32,
-    pub down: u32,
-    pub flat: u32,
-    pub time: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct MarketOverview {
-    pub up_down: UpDownStats,
-    pub top_gainers: Vec<SectorItem>,
-    pub top_losers: Vec<SectorItem>,
-}
-
-#[derive(Debug, Clone, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldTrendPoint {
-    pub time: String,
-    pub price: f64,
-    pub percent: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct GoldPayload {
-    pub code: String,
-    pub name: String,
-    pub price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev_close: Option<f64>,
-    pub percent: Option<f64>,
-    pub change: Option<f64>,
-    pub time: String,
-    pub holding: f64,
-    pub avg_price: f64,
-    pub pnl: Option<f64>,
-    pub pnl_percent: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost_pnl: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cost_pnl_percent: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub show: Option<bool>,
-    #[serde(default)]
-    pub trend: Vec<GoldTrendPoint>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FundHistoryPoint {
@@ -453,10 +376,7 @@ pub struct CodeCorrected {
 #[serde(rename_all = "camelCase")]
 pub struct QuoteUpdate {
     pub holdings: Option<HoldingsPayload>,
-    pub watchlist: Option<Vec<FundQuoteRow>>,
     pub indices: Option<Vec<IndexItem>>,
-    pub market: Option<MarketOverview>,
-    pub gold: Option<GoldPayload>,
     pub time: i64,
 }
 

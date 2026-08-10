@@ -180,14 +180,13 @@ Rust 后端是常驻进程（不像 MV3 SW 30s 休眠）。`refresh.rs` 用两�
 
 | 循环 | 负责数据 | 盘中窗口（用 trading 档，其余 non_trading 档） | 日志前缀 |
 |---|---|---|---|
-| 日盘 | 基金（持仓+自选）+ A 股指数 + 大盘 + 黄金日盘 | `is_day_market_active` 09:00–15:30 | 定时器日 |
-| 夜盘 | 美股指数（NDX/SPX）+ 黄金夜盘 | `is_night_market_active` 20:00–次日 04:00 | 定时器夜 |
+| 日盘 | 基金 + A 股指数（含黄金 AU9999 指数入口） | `is_day_market_active` 09:00–15:30 | 定时器日 |
+| 夜盘 | 美股指数（NDX/SPX） | `is_night_market_active` 20:00–次日 04:00 | 定时器夜 |
 
 - 间隔取 `config.settings.refresh_interval`（trading / non_trading 共用一套），低于 5s 会被夹到 5s
 - 每轮醒来先打 `[fund01] ----------------------定时器日/夜` 日志（`trigger_refresh` 手动刷新不走）
-- **按需拉取**：指数看板无 NDX/SPX 不拉美股、`show_gold=false` 或持仓 0 不拉黄金；夜盘循环在
+- **按需拉取**：指数看板无 NDX/SPX 不拉美股；夜盘循环在
   无美股指数且无黄金持仓时退化为低频空转（sleep 恒为 non_trading，醒来不拉不广播）
-- 黄金守卫用 `is_gold_day_session` / `is_gold_night_session`（日/夜窗口合起来覆盖全天，force 全量不重复拉）
 - 指数按市场分拉（`get_a_share_indices` / `get_us_indices`），写入 `QuoteUpdate.indices` 时与另一市场旧缓存合并
 - 刷新入口：循环走 `refresh_day` / `refresh_night`；`trigger_refresh` 走全量 `refresh_all`（依次调两个，force=true 基金/指数跳过时段过滤）
 - 每轮合并缓存 → `state.quote` → `app.emit("quote-update")` → `menubar::update_menubar_with`
@@ -273,16 +272,7 @@ async fn trigger_refresh(state: tauri::State<'_, AppState>) -> Result<(), String
 async fn fetch_holdings(state: tauri::State<'_, AppState>) -> Result<HoldingsPayload, String> { ... }
 
 #[tauri::command]
-async fn fetch_watchlist(state: tauri::State<'_, AppState>) -> Result<WatchlistPayload, String> { ... }
-
-#[tauri::command]
 async fn fetch_indices(state: tauri::State<'_, AppState>) -> Result<Vec<IndexItem>, String> { ... }
-
-#[tauri::command]
-async fn fetch_market_overview(state: tauri::State<'_, AppState>) -> Result<Option<MarketOverview>, String> { ... }
-
-#[tauri::command]
-async fn fetch_gold(state: tauri::State<'_, AppState>) -> Result<Option<GoldPayload>, String> { ... }
 
 #[tauri::command]
 async fn fetch_fund_history(code: String, count: Option<u32>) -> Result<FundHistoryPayload, String> { ... }
@@ -304,10 +294,7 @@ tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
         trigger_refresh,
         fetch_holdings,
-        fetch_watchlist,
         fetch_indices,
-        fetch_market_overview,
-        fetch_gold,
         fetch_fund_history,
         fetch_index_history,
         fetch_fund_intraday,
@@ -326,10 +313,7 @@ import type { DataPort, HoldingsPayload /* ... */ } from '@fund01/core'
 export class TauriDataPort implements DataPort {
   async triggerRefresh() { await invoke('trigger_refresh') }
   async fetchHoldings() { return await invoke<HoldingsPayload>('fetch_holdings') }
-  async fetchWatchlist() { return await invoke('fetch_watchlist') }
   async fetchIndices() { return await invoke('fetch_indices') }
-  async fetchMarketOverview() { return await invoke('fetch_market_overview') }
-  async fetchGold() { return await invoke('fetch_gold') }
   async fetchFundHistory(code: string, count?: number) { return await invoke('fetch_fund_history', { code, count }) }
   async fetchIndexHistory(code: string, range: string) { return await invoke('fetch_index_history', { code, range }) }
   async fetchFundIntraday(fundKey: string) { return await invoke('fetch_fund_intraday', { fundKey }) }
@@ -380,7 +364,7 @@ export class TauriWindowPort implements WindowPort {
 
 | 事件名 | Payload | 触发时机 |
 |---|---|---|
-| `quote-update` | `QuoteUpdate`（holdings / watchlist / indices / market / gold / time） | 后端每次刷新完成 |
+| `quote-update` | `QuoteUpdate`（holdings / indices / time） | 后端每次刷新完成 |
 | `config-change` | `AppConfig` | 配置变更（多窗口同步） |
 
 前端 Port 实现（`apps/tauri/src/ports/tauriEventPort.ts`）：
@@ -543,7 +527,7 @@ createRoot(document.getElementById('root')!).render(
 - **缺点**：
   - 要重写约 1500 行业务逻辑
   - 双份逻辑（TS + Rust）长期维护负担
-- **落地情况**：`src-tauri/src/` 下 `providers/*`（fund123/fundmnfinfo）、`market.rs`、`gold.rs`、`history.rs`、`calc.rs`、`calendar.rs`、`portfolio.rs`、`theme.rs`（板块正则迁移）、`fundname.rs`、`format.rs` 已全部实现并通过编译与单测
+- **落地情况**：`src-tauri/src/` 下 `providers/*`（fund123/fundmnfinfo）、`market.rs`、`history.rs`、`calc.rs`、`calendar.rs`、`portfolio.rs`、`theme.rs`（板块正则迁移）、`fundname.rs`、`format.rs` 已全部实现并通过编译与单测
 
 ### 路径 B：JS sidecar（Bun / Node）跑 TS services + core（未采用）
 

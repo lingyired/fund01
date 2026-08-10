@@ -3,14 +3,11 @@ import type {
   DataPort,
   FundHistoryPayload,
   FundHistoryRange,
-  GoldPayload,
   HoldingsPayload,
   IndexHistoryPayload,
   IndexItem,
   IntradayPoint,
-  MarketOverview,
   ResolveFundPayload,
-  WatchlistPayload,
 } from '@fund01/core'
 
 /**
@@ -27,21 +24,8 @@ export class TauriDataPort implements DataPort {
     return r ?? { summary: { totalAmount: 0, totalPnl: 0, totalPnlPercent: 0 }, list: [] }
   }
 
-  async fetchWatchlist(): Promise<WatchlistPayload> {
-    const r = await invoke<WatchlistPayload | null>('fetch_watchlist')
-    return r ?? []
-  }
-
   async fetchIndices(): Promise<IndexItem[]> {
     return invoke<IndexItem[]>('fetch_indices')
-  }
-
-  async fetchMarketOverview(): Promise<MarketOverview | null> {
-    return invoke<MarketOverview | null>('fetch_market_overview')
-  }
-
-  async fetchGold(): Promise<GoldPayload | null> {
-    return invoke<GoldPayload | null>('fetch_gold')
   }
 
   async fetchFundHistory(code: string, range: FundHistoryRange = '1y'): Promise<FundHistoryPayload> {

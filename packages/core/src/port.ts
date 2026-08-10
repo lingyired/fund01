@@ -3,15 +3,12 @@ import type {
   FundHistoryPayload,
   FundHistoryRange,
   FundIntradayPayload,
-  GoldPayload,
   HoldingsPayload,
   IndexHistoryPayload,
   IndexItem,
   IntradayPoint,
-  MarketOverview,
   QuoteUpdate,
   ResolveFundPayload,
-  WatchlistPayload,
 } from './types'
 
 /** UI 数据访问抽象 —— 各 app 必须提供实现 */
@@ -25,16 +22,13 @@ export interface DataPort {
   clearCache?(): Promise<void>
   /** 持仓汇总（后端已合并行情 + 配置） */
   fetchHoldings(): Promise<HoldingsPayload>
-  fetchWatchlist(): Promise<WatchlistPayload>
   fetchIndices(): Promise<IndexItem[]>
-  fetchMarketOverview(): Promise<MarketOverview | null>
-  fetchGold(): Promise<GoldPayload | null>
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
   resolveFund(payload: {
     code: string
-    type?: 'hold' | 'watch'
+    type?: 'hold'
     name?: string
     sectors?: string[]
   }): Promise<ResolveFundPayload>
@@ -61,6 +55,11 @@ export interface EventPort {
    * payload 即 popup 分组 tab id：'all' / 分组名 / '__ungrouped__'
    */
   onPopupOpenGroup?(cb: (tabId: string) => void): () => void
+  /**
+   * 前端调试日志转发（可选）：Tauri 实现 → invoke dbg_log 打到终端 stdout；Chrome 实现 → console.log。
+   * webview 的 console 在 Tauri 默认不进终端，UI 交互链路（开关点击等）用它对齐 Rust 侧日志排查。
+   */
+  emitDebug?(msg: string): void
 }
 
 /** 设置页一级 tab 标识（OptionsApp 与 openSettings 共用） */

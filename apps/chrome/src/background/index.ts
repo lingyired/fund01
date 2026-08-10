@@ -4,32 +4,25 @@ import {
   resolveFund,
   fetchFundIntradayForDialog,
 } from '@fund01/services'
-import {getIndices, getIndexHistory, getMarketOverview, isUsIndexCode} from '@fund01/services'
-import {getGoldRealtime} from '@fund01/services'
+import {getIndices, getIndexHistory, isUsIndexCode} from '@fund01/services'
 import {
-  isGoldDaySession,
-  isGoldNightSession,
   isDayMarketActive,
   isNightMarketActive,
   shouldRefreshAShareMarket,
   shouldRefreshFund,
   shouldRefreshUSIndex,
   calcHoldings,
-  mergeWatchlist,
   computeBadge,
 } from '@fund01/core'
 import type {AppConfig} from '@fund01/core'
 
-/** 两个独立 alarm：日盘（基金+A股指数+大盘+黄金日盘）、夜盘（美股指数+黄金夜盘），窗口不重叠 */
+/** 两个独立 alarm：日盘（基金+A股指数）、夜盘（美股指数），窗口不重叠 */
 const ALARM_DAY = 'refresh-day'
 const ALARM_NIGHT = 'refresh-night'
 const CONFIG_KEY = 'session-config'
 const CACHE_KEYS = {
   holdings: 'cache-holdings',
-  watchlist: 'cache-watchlist',
   indices: 'cache-indices',
-  market: 'cache-market',
-  gold: 'cache-gold',
   time: 'cache-time',
   // 内部 meta：最近一次基金刷新使用的数据源，用于 mergeStaleEstimate 同源判断
   source: 'cache-source',
@@ -45,13 +38,11 @@ const MIN_REFRESH_INTERVAL = {trading: 30, nonTrading: 300}
 type Message =
   | {type: 'REFRESH'}
   | {type: 'CLEAR_CACHE'}
-  | {type: 'FETCH_QUOTES'; funds: any[]; quoteType: 'hold' | 'watch'}
+  | {type: 'FETCH_QUOTES'; funds: any[]; quoteType?: 'hold'}
   | {type: 'FETCH_FUND_HISTORY'; code: string; range: string}
   | {type: 'FETCH_INDEX_HISTORY'; code: string; range: string}
   | {type: 'FETCH_INDICES'}
-  | {type: 'FETCH_MARKET'}
-  | {type: 'FETCH_GOLD'; holding: number; avgPrice: number}
-  | {type: 'RESOLVE_FUND'; code: string; fundType?: 'hold' | 'watch'; name?: string; sectors?: string[]}
+  | {type: 'RESOLVE_FUND'; code: string; fundType?: 'hold'; name?: string; sectors?: string[]}
   | {type: 'FETCH_FUND_INTRADAY'; code: string; fundKey?: string; name?: string}
 
 /** 从 chrome.storage.local 读取前端推送的配置（ConfigPort.saveConfig 写入） */
@@ -122,8 +113,7 @@ function mergeStaleEstimate(
 
 /**
  * 按数据源的市场时段刷新；非交易时段的数据源跳过（保留旧缓存）。
- * kind 指定本次刷新哪些数据源：'day'（基金+A股指数+大盘+黄金日盘）/ 'night'（美股指数+黄金夜盘）/
- * 'all'（全量，REFRESH 手动 / 导入后）。
+ * kind 指定本次刷新哪些数据源：'day'（基金+A股指数）/ 'night'（美股指数）/ 'all'（全量，REFRESH 手动 / 导入后）。
  *
  * 调试期：所有 fallback / 重试 / 熔断全部禁用。每个任务失败即打印完整
  * 错误信息（含 stack / url / status），调通后再恢复多源 fallback。
@@ -133,11 +123,6 @@ type RefreshKind = 'day' | 'night' | 'all'
 /** 配置是否需要美股指数（指数看板含 NDX/SPX） */
 function hasUS(config: AppConfig): boolean {
   return (config.settings?.selectedIndices || []).some((c) => isUsIndexCode(String(c)))
-}
-
-/** 配置是否需要黄金（显示开关开启且持仓 > 0） */
-function hasGold(config: AppConfig): boolean {
-  return config.settings?.showGold !== false && (config.gold?.holding || 0) > 0
 }
 
 /** 指数数组按市场拆分：{a: A股, us: 美股} */
@@ -164,30 +149,22 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
   const wantDay = kind === 'all' || kind === 'day'
   const wantNight = kind === 'all' || kind === 'night'
   const usCfg = hasUS(config)
-  const goldCfg = hasGold(config)
   const holdFunds = Object.values(config.holdings || {})
-  const watchFunds = Object.values(config.watchlist || {})
 
   // force=true 时（用户主动 REFRESH / 导入后刷新）跳过交易时段过滤，
-  // 确保用户操作后立即拉取数据，不受时段限制（黄金除外：日/夜窗口合起来覆盖全天，
-  // 按 session 判定即可，避免 force 全量时日/夜重复拉同一份黄金）
+  // 确保用户操作后立即拉取数据，不受时段限制
   const canRefreshFund = wantDay && (force || shouldRefreshFund(now))
   const canRefreshAShare = wantDay && (force || shouldRefreshAShareMarket(now))
   const canRefreshUS = wantNight && usCfg && (force || shouldRefreshUSIndex(now))
-  const canRefreshGold =
-    goldCfg && ((wantDay && isGoldDaySession(now)) || (wantNight && isGoldNightSession(now)))
-
   const quoteSource =
     config.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
 
-  type TaskKey = 'holdings' | 'watchlist' | 'indicesA' | 'indicesUs' | 'market' | 'gold'
+  type TaskKey = 'holdings' | 'indicesA' | 'indicesUs'
   const tasks: Promise<any>[] = []
   const taskKeys: TaskKey[] = []
 
-  // 基金：持仓 + 自选共享同一时段
-  // 注意：即使持仓/自选为空也必须发起刷新任务（传入空数组）。否则 holdingsResult
-  // 为 null，下面的 cache-holdings 不会被重写，导致删除全部持仓/分组后，popup 仍残留
-  // 旧的缓存分组数据（编辑弹窗已空、持仓列表却还有一个分组）。
+  // 基金：持仓刷新（即使为空也必须发起任务，传入空数组，避免删除全部持仓后
+  // cache-holdings 不被重写导致 popup 残留旧缓存分组数据）
   if (canRefreshFund) {
     taskKeys.push('holdings')
     tasks.push(
@@ -195,31 +172,16 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
         ? getFundsQuotes(holdFunds, quoteSource)
         : Promise.resolve([] as any[]),
     )
-    taskKeys.push('watchlist')
-    tasks.push(
-      watchFunds.length
-        ? getFundsQuotes(watchFunds, quoteSource)
-        : Promise.resolve([] as any[]),
-    )
   }
-  // A 股指数 + 大盘
+  // A 股指数
   if (canRefreshAShare) {
     taskKeys.push('indicesA')
     tasks.push(getIndices('ashare'))
-    taskKeys.push('market')
-    tasks.push(getMarketOverview())
   }
   // 美股指数
   if (canRefreshUS) {
     taskKeys.push('indicesUs')
     tasks.push(getIndices('us'))
-  }
-  // 黄金（日盘或夜盘命中时拉一次）
-  if (canRefreshGold) {
-    taskKeys.push('gold')
-    tasks.push(
-      getGoldRealtime({holding: config.gold.holding, avgPrice: config.gold.avgPrice}),
-    )
   }
 
   if (tasks.length === 0) {
@@ -257,7 +219,6 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
   }
 
   const holdingsQuotes = fulfilled('holdings')
-  const watchlistQuotes = fulfilled('watchlist')
 
   // FundMNFInfo 在 15:00 收盘后清空 GSZ/GZTIME（空窗期）。
   // 参考项目靠 GZTIME=null 时 substr 抛错中断回调，保留上一次有效估算。
@@ -265,10 +226,9 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
   // 使空窗期 UI 仍能看到 15:00 最后估值，等 20:00 官方净值披露后自动覆盖。
   // 注意：仅当旧缓存与本次刷新同一数据源时才合并。切源后缓存是旧源口径，
   // 混入会让 percent 与净值差来自不同源（曾出现 QDII +150.53 / -0.06% 方向矛盾）。
-  if (holdingsQuotes || watchlistQuotes) {
+  if (holdingsQuotes) {
     const cached = await chrome.storage.local.get([
       CACHE_KEYS.holdings,
-      CACHE_KEYS.watchlist,
       CACHE_KEYS.source,
     ])
     const cachedSource = cached[CACHE_KEYS.source]
@@ -281,13 +241,9 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
     if (sameSource && holdingsQuotes) {
       mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
     }
-    if (sameSource && watchlistQuotes) {
-      mergeStaleEstimate(watchlistQuotes, cached[CACHE_KEYS.watchlist])
-    }
   }
 
   let holdingsResult: ReturnType<typeof calcHoldings> | null = null
-  let watchlistResult: ReturnType<typeof mergeWatchlist> | null = null
   if (holdingsQuotes) {
     try {
       holdingsResult = calcHoldings(holdFunds, holdingsQuotes)
@@ -295,17 +251,9 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
       console.warn('[fund01] calcHoldings failed', e)
     }
   }
-  if (watchlistQuotes) {
-    try {
-      watchlistResult = mergeWatchlist(watchFunds, watchlistQuotes)
-    } catch (e) {
-      console.warn('[fund01] mergeWatchlist failed', e)
-    }
-  }
 
   const patch: Record<string, any> = {[CACHE_KEYS.time]: Date.now()}
   if (holdingsResult) patch[CACHE_KEYS.holdings] = holdingsResult
-  if (watchlistResult) patch[CACHE_KEYS.watchlist] = watchlistResult.list
   // 记录本次基金刷新使用的数据源（供 mergeStaleEstimate 同源判断）
   patch[CACHE_KEYS.source] = quoteSource
 
@@ -325,11 +273,6 @@ async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<voi
       ...(newUs.length ? newUs : prevUs),
     ]
   }
-  const marketValue = fulfilled('market')
-  if (marketValue) patch[CACHE_KEYS.market] = marketValue
-  const goldValue = fulfilled('gold')
-  if (goldValue) patch[CACHE_KEYS.gold] = goldValue
-
   await chrome.storage.local.set(patch)
 
   // 更新 badge：按设置中的显示方式渲染（百分比 / 收益额 / 隐藏）
@@ -368,9 +311,9 @@ function scheduleAlarm(name: string, config: AppConfig | null, isActive: boolean
   chrome.alarms.create(name, {delayInMinutes: delayMin})
 }
 
-/** 夜盘是否「需要活跃」：有美股指数或黄金持仓，夜盘窗口才高频，否则低频空转 */
+/** 夜盘是否「需要活跃」：有美股指数时夜盘窗口才高频，否则低频空转 */
 function nightNeeded(config: AppConfig | null): boolean {
-  return !!config && (hasUS(config) || hasGold(config))
+  return !!config && hasUS(config)
 }
 
 /** 根据当前各市场状态重排两个 alarm（配置变化 / 安装时调用） */
@@ -432,7 +375,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     void applyBadge(newConfig || null)
     if (oldSource !== newSource) {
       void chrome.storage.local
-        .remove([CACHE_KEYS.holdings, CACHE_KEYS.watchlist, CACHE_KEYS.source])
+        .remove([CACHE_KEYS.holdings, CACHE_KEYS.source])
         .then(() => refreshAll(true))
     }
   }
@@ -456,7 +399,7 @@ chrome.runtime.onMessage.addListener(
             return
           }
           case 'CLEAR_CACHE': {
-            // 清除全部缓存（含持仓/自选/指数/大盘/黄金/时间戳/数据源 meta）并强制刷新：
+            // 清除全部缓存（含持仓/指数/时间戳/数据源 meta）并强制刷新：
             // 用于「改了代码后 SW 仍在跑旧逻辑、缓存不失效」的场景，点击即清 + 重拉
             await chrome.storage.local.remove(Object.values(CACHE_KEYS))
             await refreshAll(true)
@@ -483,16 +426,6 @@ chrome.runtime.onMessage.addListener(
           }
           case 'FETCH_INDICES': {
             const data = await getIndices()
-            sendResponse({ok: true, data})
-            return
-          }
-          case 'FETCH_MARKET': {
-            const data = await getMarketOverview()
-            sendResponse({ok: true, data})
-            return
-          }
-          case 'FETCH_GOLD': {
-            const data = await getGoldRealtime({holding: msg.holding, avgPrice: msg.avgPrice})
             sendResponse({ok: true, data})
             return
           }

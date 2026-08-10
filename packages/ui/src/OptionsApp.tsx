@@ -1,4 +1,5 @@
-import {useEffect, useMemo, useRef, useState} from 'react'
+import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import type * as React from 'react'
 import {
   Check,
   Copy,
@@ -159,6 +160,14 @@ export function OptionsApp({
     }, 60)
     return () => window.clearTimeout(t)
   }, [pendingAnchor])
+
+  // 设置窗口只挂 OptionsApp（不挂 App），默认不会注册 config.onChanged 刷新配置内存镜像。
+  // 注册一次：仅在 config-change 时同步刷新镜像（onChanged 内部 memo.set 副作用），
+  // 保证「其它来源改了配置」（如 macOS ⌘-拖出 menubar 分组）后，本窗口切到对应 tab 重新挂载时
+  // fetchSettings 读到的不是启动时初始快照。回调留空即可，无需触发整页重渲染。
+  useEffect(() => {
+    return ports.config.onChanged(() => {})
+  }, [ports])
 
   return (
     <Theme accentColor="blue" grayColor="mauve" radius="small">
@@ -809,10 +818,184 @@ function HoldingGroupsSection({
     }
   }
 
+  // 分组拖拽排序（对齐「指数看板」的 Pointer Events 方案，Chrome / Tauri WKWebView 通用）：
+  // 按住行拖动实时交换（只改 UI），松手时把最终顺序一次性持久化。
+  // 相比看板的两处健壮性增强（分组行数无上限，看板最多 5 行）：
+  // ① 指针捕获挂在 keyed 行 div 上（而非内部元素）——行重排时 React 只会移动该节点、不会
+  //    重建，捕获不丢，避免「松手后拖拽状态不释放」；
+  // ② 行矩形在拖动起点与每次行交换后快照缓存，命中检测不再每个 pointermove 都读
+  //    getBoundingClientRect（分组多时逐个强制布局会卡顿、拖慢 pointerup 处理）。
+  const groupDragState = useRef<{
+    from: number
+    index: number
+    pointerId: number
+    startY: number
+    active: boolean
+  } | null>(null)
+  const groupDragOrder = useRef<string[] | null>(null)
+  const groupRowEls = useRef<(HTMLDivElement | null)[]>([])
+  const groupRects = useRef<(DOMRect | null)[]>([])
+  const [groupDragIndex, setGroupDragIndex] = useState<number | null>(null)
+
+  function snapshotGroupRects() {
+    groupRects.current = groupRowEls.current.map((el) =>
+      el && el.isConnected ? el.getBoundingClientRect() : null,
+    )
+  }
+
+  // 拖动期间 DOM 每重排一次（setGroups 提交后）就刷新一次矩形快照，命中检测始终用缓存
+  useLayoutEffect(() => {
+    if (groupDragIndex === null) return
+    snapshotGroupRects()
+  }, [groups, groupDragIndex])
+
+  function findGroupRowIndex(y: number): number | null {
+    const rects = groupRects.current
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i]
+      if (r && y >= r.top && y <= r.bottom) return i
+    }
+    return null
+  }
+
+  function swapGroupTo(d: NonNullable<typeof groupDragState.current>, target: number) {
+    if (target === d.index) return
+    const base = groupDragOrder.current ?? groups
+    const next = [...base]
+    const [moved] = next.splice(d.index, 1)
+    next.splice(target, 0, moved)
+    d.index = target
+    groupDragOrder.current = next
+    setGroups(next)
+  }
+
+  // 持久化 debounce：松手后 400ms 内不再拖拽才真正写后端。写后端会触发 saveConfig →
+  // menubar 重建 / 行情刷新 / 兄弟分区 groupsReload 重渲染，都是重活；连续多次拖拽只合并为
+  // 最后一次整体写入（用完整顺序而非 from/to，避免第二次拖拽基于本地顺序而 move 语义错位）。
+  // 组件卸载（切 tab / 关页）时立即 flush，挂起的顺序不丢。
+  const pendingGroupsRef = useRef<string[] | null>(null)
+  const flushTimerRef = useRef<number | null>(null)
+
+  function schedulePersistGroups(order: string[]) {
+    pendingGroupsRef.current = order
+    if (flushTimerRef.current != null) {
+      window.clearTimeout(flushTimerRef.current)
+    }
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null
+      const pending = pendingGroupsRef.current
+      pendingGroupsRef.current = null
+      if (pending) {
+        void persistGroups(pending)
+      }
+    }, 400)
+  }
+
+  /**
+   * 写后端（同步发起，fire-and-forget）：持仓分组顺序整体写入。
+   * 菜单栏分组实例顺序由 macOS 原生管理（按住 ⌘ 拖拽排序，实例 id 按分组名稳定，不随
+   * holdingGroups 顺序变化重建），这里只写 holdingGroups，不干预菜单栏位置。
+   */
+  function persistGroupOrder(order: string[]) {
+    updateSettings(ports, {holdingGroups: order})
+  }
+
+  async function persistGroups(order: string[]) {
+    try {
+      persistGroupOrder(order)
+      // 顺序变化影响 popup 分组 Tab 顺序，通知父级同步
+      onGroupsChanged()
+    } catch (err: unknown) {
+      setGroupError((err as Error)?.message || '保存分组顺序失败')
+    }
+  }
+
+  // 卸载兜底：清定时器并立即写入挂起的顺序（persistGroupOrder 同步发起保存，fire-and-forget）
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current != null) {
+        window.clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
+      const pending = pendingGroupsRef.current
+      pendingGroupsRef.current = null
+      if (pending) {
+        try {
+          persistGroupOrder(pending)
+        } catch {
+          /* 忽略：卸载时保存失败不阻塞 */
+        }
+      }
+    }
+  }, [ports])
+
+  function handleGroupRowPointerDown(e: React.PointerEvent<HTMLDivElement>, idx: number) {
+    if (e.button !== 0 || editingIdx !== null) return
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    groupDragState.current = {
+      from: idx,
+      index: idx,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      active: false,
+    }
+    groupDragOrder.current = null
+    setGroupDragIndex(idx)
+  }
+
+  function handleGroupRowPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = groupDragState.current
+    if (!d || e.pointerId !== d.pointerId) return
+    if (!d.active) {
+      if (Math.abs(e.clientY - d.startY) < 6) return
+      d.active = true
+    }
+    const target = findGroupRowIndex(e.clientY)
+    if (target != null) swapGroupTo(d, target)
+  }
+
+  function handleGroupRowPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    const d = groupDragState.current
+    if (!d || e.pointerId !== d.pointerId) return
+    groupDragState.current = null
+    setGroupDragIndex(null)
+    groupRects.current = []
+    const order = groupDragOrder.current
+    groupDragOrder.current = null
+    // 本地顺序已在 swapGroupTo 实时更新，这里只安排持久化（debounce 合并连续拖拽）
+    if (d.active && order && d.index !== d.from) {
+      schedulePersistGroups(order)
+    }
+  }
+
+  // 拖拽中断（pointercancel：元素被移除 / 系统手势接管等）兜底：清除拖拽状态并把顺序恢复到
+  // 拖起前。⚠️ 不要挂 onLostPointerCapture 复用此函数 —— 在 Tauri WKWebView 中拖动期每次
+  // swap 重排行（DOM 布局变化）都会提前触发 lostpointercapture，会把拖拽立刻取消（表现为
+  // 「完全拖不动」）；指数看板也只挂 onPointerCancel，无此问题。
+  function handleGroupRowPointerCancel() {
+    const d = groupDragState.current
+    if (!d) return
+    const {from, index, active} = d
+    groupDragState.current = null
+    groupDragOrder.current = null
+    setGroupDragIndex(null)
+    groupRects.current = []
+    if (active && from != null && index != null && from !== index) {
+      const restored = [...groups]
+      const [moved] = restored.splice(index, 1)
+      restored.splice(from, 0, moved)
+      setGroups(restored)
+    }
+  }
+
   return (
     <SectionCard id="holdings-groups" title="持仓分组">
       <p className="text-xs text-muted">
-        管理持仓的分组。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
+        管理持仓的分组。按住每行左侧的拖拽手柄（⠿）上下拖动可调整分组顺序，该顺序影响 popup 内分组 Tab 的排列；菜单栏分组实例的顺序由 macOS 原生管理（按住 ⌘ 拖拽菜单栏图标排序），不随持仓分组顺序变化。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
       </p>
       <div className="space-y-1 pt-1">
         {groups.length === 0 ? (
@@ -821,7 +1004,25 @@ function HoldingGroupsSection({
           groups.map((g, idx) => (
             <div
               key={g}
-              className="flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5"
+              ref={(el) => {
+                groupRowEls.current[idx] = el
+              }}
+              onPointerDown={(e) => handleGroupRowPointerDown(e, idx)}
+              onPointerMove={handleGroupRowPointerMove}
+              onPointerUp={(e) => void handleGroupRowPointerUp(e)}
+              onPointerCancel={handleGroupRowPointerCancel}
+              className={cn(
+                'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
+                groupDragIndex === idx && 'opacity-60',
+              )}
+              style={{
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                touchAction: 'none',
+                cursor:
+                  editingIdx === idx ? 'default' : groupDragIndex === idx ? 'grabbing' : 'grab',
+              }}
+              title={editingIdx === idx ? undefined : '按住拖动调整分组顺序'}
             >
               {editingIdx === idx ? (
                 <>
@@ -840,6 +1041,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => handleRenameGroup(idx)}
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -848,6 +1050,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => setEditingIdx(null)}
                   >
                     <X className="h-3.5 w-3.5" />
@@ -855,11 +1058,13 @@ function HoldingGroupsSection({
                 </>
               ) : (
                 <>
+                  <GripVertical className="h-4 w-4 shrink-0 text-muted" />
                   <span className="flex-1 truncate text-sm text-ink">{g}</span>
                   <IconButton
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => {
                       setEditingIdx(idx)
                       setEditingName(g)
@@ -872,6 +1077,7 @@ function HoldingGroupsSection({
                     type="button"
                     variant="ghost"
                     className="h-7 w-7"
+                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => handleRemoveGroup(g)}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-rise" />
@@ -2107,9 +2313,8 @@ function DataBackupSection() {
       const parsed = JSON.parse(text) as AppConfig & {funds?: unknown}
       const hasFunds = parsed?.funds && typeof parsed.funds === 'object'
       const hasHoldings = parsed?.holdings && typeof parsed.holdings === 'object'
-      const hasWatchlist = parsed?.watchlist && typeof parsed.watchlist === 'object'
-      if (!hasFunds && !hasHoldings && !hasWatchlist) {
-        throw new Error('文件缺少 holdings/watchlist 字段')
+      if (!hasFunds && !hasHoldings) {
+        throw new Error('文件缺少 holdings 字段')
       }
       await importConfig(ports, parsed)
       setMessage('配置已导入（覆盖了本机配置）')
@@ -2143,9 +2348,9 @@ function DataBackupSection() {
     setError('')
     setMessage('')
     try {
-      // 重置为出厂默认：持仓/自选/黄金/设置全清（saveConfig 已 await，落库完成才继续）
+      // 重置为出厂默认：持仓与设置全清（saveConfig 已 await，落库完成才继续）
       await resetConfig(ports)
-      // 清行情缓存并强制刷新：popup 的持仓/自选来自 SW 按旧 config 写入的 cache-* 缓存，
+      // 清行情缓存并强制刷新：popup 的持仓来自 SW 按旧 config 写入的 cache-* 缓存，
       // 必须清掉并按新 config 重建，否则 popup 仍显示旧持仓（非交易时段 alarm 不会自动刷新）。
       // Tauri 无缓存概念（fetchHoldings 实时按 config 算）→ 回退仅强制刷新。
       // 此处失败不阻断重置：cache-* 已先被移除，即使网络拉取失败，popup 也会读到空数据。
@@ -2168,7 +2373,7 @@ function DataBackupSection() {
   return (
     <SectionCard title="数据备份">
       <p className="text-xs text-muted">
-        持仓、自选、黄金与开关保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
+        持仓与设置保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={handleExport}>
@@ -2212,8 +2417,7 @@ function DataBackupSection() {
             <AlertDialog.Description>
               <p>将清空以下内容，且无法撤销：</p>
               <ul className="mt-1 list-inside list-disc text-sm text-ink">
-                <li>全部持仓与自选基金</li>
-                <li>黄金持仓与平均成本</li>
+                <li>全部持仓基金</li>
                 <li>所有设置（主题、菜单栏、角标、刷新频率等）</li>
               </ul>
               <p className="mt-2">如有需要，请先在上方「导出配置」备份。</p>
@@ -2275,6 +2479,9 @@ function MenubarSection() {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [hidden, setHidden] = useState<string[]>([])
+  // hidden 的同步镜像：toggleGroup 以它为基准计算（setHidden 是异步生效的 state，闭包可能读到旧值；
+  // config 内存镜像在异步保存返回前也不会更新）→ 连续快速切换多个开关时正确叠加、不互相覆盖
+  const hiddenRef = useRef<string[]>([])
   const [layout, setLayout] = useState<MenubarLayout>(0)
   const [top, setTop] = useState(7)
   const [bottom, setBottom] = useState(12)
@@ -2296,6 +2503,7 @@ function MenubarSection() {
     const l: MenubarLayout = s.menubarLayout === 2 ? 2 : 0
     setLayout(l)
     setHidden(s.menubarHiddenGroups ?? [])
+    hiddenRef.current = s.menubarHiddenGroups ?? []
     // 每种布局的字号独立存储：布局 0 用 top/bottom，布局 2 用 equal
     setTop(clampToRange(s.menubarTopFontSize, MENUBAR_FONT_RANGES[0].top, 7))
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
@@ -2318,18 +2526,60 @@ function MenubarSection() {
         Object.entries(f.allocations || {}).some(([g, sh]) => Number(sh) > 0 && !known.has(g)),
       ),
     )
+    // 诊断日志：挂载时读到的分组与隐藏状态（排查「开关 A 却隐藏 B」）
+    console.log(
+      '[fund01] MenubarSection 挂载',
+      JSON.stringify({groups: gs, hidden: s.menubarHiddenGroups ?? []}),
+    )
   }, [ports])
 
-  /** 分组显示开关：即时保存（低频操作） */
+  // 监听配置变更（如 macOS ⌘-拖出分组实例 → Rust 侧自动写入 menubarHiddenGroups 并广播）：
+  // 实时同步设置页的隐藏列表与分组列表，开关状态与菜单栏保持一致。
+  // 直接用事件 payload（完整 AppConfig）而非 ports.config.getConfig()：设置窗口只挂 OptionsApp、
+  // 不挂 App，因此不会注册 config.onChanged 刷新内存镜像，getConfig() 仍是启动时的初始快照，
+  // 读到的 menubarHiddenGroups 是旧的 → 勾选态不更新。payload 即 Rust 刚 emit 的最新配置，最可靠。
+  useEffect(() => {
+    return ports.event.onConfigChange((cfg) => {
+      const h = cfg.settings?.menubarHiddenGroups ?? []
+      hiddenRef.current = h
+      setHidden(h)
+      setGroups(listHoldingGroups(ports))
+    })
+  }, [ports])
+
+  // 保存中门控：点击后所有「显示」开关立即禁用（disabled={saving}），等 save_config 回调
+  // 完成才放开——从交互层杜绝「快速连点导致写入乱序/互相覆盖」；配合 ConfigPort 全局串行队列
+  // 与乐观镜像，一次点击 = 一次有序写入，UI 与菜单栏始终一致。
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
+
+  /** 分组显示开关：本地即时反馈 + 等待保存回调后再放开。
+   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next；保存期间 savingRef 置位，
+   *  后续点击直接忽略（开关已禁用），回包后以服务端归一化结果同步 hidden 并解锁。 */
   async function toggleGroup(g: string, show: boolean) {
+    if (savingRef.current) return
+    const cur = hiddenRef.current
     const next = show
-      ? hidden.filter((x) => x !== g)
-      : Array.from(new Set([...hidden, g]))
+      ? cur.filter((x) => x !== g)
+      : Array.from(new Set([...cur, g]))
+    hiddenRef.current = next
     setHidden(next)
+    const detail = `toggleGroup group=${g} show=${show} cur=${JSON.stringify(cur)} next=${JSON.stringify(next)}`
+    ports.event.emitDebug?.(detail)
+    console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
+    savingRef.current = true
+    setSaving(true)
     try {
-      await updateSettings(ports, {menubarHiddenGroups: next})
+      const saved = await updateSettings(ports, {menubarHiddenGroups: next})
+      // 回包后以最新配置（服务端归一化）同步镜像与 UI，保持与后端一致
+      const savedHidden = saved.menubarHiddenGroups ?? []
+      hiddenRef.current = savedHidden
+      setHidden(savedHidden)
     } catch {
-      /* ignore */
+      /* 保存失败：保留乐观值，不阻塞后续操作 */
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
   }
 
@@ -2481,7 +2731,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
-          开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
+          菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
         </p>
         <table className="w-full pt-1 text-sm">
           <thead>
@@ -2499,7 +2749,7 @@ function MenubarSection() {
                   <input
                     type="color"
                     value={groupColors[MENUBAR_OVERVIEW_KEY] ?? topColor}
-                    disabled={!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    disabled={!groupColors[MENUBAR_OVERVIEW_KEY] || saving}
                     onChange={(e) => void commitGroupColor(MENUBAR_OVERVIEW_KEY, e.target.value)}
                     aria-label="总览 上行颜色"
                     className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2507,6 +2757,7 @@ function MenubarSection() {
                   />
                   <Switch
                     checked={!!groupColors[MENUBAR_OVERVIEW_KEY]}
+                    disabled={saving}
                     onCheckedChange={(c) => void toggleGroupColor(MENUBAR_OVERVIEW_KEY, c)}
                     aria-label="总览 自定义颜色"
                   />
@@ -2526,7 +2777,7 @@ function MenubarSection() {
                     <input
                       type="color"
                       value={groupColors[g] ?? topColor}
-                      disabled={!groupColors[g]}
+                      disabled={!groupColors[g] || saving}
                       onChange={(e) => void commitGroupColor(g, e.target.value)}
                       aria-label={`${g} 上行颜色`}
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2534,6 +2785,7 @@ function MenubarSection() {
                     />
                     <Switch
                       checked={!!groupColors[g]}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor(g, c)}
                       aria-label={`${g} 自定义颜色`}
                     />
@@ -2543,6 +2795,7 @@ function MenubarSection() {
                   <div className="flex justify-end">
                     <Switch
                       checked={!hidden.includes(g)}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroup(g, c)}
                       aria-label={`显示/隐藏分组 ${g}`}
                     />
@@ -2558,7 +2811,7 @@ function MenubarSection() {
                     <input
                       type="color"
                       value={groupColors[''] ?? topColor}
-                      disabled={!groupColors['']}
+                      disabled={!groupColors[''] || saving}
                       onChange={(e) => void commitGroupColor('', e.target.value)}
                       aria-label="未分组 上行颜色"
                       className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
@@ -2566,6 +2819,7 @@ function MenubarSection() {
                     />
                     <Switch
                       checked={!!groupColors['']}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroupColor('', c)}
                       aria-label="未分组 自定义颜色"
                     />
@@ -2575,6 +2829,7 @@ function MenubarSection() {
                   <div className="flex justify-end">
                     <Switch
                       checked={!hidden.includes('')}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroup('', c)}
                       aria-label="显示/隐藏未分组"
                     />

@@ -3,12 +3,11 @@
 mod badge;
 mod calc;
 mod calendar;
-mod circuit;
 mod commands;
+mod dbglog;
 mod error;
 mod format;
 mod fundname;
-mod gold;
 mod history;
 mod http;
 mod market;
@@ -35,10 +34,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::trigger_refresh,
             commands::fetch_holdings,
-            commands::fetch_watchlist,
             commands::fetch_indices,
-            commands::fetch_market_overview,
-            commands::fetch_gold,
             commands::fetch_fund_history,
             commands::fetch_index_history,
             commands::fetch_fund_intraday,
@@ -47,6 +43,7 @@ pub fn run() {
             commands::save_config,
             commands::open_settings_window,
             commands::get_version,
+            commands::dbg_log,
         ])
         .setup(|app| {
             // macOS: 不出现在 Dock（menubar 常驻应用）
@@ -80,7 +77,7 @@ pub fn run() {
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
 
-            // 启动三个定时刷新循环（A股/美股/黄金）+ 立即刷新一次
+            // 启动两个定时刷新循环（日盘 A 股 / 夜盘 美股）+ 立即刷新一次
             refresh::start_refresh_loops(handle.clone());
             refresh::trigger_refresh(handle);
 

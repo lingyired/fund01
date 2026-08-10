@@ -6,9 +6,9 @@
 
 | 文件 | 内容 |
 |---|---|
-| `types.ts` | 共享类型定义：`FundRecord` / `AppConfig` / `HoldingsPayload` / `WatchlistPayload` / `IndexItem` / `MarketOverview` / `GoldPayload` / `QuoteUpdate` / `ResolveFundPayload` / `IntradayPoint` 等 |
+| `types.ts` | 共享类型定义：`FundRecord` / `AppConfig` / `HoldingsPayload` / `IndexItem` / `QuoteUpdate` / `ResolveFundPayload` / `IntradayPoint` 等 |
 | `port.ts` | 三个 Port 接口：`DataPort` / `ConfigPort` / `EventPort` / `Ports` |
-| `holdingsCalc.ts` | 持仓收益计算：`calcHoldings` / `mergeWatchlist` / `truncPnl2` / `resolveNavPair` |
+| `holdingsCalc.ts` | 持仓收益计算：`calcHoldings` / `truncPnl2` / `resolveNavPair` |
 | `tradingCalendar.ts` | 交易日判断：`nextTradingDay` / `isTradingDayStarted` / `isAShareTradingTime` / `isGoldDaySession` / `isGoldNightSession` / `isDayMarketActive` / `isNightMarketActive` / `shouldRefreshFund` / `shouldRefreshAShareMarket` / `shouldRefreshUSIndex` / `isConfirmedSessionActive` |
 | `portfolioLogic.ts` | 配置归一化纯逻辑：`normalizeConfig` / `normalizeFund` / `normalizeFundMap` / `clampRefreshInterval` / `DEFAULT_CONFIG` / `DEFAULT_REFRESH_INTERVAL` / `MIN_REFRESH_INTERVAL` |
 | `utils.ts` | 工具函数：`cn`（clsx + tailwind-merge）/ `formatPct` / `formatMoney` / `fmtDate` 等 |
@@ -28,10 +28,9 @@ import {
   type DataPort, type ConfigPort, type EventPort, type Ports,
   // 类型
   type AppConfig, type FundRecord, type HoldingsPayload,
-  type WatchlistPayload, type IndexItem, type MarketOverview,
-  type GoldPayload, type QuoteUpdate, type ResolveFundPayload,
+  type IndexItem, type QuoteUpdate, type ResolveFundPayload,
   // 持仓计算
-  calcHoldings, mergeWatchlist, truncPnl2,
+  calcHoldings, truncPnl2,
   // 交易日
   nextTradingDay, isTradingDayStarted, isAShareTradingTime,
   isGoldDaySession, isGoldNightSession, isDayMarketActive, isNightMarketActive,
@@ -50,10 +49,9 @@ import {
 ### 在 SW（后端）中做合并计算
 
 ```typescript
-import { calcHoldings, mergeWatchlist } from '@fund01/core'
+import { calcHoldings } from '@fund01/core'
 
 const holdingsResult = calcHoldings(holdFunds, holdingsQuotes)
-const watchlistResult = mergeWatchlist(watchFunds, watchlistQuotes)
 // holdingsResult.summary.totalPnlPercent 可用于 badge
 ```
 
