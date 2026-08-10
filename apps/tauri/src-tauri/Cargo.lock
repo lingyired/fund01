@@ -3677,8 +3677,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-multiline-menubar"
-version = "1.4.0"
-source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.4.0#20a93087e5421a06af559bdb4f543c40956a3215"
+version = "1.6.0"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.6.0#a4832a17c7d99052af87bb8b990c78c2268587c8"
 dependencies = [
  "cc",
  "muda",

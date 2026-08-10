@@ -1,6 +1,7 @@
 //! menubar 多实例编排：总览恒在 + 每个持仓分组一个实例 + 未分组兜底。
-//! 实例 id：menubar-overview / menubar-group-{idx} / menubar-ungrouped。
-//! 实例总数不限制，用户可在设置页隐藏单个分组来控制数量。
+//! 实例 id：menubar-overview / menubar-group-{分组名 hex 编码} / menubar-ungrouped。
+//! 实例总数不限制，用户可在设置页隐藏单个分组来控制数量；macOS 原生「按住 ⌘ 拖出」可移除
+//! 单个实例（插件 v1.6.0+ 启用 RemovalAllowed 并 emit remove 事件），本会话内保持消失不复活。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
@@ -24,6 +25,11 @@ const COLOR_TOP_DEFAULT: &str = "#ffffff"; // 上行固定色默认（可配置 
 static INSTANCE_TRACKED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 /// 实例 id → click 事件 EventId；实例销毁时 app.unlisten(id) 移除监听，避免闭包永久持有 AppHandle
 static CLICK_LISTENERS: OnceLock<Mutex<HashMap<String, tauri::EventId>>> = OnceLock::new();
+/// 用户通过 macOS 原生「⌘-拖出」移除过的实例 id（会话级，重启恢复）：
+/// desired_instances 生成时跳过，使该实例保持消失且不被刷新/重建复活。
+static REMOVED_BY_USER: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// 实例 id → remove 事件 EventId（插件 v1.6.0 用户拖出时 emit multiline-menubar://{id}//remove）
+static REMOVE_LISTENERS: OnceLock<Mutex<HashMap<String, tauri::EventId>>> = OnceLock::new();
 
 fn tracked() -> &'static Mutex<HashSet<String>> {
     INSTANCE_TRACKED.get_or_init(|| Mutex::new(HashSet::new()))
@@ -31,6 +37,14 @@ fn tracked() -> &'static Mutex<HashSet<String>> {
 
 fn listeners() -> &'static Mutex<HashMap<String, tauri::EventId>> {
     CLICK_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn removed_by_user() -> &'static Mutex<HashSet<String>> {
+    REMOVED_BY_USER.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn remove_listeners() -> &'static Mutex<HashMap<String, tauri::EventId>> {
+    REMOVE_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn color_for(pct: f64, rise: &str, fall: &str) -> String {
@@ -201,21 +215,29 @@ fn desired_instances(
         overview_amount,
     ));
 
-    // 总览恒在；每个分组一个实例（隐藏的分组跳过）。
+    // 总览恒在；每个分组一个实例（隐藏的分组跳过；用户 ⌘-拖出的实例跳过，保持消失不复活）。
     // 实例 id 基于分组名（稳定）：持仓分组拖拽排序只改 holding_groups 顺序、不改 id，
     // sync_instances 按 id 集合增删不会重建已有实例 → 菜单栏位置（含 mac 原生拖拽结果）不受影响。
+    let removed = removed_by_user().lock().unwrap().clone();
     for g in &groups {
         if hidden.iter().any(|h| h == g) {
             continue;
         }
+        let id = format!("menubar-group-{}", encode_group_id(g));
+        if removed.contains(&id) {
+            continue;
+        }
         out.push((
-            format!("menubar-group-{}", encode_group_id(g)),
+            id,
             g.clone(),
             group_percent(config, &rows, g),
             group_pnl(config, &rows, g),
         ));
     }
-    if has_ungrouped(config, &groups) && !hidden.iter().any(|h| h.is_empty()) {
+    if has_ungrouped(config, &groups)
+        && !hidden.iter().any(|h| h.is_empty())
+        && !removed.contains("menubar-ungrouped")
+    {
         out.push((
             "menubar-ungrouped".to_string(),
             "未分组".to_string(),
@@ -327,7 +349,7 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[(String, 
 /// 幂等，rebuild 与 update 共用——保证任何时刻菜单栏实例与「最新 config + 行情」对齐，
 /// 避免分组/持仓变更后（尤其刷新完成后）多余实例残留、正确实例缺失。
 fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
-    // 1. 创建缺失实例 + 监听点击
+    // 1. 创建缺失实例 + 监听点击/移除
     for (id, _, _, _) in desired {
         let mb = app.multiline_menubar();
         if !tracked().lock().unwrap().contains(id) {
@@ -335,9 +357,10 @@ fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
             tracked().lock().unwrap().insert(id.clone());
         }
         ensure_click_listener(app, id);
+        ensure_remove_listener(app, id);
     }
 
-    // 2. 销毁多余实例（同步移除 click 监听，释放闭包持有的 AppHandle）
+    // 2. 销毁多余实例（同步移除 click/remove 监听，释放闭包持有的 AppHandle）
     let mut tracked_set = tracked().lock().unwrap();
     let desired_ids: HashSet<&String> = desired.iter().map(|(id, _, _, _)| id).collect();
     let stale: Vec<String> = tracked_set.iter().filter(|id| !desired_ids.contains(id)).cloned().collect();
@@ -347,7 +370,29 @@ fn sync_instances(app: &AppHandle, desired: &[(String, String, f64, f64)]) {
         if let Some(event_id) = listeners().lock().unwrap().remove(&id) {
             app.unlisten(event_id);
         }
+        if let Some(event_id) = remove_listeners().lock().unwrap().remove(&id) {
+            app.unlisten(event_id);
+        }
+        // 实例被销毁（分组删除/隐藏）时清掉「用户移除」标记，避免下次重建时被误跳过
+        removed_by_user().lock().unwrap().remove(&id);
     }
+}
+
+/// 注册实例的 remove 事件监听（插件 v1.6.0：用户 ⌘-拖出实例时 emit
+/// `multiline-menubar://{id}//remove`）。收到后把该 id 记入 REMOVED_BY_USER——
+/// desired_instances 生成时跳过它，使实例在本会话内保持消失、不被刷新/重建复活。
+fn ensure_remove_listener(app: &AppHandle, id: &str) {
+    let mut map = remove_listeners().lock().unwrap();
+    if map.contains_key(id) {
+        return;
+    }
+    let event_name = format!("multiline-menubar://{id}//remove");
+    let app_listener = app.clone();
+    let instance_id = id.to_string();
+    let event_id = app_listener.listen(event_name, move |_event| {
+        removed_by_user().lock().unwrap().insert(instance_id.clone());
+    });
+    map.insert(id.to_string(), event_id);
 }
 
 /// 应用启动 / 配置变更：重建实例集合（实例增删 + 右键菜单 + 文字/样式）
