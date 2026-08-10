@@ -482,19 +482,36 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
     spawn_startup_recovery(app);
 }
 
-/// 实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）。
-/// macOS 13+ 的 `statusItem.visible` 可能为 true 但实例并未真正挂在菜单栏窗口上渲染
-/// （系统记忆/移除列表残留时 `button.window` 为 nil）。用插件 rect 校验：rect 非零 =
-/// 真正渲染在菜单栏；rect 为零（window nil）→ 视为不可见，触发自愈（set_visible →
-/// 销毁重建 → killall SystemUIServer）。实例不存在时 rect() 返回 Err → 不误判，按 visible 处理。
+/// 实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）。三道校验：
+/// 1. macOS 13+ `statusItem.visible`——可能为 true 但实例未真正挂到菜单栏窗口（系统移除列表残留）；
+/// 2. 插件 rect 非零——`button.window` 为 nil 时 rect 为零；
+/// 3. rect 在主屏可视范围内——位置错乱时（实测 y=-22 在屏幕底部之外）即使可见也在屏幕外。
+/// 三道全过才视作「真正渲染」。实例不存在时 rect() 返回 Err → 不误判按 visible 处理。
 fn instance_is_visible(app: &AppHandle, id: &str) -> bool {
     let mb = app.multiline_menubar();
     if !mb.is_visible(id.to_string()).unwrap_or(false) {
         return false;
     }
-    match mb.rect(id.to_string()) {
-        Ok(r) => r.width > 0.5 && r.height > 0.5,
-        Err(_) => true,
+    let r = match mb.rect(id.to_string()) {
+        Ok(r) => r,
+        Err(_) => return true,
+    };
+    if r.width <= 0.5 || r.height <= 0.5 {
+        return false;
+    }
+    // 屏幕边界：rect 必须在主屏可视范围内（留一点容差以应对子像素/刘海偏移）
+    match app.primary_monitor() {
+        Ok(Some(m)) => {
+            let size = m.size();
+            let sf = m.scale_factor();
+            let logical_w = size.width as f64 / sf;
+            let logical_h = size.height as f64 / sf;
+            r.x >= -r.width
+                && r.y >= -r.height
+                && r.x + r.width <= logical_w + r.width
+                && r.y + r.height <= logical_h + r.height
+        }
+        Err(_) | Ok(None) => true,
     }
 }
 
@@ -616,13 +633,13 @@ fn spawn_startup_recovery(app: &AppHandle) {
                 );
             }
             if let Ok(Some(m)) = app.primary_monitor() {
-                let s = m.size();
+                let size = m.size();
                 let sf = m.scale_factor();
+                let logical_w = size.width as f64 / sf;
+                let logical_h = size.height as f64 / sf;
                 eprintln!(
-                    "[fund01] 诊断 主屏 {:.0}x{:.0} @{:.1}x",
-                    s.width as f64 / sf,
-                    s.height as f64 / sf,
-                    sf
+                    "[fund01] 诊断 主屏 物理{}x{} 逻辑{:.0}x{:.0} scale={}",
+                    size.width, size.height, logical_w, logical_h, sf
                 );
             }
         }
