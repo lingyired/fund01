@@ -6,6 +6,12 @@ import { LazyMemo } from './lazyMemo'
 
 const memo = new LazyMemo<AppConfig>()
 
+// 串行化保存队列：同一时刻最多一个 save_config invoke 在途。
+// updateSettings 等写入入口都是 fire-and-forget（不 await 保存回包），快速连续操作会并发发出
+// 多个「完整配置」invoke，Rust 侧乱序处理会导致后发的旧快照覆盖新快照（表现为「开关 A 却隐藏 B」
+// / UI 与菜单栏不一致）。串行后写入严格有序、memo 与后端始终一致。
+let saveChain: Promise<void> = Promise.resolve()
+
 /**
  * Tauri 配置 Port：启动时从 Rust 拉取一次到内存镜像（保持 getConfig() 同步语义），
  * saveConfig 走 invoke（Rust 侧归一化 + store 持久化 + 广播）。
@@ -23,8 +29,12 @@ export class TauriConfigPort implements ConfigPort {
   }
 
   async saveConfig(config: AppConfig): Promise<void> {
-    const next = await invoke<AppConfig>('save_config', { config })
-    memo.set(next)
+    const run = saveChain.then(async () => {
+      const next = await invoke<AppConfig>('save_config', { config })
+      memo.set(next)
+    })
+    saveChain = run.catch(() => {})
+    return run
   }
 
   onChanged(cb: (config: AppConfig) => void): () => void {

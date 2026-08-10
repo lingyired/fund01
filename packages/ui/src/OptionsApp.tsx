@@ -2525,11 +2525,36 @@ function MenubarSection() {
     )
   }, [ports])
 
-  /** 分组显示开关：即时保存（低频操作）。
-   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next，不依赖异步的 React state / config
-   *  保存回包 → 连续快速切换多个开关也能正确叠加，不会出现「开关 A 却覆盖成隐藏 B」。
-   *  每次切换都打日志，便于排查 menubar 分组显示异常。 */
-  async function toggleGroup(g: string, show: boolean) {
+  // 分组显示持久化：300ms 防抖合并 + 卸载兜底 flush。
+  // 快速连点多个开关只落库最后一次 → 只触发一次 save_config → 一次 rebuild_menubar，
+  // 避免每次切换都销毁重建实例（菜单栏闪烁 / 分组看着像被干掉）；底层 ConfigPort.saveConfig
+  // 已全局串行化（同一时刻一个写入在途），写入严格有序、UI 与菜单栏一致。
+  const pendingHiddenRef = useRef<string[] | null>(null)
+  const hiddenTimerRef = useRef<number | null>(null)
+
+  function flushHiddenPersist(list: string[]) {
+    try {
+      updateSettings(ports, {menubarHiddenGroups: list})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function scheduleHiddenPersist(list: string[]) {
+    pendingHiddenRef.current = list
+    if (hiddenTimerRef.current != null) window.clearTimeout(hiddenTimerRef.current)
+    hiddenTimerRef.current = window.setTimeout(() => {
+      hiddenTimerRef.current = null
+      const v = pendingHiddenRef.current
+      pendingHiddenRef.current = null
+      if (v) flushHiddenPersist(v)
+    }, 300)
+  }
+
+  /** 分组显示开关：本地即时反馈 + 防抖持久化。
+   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next，连续快速切换正确叠加，
+   *  不会出现「开关 A 却覆盖成隐藏 B」。每次切换都打日志，便于排查 menubar 分组显示异常。 */
+  function toggleGroup(g: string, show: boolean) {
     const cur = hiddenRef.current
     const next = show
       ? cur.filter((x) => x !== g)
@@ -2537,12 +2562,21 @@ function MenubarSection() {
     hiddenRef.current = next
     setHidden(next)
     console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
-    try {
-      await updateSettings(ports, {menubarHiddenGroups: next})
-    } catch {
-      /* ignore */
-    }
+    scheduleHiddenPersist(next)
   }
+
+  // 卸载兜底：清防抖定时器并立即 flush 挂起的隐藏列表（切 tab / 关页不丢）
+  useEffect(() => {
+    return () => {
+      if (hiddenTimerRef.current != null) {
+        window.clearTimeout(hiddenTimerRef.current)
+        hiddenTimerRef.current = null
+      }
+      const v = pendingHiddenRef.current
+      pendingHiddenRef.current = null
+      if (v) flushHiddenPersist(v)
+    }
+  }, [ports])
 
   /** 布局模式：每种布局的字号独立存储，切换布局只保存布局本身、不动字号 */
   async function handleLayoutChange(v: string) {
