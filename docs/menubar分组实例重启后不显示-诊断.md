@@ -1,6 +1,6 @@
 # menubar 分组实例重启后不显示 —— 诊断记录（已修复）
 
-> 状态：**已修复**（2026-08-10 完成，分支 `fix/menubar-visible-model`，`cargo check` + `cargo test --lib` 通过）
+> 状态：**已修复**（2026-08-10 完成，分支 `fix/menubar-visible-model`，`cargo check` + `cargo test --lib` 通过；**同日 macOS 真机实测确认**：重启后分组正常显示、⌘-拖出后设置页勾选实时取消、普通开关即时响应）
 > 根因：自造的「显隐 = 实例销毁重建」churn，叠加原生 setter 异步 / getter 同步不对称，导致重启后分组实例被 macOS 布局簿记错乱到屏幕外（y=-22）。
 > 对照插件 demo 的合并模型（实例仅 create 一次、显隐只走 `set_visible`、只有分组删除才 `remove`）完成改造。
 
