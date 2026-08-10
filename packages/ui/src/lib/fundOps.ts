@@ -591,6 +591,16 @@ export function updateSettings(
     }
     config.settings.menubarGroupColors = next
   }
+  if (Array.isArray(patch.menubarGroupOrder)) {
+    // 整体替换 menubarGroupOrder：去重保序，仅保留现有分组名；空数组 = 未自定义（跟随 holdingGroups）
+    const valid = new Set(config.settings.holdingGroups || [])
+    const next: string[] = []
+    for (const g of patch.menubarGroupOrder) {
+      const key = String(g ?? '').trim()
+      if (key && valid.has(key) && !next.includes(key)) next.push(key)
+    }
+    config.settings.menubarGroupOrder = next
+  }
   if (typeof patch.menubarRiseColor === 'string') {
     config.settings.menubarRiseColor = patch.menubarRiseColor
   }
@@ -620,6 +630,11 @@ export async function addHoldingGroup(ports: Ports, name: string): Promise<strin
   const groups = config.settings.holdingGroups || []
   if (!groups.includes(trimmed)) {
     config.settings.holdingGroups = [...groups, trimmed]
+    // 已自定义 menubar 分组顺序时，新分组追加到末尾（保持 menubar 顺序独立）；
+    // 未自定义（空/缺省）则保持跟随 holdingGroups，不写
+    if (config.settings.menubarGroupOrder && config.settings.menubarGroupOrder.length) {
+      config.settings.menubarGroupOrder = [...config.settings.menubarGroupOrder, trimmed]
+    }
     await ports.config.saveConfig(config)
   }
   return config.settings.holdingGroups || []
@@ -632,6 +647,12 @@ export async function removeHoldingGroup(ports: Ports, name: string): Promise<st
   config.settings.holdingGroups = (config.settings.holdingGroups || []).filter(
     (g) => g !== trimmed,
   )
+  // 同步 menubar 分组顺序：移除该分组（若存在），避免残留无效名
+  if (config.settings.menubarGroupOrder) {
+    config.settings.menubarGroupOrder = config.settings.menubarGroupOrder.filter(
+      (g) => g !== trimmed,
+    )
+  }
   if (config.settings.holdingGroupOrders) {
     delete config.settings.holdingGroupOrders[trimmed]
     if (Object.keys(config.settings.holdingGroupOrders).length === 0) {
@@ -669,6 +690,12 @@ export async function removeHoldingGroupWithFunds(ports: Ports, name: string): P
   config.settings.holdingGroups = (config.settings.holdingGroups || []).filter(
     (g) => g !== trimmed,
   )
+  // 同步 menubar 分组顺序：移除该分组（若存在）
+  if (config.settings.menubarGroupOrder) {
+    config.settings.menubarGroupOrder = config.settings.menubarGroupOrder.filter(
+      (g) => g !== trimmed,
+    )
+  }
   if (config.settings.holdingGroupOrders) {
     delete config.settings.holdingGroupOrders[trimmed]
     if (Object.keys(config.settings.holdingGroupOrders).length === 0) {
@@ -699,6 +726,12 @@ export async function renameHoldingGroup(
   const groups = config.settings.holdingGroups || []
   if (o !== n && groups.includes(n)) throw new Error(`分组「${n}」已存在`)
   config.settings.holdingGroups = groups.map((g) => (g === o ? n : g))
+  // 同步 menubar 分组顺序：保位替换 key（保持菜单栏位置不变）
+  if (config.settings.menubarGroupOrder) {
+    config.settings.menubarGroupOrder = config.settings.menubarGroupOrder.map((g) =>
+      g === o ? n : g,
+    )
+  }
   for (const f of Object.values(config.holdings)) {
     if (f.allocations && o in f.allocations) {
       const shares = f.allocations[o]

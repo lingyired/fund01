@@ -147,13 +147,37 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
     })
 }
 
+/// menubar 视角的分组顺序：menubar_group_order 非空 → 有效分组保序 + 未列出的分组追加末尾；
+/// 空（未自定义）→ 跟随 holding_groups。
+/// 实例 id 用此顺序的下标（menubar-group-{idx}），desired_instances 与 popup_tab_for 必须共用，
+/// 保证「menubar 分组实例顺序」与「点击实例 → 分组 tab」映射一致。
+fn menubar_groups(config: &AppConfig) -> Vec<String> {
+    let groups = config.settings.holding_groups.clone().unwrap_or_default();
+    let order = config.settings.menubar_group_order.clone().unwrap_or_default();
+    if order.is_empty() {
+        return groups;
+    }
+    let mut list: Vec<String> = Vec::new();
+    for g in &order {
+        if groups.contains(g) && !list.contains(g) {
+            list.push(g.clone());
+        }
+    }
+    for g in &groups {
+        if !list.contains(g) {
+            list.push(g.clone());
+        }
+    }
+    list
+}
+
 /// 计算期望实例列表：(id, 顶行文字, 涨跌%, 收益额)
 /// 实例集合（分组归属/未分组判定）与份额一律以最新 config 为权威，行情仅取 quote。
 fn desired_instances(
     config: &AppConfig,
     quote: Option<&QuoteUpdate>,
 ) -> Vec<(String, String, f64, f64)> {
-    let groups = config.settings.holding_groups.clone().unwrap_or_default();
+    let groups = menubar_groups(config);
     let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
     let rows = quote_rows(quote);
 
@@ -192,7 +216,7 @@ fn desired_instances(
 }
 
 /// 点击实例 id → popup 分组 tab id（与前端 GroupTabs 的 tab id 对齐）：
-/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{idx} → holding_groups[idx]（分组名）。
+/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{idx} → menubar_groups()[idx]（分组名）。
 fn popup_tab_for(config: &AppConfig, id: &str) -> Option<String> {
     if id == INSTANCE_OVERVIEW {
         return Some("all".to_string());
@@ -202,13 +226,7 @@ fn popup_tab_for(config: &AppConfig, id: &str) -> Option<String> {
     }
     id.strip_prefix("menubar-group-")
         .and_then(|s| s.parse::<usize>().ok())
-        .and_then(|i| {
-            config
-                .settings
-                .holding_groups
-                .as_ref()
-                .and_then(|g| g.get(i).cloned())
-        })
+        .and_then(|i| menubar_groups(config).get(i).cloned())
 }
 
 /// 点击事件监听（每个实例一次，记录 EventId 供销毁时移除）：解析状态项 rect → 弹出浮窗，
@@ -401,15 +419,10 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         } else if id == "menubar-ungrouped" {
             Some(String::new())
         } else {
+            let groups = menubar_groups(&config);
             id.strip_prefix("menubar-group-")
                 .and_then(|s| s.parse::<usize>().ok())
-                .and_then(|i| {
-                    config
-                        .settings
-                        .holding_groups
-                        .as_ref()
-                        .and_then(|g| g.get(i))
-                })
+                .and_then(|i| groups.get(i))
                 .map(|g| g.clone())
         };
         let instance_top_color = group_key

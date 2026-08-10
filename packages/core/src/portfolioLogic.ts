@@ -67,6 +67,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarBottomBold: MENUBAR_DEFAULTS.bottomBold,
     menubarTopColor: MENUBAR_DEFAULTS.topColor,
     menubarGroupColors: {},
+    menubarGroupOrder: [],
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
   },
@@ -249,6 +250,21 @@ export function normalizeMenubarGroupColors(
   return next
 }
 
+/**
+ * 归一化菜单栏分组顺序：去重保序，仅保留存在于 holdingGroups 的名字。
+ * 空数组 = 未自定义（菜单栏分组顺序跟随 holdingGroups）。
+ */
+export function normalizeMenubarGroupOrder(v: unknown, groups: string[]): string[] {
+  if (!Array.isArray(v)) return []
+  const valid = new Set(groups)
+  const next: string[] = []
+  for (const g of v) {
+    const key = String(g ?? '').trim()
+    if (key && valid.has(key) && !next.includes(key)) next.push(key)
+  }
+  return next
+}
+
 export function normalizeConfig(payload: LegacyAppConfig | null | undefined): AppConfig {
   // 兼容旧格式：单一 funds map（仅纳入 type='hold' 的持仓；旧自选条目不再迁移）
   const holdings: FundMap = {}
@@ -376,6 +392,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.menubarGroupColors,
         holdingGroups,
         MENUBAR_DEFAULTS.topColor,
+      ),
+      menubarGroupOrder: normalizeMenubarGroupOrder(
+        payload?.settings?.menubarGroupOrder,
+        holdingGroups,
       ),
       menubarRiseColor: normalizeHexColor(
         payload?.settings?.menubarRiseColor,
