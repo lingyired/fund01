@@ -161,6 +161,14 @@ export function OptionsApp({
     return () => window.clearTimeout(t)
   }, [pendingAnchor])
 
+  // 设置窗口只挂 OptionsApp（不挂 App），默认不会注册 config.onChanged 刷新配置内存镜像。
+  // 注册一次：仅在 config-change 时同步刷新镜像（onChanged 内部 memo.set 副作用），
+  // 保证「其它来源改了配置」（如 macOS ⌘-拖出 menubar 分组）后，本窗口切到对应 tab 重新挂载时
+  // fetchSettings 读到的不是启动时初始快照。回调留空即可，无需触发整页重渲染。
+  useEffect(() => {
+    return ports.config.onChanged(() => {})
+  }, [ports])
+
   return (
     <Theme accentColor="blue" grayColor="mauve" radius="small">
       <Tabs.Root
@@ -2527,10 +2535,12 @@ function MenubarSection() {
 
   // 监听配置变更（如 macOS ⌘-拖出分组实例 → Rust 侧自动写入 menubarHiddenGroups 并广播）：
   // 实时同步设置页的隐藏列表与分组列表，开关状态与菜单栏保持一致。
+  // 直接用事件 payload（完整 AppConfig）而非 ports.config.getConfig()：设置窗口只挂 OptionsApp、
+  // 不挂 App，因此不会注册 config.onChanged 刷新内存镜像，getConfig() 仍是启动时的初始快照，
+  // 读到的 menubarHiddenGroups 是旧的 → 勾选态不更新。payload 即 Rust 刚 emit 的最新配置，最可靠。
   useEffect(() => {
-    return ports.event.onConfigChange(() => {
-      const s = fetchSettings(ports)
-      const h = s.menubarHiddenGroups ?? []
+    return ports.event.onConfigChange((cfg) => {
+      const h = cfg.settings?.menubarHiddenGroups ?? []
       hiddenRef.current = h
       setHidden(h)
       setGroups(listHoldingGroups(ports))
@@ -2559,7 +2569,6 @@ function MenubarSection() {
     console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
     savingRef.current = true
     setSaving(true)
-    const t0 = performance.now()
     try {
       const saved = await updateSettings(ports, {menubarHiddenGroups: next})
       // 回包后以最新配置（服务端归一化）同步镜像与 UI，保持与后端一致
@@ -2570,13 +2579,7 @@ function MenubarSection() {
       /* 保存失败：保留乐观值，不阻塞后续操作 */
     } finally {
       savingRef.current = false
-      // 至少保持 300ms 禁用态：让「保存中」的置灰肉眼可见、彻底杜绝快速连点（数据门控已在 await 内）
-      const remain = 300 - (performance.now() - t0)
-      if (remain > 0) {
-        window.setTimeout(() => setSaving(false), remain)
-      } else {
-        setSaving(false)
-      }
+      setSaving(false)
     }
   }
 
