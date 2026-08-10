@@ -2547,6 +2547,7 @@ function MenubarSection() {
     console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
     savingRef.current = true
     setSaving(true)
+    const t0 = performance.now()
     try {
       const saved = await updateSettings(ports, {menubarHiddenGroups: next})
       // 回包后以最新配置（服务端归一化）同步镜像与 UI，保持与后端一致
@@ -2557,7 +2558,13 @@ function MenubarSection() {
       /* 保存失败：保留乐观值，不阻塞后续操作 */
     } finally {
       savingRef.current = false
-      setSaving(false)
+      // 至少保持 150ms 禁用态：让「保存中」的置灰肉眼可见、杜绝快速连点（数据门控已在 await 内）
+      const remain = 150 - (performance.now() - t0)
+      if (remain > 0) {
+        window.setTimeout(() => setSaving(false), remain)
+      } else {
+        setSaving(false)
+      }
     }
   }
 
