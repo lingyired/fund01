@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -430,6 +431,57 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 
     // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等）
     update_menubar(app, quote);
+
+    // 4. 兜底：macOS 可能记住了「用户移除过该 app 的 status item」（旧版本拖出导致全部消失的
+    // 残留），重启后创建的总览实例会被系统隐藏。检测到总览不可见则强制恢复（先 visible=true，
+    // 无效则销毁重建全新 NSStatusItem），重建后重刷文字/样式。
+    if ensure_overview_visible(app) {
+        update_menubar(app, quote);
+    }
+
+    // 5. 延迟兜底：系统记忆/时序可能在启动稍后才把实例隐藏，1.5s 后再检查一次
+    //（此时用 AppState 里的最新行情重刷，避免覆盖成空数据）。
+    let app_delayed = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let state = app_delayed.state::<crate::state::AppState>();
+        let quote = state.quote.read().unwrap().clone();
+        if ensure_overview_visible(&app_delayed) {
+            update_menubar(&app_delayed, quote.as_ref());
+        }
+    });
+}
+
+/// 兜底：确保「总览」（全部）实例显示。
+///
+/// 场景：macOS 在用户拖出第三方 status item（含旧版本无 RemovalAllowed 时的异常拖出）后会持久
+/// 记忆，重启后创建的同款实例默认不可见。恢复手段（macOS 13+）：显式 `visible = true` 可覆盖
+/// 系统记忆；仍无效则销毁重建全新 `NSStatusItem`（旧实例被系统隐藏，新实例 + visible=true 可
+/// 恢复）。
+///
+/// 返回 true 表示执行了销毁重建（调用方需重新同步实例并应用文字/样式）。
+fn ensure_overview_visible(app: &AppHandle) -> bool {
+    let mb = app.multiline_menubar();
+    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+        return false;
+    }
+    // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）
+    let _ = mb.set_visible(INSTANCE_OVERVIEW.to_string(), true);
+    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+        return false;
+    }
+    // 2) 仍不可见 → 销毁旧实例并清跟踪/监听，让下一次 sync_instances 创建全新实例
+    eprintln!("[fund01] 总览实例不可见（macOS 可能记住了用户移除），销毁重建");
+    let _ = mb.remove(INSTANCE_OVERVIEW.to_string());
+    tracked().lock().unwrap().remove(INSTANCE_OVERVIEW);
+    if let Some(eid) = listeners().lock().unwrap().remove(INSTANCE_OVERVIEW) {
+        app.unlisten(eid);
+    }
+    if let Some(eid) = remove_listeners().lock().unwrap().remove(INSTANCE_OVERVIEW) {
+        app.unlisten(eid);
+    }
+    removed_by_user().lock().unwrap().remove(INSTANCE_OVERVIEW);
+    true
 }
 
 /// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
