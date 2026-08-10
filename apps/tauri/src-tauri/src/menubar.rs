@@ -4,6 +4,7 @@
 //! 单个实例（插件 v1.6.0+ 启用 RemovalAllowed 并 emit remove 事件），本会话内保持消失不复活。
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde_json::Value;
@@ -442,55 +443,27 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
         ],
     );
 
-    // 3. 强制恢复总览显示（无条件）：app 启动/配置变更后「全部」无论如何都要重新显示，
-    //    不受 macOS 系统记忆 / 系统设置开关影响；若销毁重建了实例，update_menubar 会重新
-    //    收敛实例集合并刷新文字。
-    ensure_overview_visible(app, true);
+    // 3. 更新文字与颜色（内部会再次收敛实例集合 + 应用样式，幂等；
+    //    开头自带总览可见性温和兜底：不可见则 set_visible(true)，不销毁重建）
     update_menubar(app, quote);
 
-    // 4. 延迟复核：macOS 系统记忆/时序可能在启动稍后才把实例隐藏，2s 后再强制恢复一次
-    //   （用 AppState 里最新行情重刷，避免把文字覆盖成空数据）。
-    let app_delayed = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
-        let state = app_delayed.state::<crate::state::AppState>();
-        let quote = state.quote.read().unwrap().clone();
-        if ensure_overview_visible(&app_delayed, true) {
-            update_menubar(&app_delayed, quote.as_ref());
-        }
-    });
+    // 4. 启动总览恢复任务（会话级一次，rebuild 多次触发时幂等跳过）：
+    //    macOS 系统记忆可能在实例创建后才把 visible 置 NO，需延迟重试；
+    //    逐步升级：set_visible(true) → 销毁重建 → 终极手段 killall SystemUIServer 重建菜单栏，
+    //    实现「总览无论如何都重新显示」。
+    spawn_overview_recovery(app);
 }
 
-/// 兜底：确保「总览」（全部）实例显示。
-///
-/// 场景：macOS 在用户拖出第三方 status item（含旧版本无 RemovalAllowed 时的异常拖出）后会持久
-/// 记忆，重启后创建的同款实例默认不可见；系统设置（控制中心→菜单栏）也可能把 app 或单一项取消
-/// 勾选。恢复手段（macOS 13+）：显式 `visible = true` 可覆盖；仍无效则销毁重建全新
-/// `NSStatusItem`（旧实例被系统隐藏，新实例 + visible=true 可恢复）。
-///
-/// - `force=true`（启动/配置变更）：无条件 `set_visible(true)` 再校验——「总览无论如何都要显示」；
-/// - `force=false`（周期刷新）：仅当当前不可见时才处理，避免空转。
-/// 返回 true 表示销毁重建了实例（调用方随后 sync_instances 会创建全新实例并刷新文字）。
-fn ensure_overview_visible(app: &AppHandle, force: bool) -> bool {
+/// 总览实例当前是否可见（对不存在/未跟踪的实例一律视为不可见）
+fn overview_is_visible(app: &AppHandle) -> bool {
+    app.multiline_menubar()
+        .is_visible(INSTANCE_OVERVIEW.to_string())
+        .unwrap_or(false)
+}
+
+/// 销毁总览实例并清掉跟踪/点击/移除监听/用户移除标记（销毁后需重新 create）
+fn destroy_overview(app: &AppHandle) {
     let mb = app.multiline_menubar();
-    let visible = mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false);
-    if visible && !force {
-        return false;
-    }
-    if !visible {
-        eprintln!("[fund01] 总览实例当前不可见（macOS 记忆/系统设置），尝试 set_visible(true) 恢复");
-    }
-    // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）
-    let _ = mb.set_visible(INSTANCE_OVERVIEW.to_string(), true);
-    let now_visible = mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false);
-    if now_visible {
-        if !visible {
-            eprintln!("[fund01] 总览实例 set_visible(true) 成功，已恢复显示");
-        }
-        return false;
-    }
-    // 2) 仍不可见 → 销毁旧实例并清跟踪/监听，让下一次 sync_instances 创建全新实例
-    eprintln!("[fund01] 总览实例 set_visible(true) 无效，销毁重建全新 NSStatusItem");
     let _ = mb.remove(INSTANCE_OVERVIEW.to_string());
     tracked().lock().unwrap().remove(INSTANCE_OVERVIEW);
     if let Some(eid) = listeners().lock().unwrap().remove(INSTANCE_OVERVIEW) {
@@ -500,17 +473,115 @@ fn ensure_overview_visible(app: &AppHandle, force: bool) -> bool {
         app.unlisten(eid);
     }
     removed_by_user().lock().unwrap().remove(INSTANCE_OVERVIEW);
-    eprintln!("[fund01] 总览实例已销毁，等待下一次同步重建");
+}
+
+/// 兜底：确保「总览」（全部）实例显示。
+///
+/// 场景：macOS 在用户拖出第三方 status item（含旧版本无 RemovalAllowed 时的异常拖出）后会持久
+/// 记忆，重启后创建的同款实例默认不可见；系统设置（控制中心→菜单栏）也可能把 app 或单一项取消
+/// 勾选。社区验证的恢复手段（macOS 13+）：显式 `visible = true` 可覆盖系统记忆；仍无效则销毁
+/// 重建全新 `NSStatusItem`。实测 set_visible 在「系统持续压制」时可能无效，需要启动恢复任务
+/// 延迟重试 / killall SystemUIServer（见 spawn_overview_recovery）。
+///
+/// - `force=true`（启动恢复路径）：无条件 `set_visible(true)` 再校验，无效则销毁重建；
+/// - `force=false`（周期刷新路径）：仅不可见时 `set_visible(true)`，**不销毁重建**（避免 60s
+///   抖动；真正的恢复交给启动任务或用户系统设置）。
+/// 返回 true 表示执行过销毁重建（调用方需重刷文字/样式）。
+fn ensure_overview_visible(app: &AppHandle, force: bool) -> bool {
+    let mb = app.multiline_menubar();
+    let was_visible = mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false);
+    if was_visible && !force {
+        return false;
+    }
+    if !was_visible {
+        eprintln!("[fund01] 总览实例当前不可见（macOS 记忆/系统设置），尝试 set_visible(true) 恢复");
+    }
+    // 1) 温和尝试：显式 visible = true（系统记忆下 app 可覆盖）
+    let _ = mb.set_visible(INSTANCE_OVERVIEW.to_string(), true);
+    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+        if !was_visible {
+            eprintln!("[fund01] 总览实例 set_visible(true) 成功，已恢复显示");
+        }
+        return false;
+    }
+    if !force {
+        // 周期路径：不销毁重建（避免 60s 抖动），等待启动恢复任务或用户操作系统设置
+        eprintln!("[fund01] 总览实例 set_visible(true) 无效（周期路径，跳过销毁重建）");
+        return false;
+    }
+    // 2) force 路径：销毁 + 立即重建（create 自带 visible=YES）再校验
+    eprintln!("[fund01] 总览实例 set_visible(true) 无效，销毁重建全新 NSStatusItem");
+    destroy_overview(app);
+    let _ = mb.create(INSTANCE_OVERVIEW.to_string());
+    tracked().lock().unwrap().insert(INSTANCE_OVERVIEW.to_string());
+    let _ = mb.set_visible(INSTANCE_OVERVIEW.to_string(), true);
+    if mb.is_visible(INSTANCE_OVERVIEW.to_string()).unwrap_or(false) {
+        eprintln!("[fund01] 总览实例重建后可见");
+        return true;
+    }
+    eprintln!("[fund01] 总览实例重建后仍不可见（系统持续压制，等待重试/终极手段）");
     true
+}
+
+/// 会话级：总览启动恢复是否已执行完（避免每次 rebuild/配置变更都重复跑恢复任务）
+static OVERVIEW_RECOVERY_DONE: AtomicBool = AtomicBool::new(false);
+
+/// 启动总览恢复任务：macOS 系统记忆可能在实例创建后才把 visible 置 NO，且 set_visible / 销毁
+/// 重建单次尝试可能被系统持续压制——延迟反复尝试，最后用 `killall SystemUIServer`（社区验证可
+/// 重建菜单栏、恢复第三方图标）兜底，实现「总览无论如何都重新显示」。
+fn spawn_overview_recovery(app: &AppHandle) {
+    if OVERVIEW_RECOVERY_DONE.load(Ordering::Relaxed) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // 多次延迟重试（约 6 次 × 700ms）：覆盖「创建后才被系统隐藏」的时序
+        for attempt in 0..6 {
+            tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+            let state = app.state::<crate::state::AppState>();
+            let quote = state.quote.read().unwrap().clone();
+            if !overview_is_visible(&app) {
+                let recreated = ensure_overview_visible(&app, true);
+                if recreated {
+                    // 销毁重建过 → 重刷文字/样式（sync 不再重复创建）
+                    update_menubar(&app, quote.as_ref());
+                }
+            }
+            if overview_is_visible(&app) {
+                eprintln!("[fund01] 启动总览恢复成功（第 {} 次尝试）", attempt + 1);
+                break;
+            }
+        }
+        // 仍不可见 → 终极手段：重启 SystemUIServer（自动拉起），重建菜单栏
+        if !overview_is_visible(&app) {
+            eprintln!("[fund01] 总览仍不可见，执行 killall SystemUIServer 重建菜单栏");
+            let _ = std::process::Command::new("killall").arg("SystemUIServer").spawn();
+            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+            let state = app.state::<crate::state::AppState>();
+            let quote = state.quote.read().unwrap().clone();
+            if !overview_is_visible(&app) {
+                let recreated = ensure_overview_visible(&app, true);
+                if recreated {
+                    update_menubar(&app, quote.as_ref());
+                }
+            }
+            if overview_is_visible(&app) {
+                eprintln!("[fund01] SystemUIServer 重建后总览已恢复");
+            } else {
+                eprintln!("[fund01] 总览仍不可见：请在 系统设置→控制中心→菜单栏 确认 fund01-tauri 已勾选显示");
+            }
+        }
+        OVERVIEW_RECOVERY_DONE.store(true, Ordering::Relaxed);
+    });
 }
 
 /// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
 /// 修改持仓/分组后即使尚未触发 rebuild，刷新也会让实例集合与最新配置对齐。
 pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // 兜底（每次刷新/重建都跑）：总览实例不可见（macOS 系统设置里被取消勾选 / 用户移除记忆
-    // 残留）时强制恢复——重建后本函数的 sync_instances 会创建全新实例并刷新文字，无需额外重刷。
-    // 这样用户即使运行中在系统设置里开关了菜单栏项，最迟 60s 内「全部」也会自动回来。
-    // 周期路径用非 force（仅不可见时处理）；启动/配置变更路径已在 rebuild 里 force 过一次。
+    // 残留）时温和尝试 set_visible(true) 恢复——这样用户即使运行中在系统设置里开关了菜单栏项，
+    // 最迟 60s 内「全部」也会自动回来。周期路径用非 force（仅不可见时处理、不销毁重建，
+    // 避免 60s 抖动）；真正的销毁重建/终极恢复由启动恢复任务 spawn_overview_recovery 负责。
     ensure_overview_visible(app, false);
 
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
