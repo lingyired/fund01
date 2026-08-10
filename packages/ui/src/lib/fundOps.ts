@@ -460,10 +460,10 @@ export function fetchSettings(ports: Ports): AppSettings {
   return ports.config.getConfig().settings
 }
 
-export function updateSettings(
+export async function updateSettings(
   ports: Ports,
   patch: Partial<AppSettings>,
-): AppSettings {
+): Promise<AppSettings> {
   const config = ports.config.getConfig()
   if (patch.quoteSource === 'fund123' || patch.quoteSource === 'fundmnfinfo') {
     config.settings.quoteSource = patch.quoteSource
@@ -597,8 +597,9 @@ export function updateSettings(
   if (typeof patch.menubarFallColor === 'string') {
     config.settings.menubarFallColor = patch.menubarFallColor
   }
-  ports.config.saveConfig(config)
-  return config.settings
+  await ports.config.saveConfig(config)
+  // 回读服务端归一化后的最新设置（ConfigPort 已乐观同步镜像 + 回包覆盖），保证返回值与后端一致
+  return ports.config.getConfig().settings
 }
 
 /** 返回所有持仓分组名称（保序） */

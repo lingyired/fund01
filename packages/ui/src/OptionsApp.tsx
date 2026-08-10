@@ -2525,37 +2525,17 @@ function MenubarSection() {
     )
   }, [ports])
 
-  // 分组显示持久化：300ms 防抖合并 + 卸载兜底 flush。
-  // 快速连点多个开关只落库最后一次 → 只触发一次 save_config → 一次 rebuild_menubar，
-  // 避免每次切换都销毁重建实例（菜单栏闪烁 / 分组看着像被干掉）；底层 ConfigPort.saveConfig
-  // 已全局串行化（同一时刻一个写入在途），写入严格有序、UI 与菜单栏一致。
-  const pendingHiddenRef = useRef<string[] | null>(null)
-  const hiddenTimerRef = useRef<number | null>(null)
+  // 保存中门控：点击后所有「显示」开关立即禁用（disabled={saving}），等 save_config 回调
+  // 完成才放开——从交互层杜绝「快速连点导致写入乱序/互相覆盖」；配合 ConfigPort 全局串行队列
+  // 与乐观镜像，一次点击 = 一次有序写入，UI 与菜单栏始终一致。
+  const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
 
-  function flushHiddenPersist(list: string[]) {
-    try {
-      updateSettings(ports, {menubarHiddenGroups: list})
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function scheduleHiddenPersist(list: string[]) {
-    pendingHiddenRef.current = list
-    if (hiddenTimerRef.current != null) window.clearTimeout(hiddenTimerRef.current)
-    hiddenTimerRef.current = window.setTimeout(() => {
-      hiddenTimerRef.current = null
-      const v = pendingHiddenRef.current
-      pendingHiddenRef.current = null
-      if (v) flushHiddenPersist(v)
-    }, 300)
-  }
-
-  /** 分组显示开关：本地即时反馈 + 防抖持久化。
-   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next，连续快速切换正确叠加，
-   *  不会出现「开关 A 却覆盖成隐藏 B」。每次切换都打日志（emitDebug 直达终端 + console），
-   *  便于与 Rust 侧 save_config 日志对齐、确认「点的是哪个开关」。 */
-  function toggleGroup(g: string, show: boolean) {
+  /** 分组显示开关：本地即时反馈 + 等待保存回调后再放开。
+   *  以 hiddenRef（每次切换同步更新的镜像）为基准计算 next；保存期间 savingRef 置位，
+   *  后续点击直接忽略（开关已禁用），回包后以服务端归一化结果同步 hidden 并解锁。 */
+  async function toggleGroup(g: string, show: boolean) {
+    if (savingRef.current) return
     const cur = hiddenRef.current
     const next = show
       ? cur.filter((x) => x !== g)
@@ -2565,21 +2545,21 @@ function MenubarSection() {
     const detail = `toggleGroup group=${g} show=${show} cur=${JSON.stringify(cur)} next=${JSON.stringify(next)}`
     ports.event.emitDebug?.(detail)
     console.log('[fund01] toggleGroup', JSON.stringify({group: g, show, hiddenBefore: cur, next}))
-    scheduleHiddenPersist(next)
-  }
-
-  // 卸载兜底：清防抖定时器并立即 flush 挂起的隐藏列表（切 tab / 关页不丢）
-  useEffect(() => {
-    return () => {
-      if (hiddenTimerRef.current != null) {
-        window.clearTimeout(hiddenTimerRef.current)
-        hiddenTimerRef.current = null
-      }
-      const v = pendingHiddenRef.current
-      pendingHiddenRef.current = null
-      if (v) flushHiddenPersist(v)
+    savingRef.current = true
+    setSaving(true)
+    try {
+      const saved = await updateSettings(ports, {menubarHiddenGroups: next})
+      // 回包后以最新配置（服务端归一化）同步镜像与 UI，保持与后端一致
+      const savedHidden = saved.menubarHiddenGroups ?? []
+      hiddenRef.current = savedHidden
+      setHidden(savedHidden)
+    } catch {
+      /* 保存失败：保留乐观值，不阻塞后续操作 */
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
-  }, [ports])
+  }
 
   /** 布局模式：每种布局的字号独立存储，切换布局只保存布局本身、不动字号 */
   async function handleLayoutChange(v: string) {
@@ -2791,6 +2771,7 @@ function MenubarSection() {
                   <div className="flex justify-end">
                     <Switch
                       checked={!hidden.includes(g)}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroup(g, c)}
                       aria-label={`显示/隐藏分组 ${g}`}
                     />
@@ -2823,6 +2804,7 @@ function MenubarSection() {
                   <div className="flex justify-end">
                     <Switch
                       checked={!hidden.includes('')}
+                      disabled={saving}
                       onCheckedChange={(c) => void toggleGroup('', c)}
                       aria-label="显示/隐藏未分组"
                     />
