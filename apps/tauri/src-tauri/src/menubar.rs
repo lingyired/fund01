@@ -596,6 +596,36 @@ fn spawn_startup_recovery(app: &AppHandle) {
                 break;
             }
         }
+        // 诊断：打印每个实例的可见性与屏幕 rect，确认「只有总览显示」的几何原因
+        //（离屏 / 零宽未渲染 / 重叠 / 系统确实未附加）。
+        {
+            let state = app.state::<crate::state::AppState>();
+            let config = state.config.read().unwrap().clone();
+            let quote = state.quote.read().unwrap().clone();
+            let desired = desired_instances(&config, quote.as_ref());
+            for (id, _, _, _) in &desired {
+                let rendered = instance_is_visible(&app, id);
+                let raw = app
+                    .multiline_menubar()
+                    .is_visible(id.clone())
+                    .unwrap_or(false);
+                let r = app.multiline_menubar().rect(id.clone()).unwrap_or_default();
+                eprintln!(
+                    "[fund01] 诊断 {id} rendered={rendered} raw_visible={raw} rect=({:.0},{:.0}) {:.0}x{:.0}",
+                    r.x, r.y, r.width, r.height
+                );
+            }
+            if let Ok(Some(m)) = app.primary_monitor() {
+                let s = m.size();
+                let sf = m.scale_factor();
+                eprintln!(
+                    "[fund01] 诊断 主屏 {:.0}x{:.0} @{:.1}x",
+                    s.width as f64 / sf,
+                    s.height as f64 / sf,
+                    sf
+                );
+            }
+        }
         // 仍不可见 → 终极手段：重启 SystemUIServer（自动拉起），重建菜单栏
         let state = app.state::<crate::state::AppState>();
         let config = state.config.read().unwrap().clone();
