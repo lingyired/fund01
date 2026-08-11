@@ -11,3 +11,4 @@ coverage/
 
 # AI 助手工作记忆（本地日志，交接文档 RADIX_MIGRATION_PLAN.md 仍入库）
 .workbuddy/memory/
+.worktrees/
