@@ -189,8 +189,8 @@ export function GroupTabs({
                 }
               }}
               className={cn(
-                'relative flex cursor-pointer flex-col whitespace-nowrap px-3 transition-colors',
-                showDetail ? 'py-1.5' : 'items-center py-2',
+                'relative flex cursor-pointer flex-col items-center whitespace-nowrap px-3 transition-colors',
+                showDetail ? 'py-1.5' : 'py-2',
                 active ? 'font-medium text-ink' : 'text-muted hover:text-ink-soft',
               )}
             >
