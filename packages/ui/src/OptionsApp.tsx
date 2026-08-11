@@ -289,7 +289,8 @@ function GeneralSection({
 }) {
   const ports = usePorts()
   const [badgeMode, setBadgeMode] = useState<BadgeMode>('percent')
-  const [groupTabDetail, setGroupTabDetail] = useState(false)
+  // 分组 Tab 收益详情默认开启（与 DEFAULT_CONFIG.groupTabShowDetail=true 一致）
+  const [groupTabDetail, setGroupTabDetail] = useState(true)
   const [groupTabDetailMode, setGroupTabDetailMode] = useState<'percent' | 'amount'>(
     'percent',
   )
@@ -334,7 +335,7 @@ function GeneralSection({
     setQuoteSource(s.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo')
     setTrading(String(s.refreshInterval?.trading ?? ''))
     setNonTrading(String(s.refreshInterval?.nonTrading ?? ''))
-    setGroupTabDetail(s.groupTabShowDetail === true)
+    setGroupTabDetail(s.groupTabShowDetail !== false)
     setGroupTabDetailMode(
       s.groupTabDetailMode === 'amount' ? 'amount' : 'percent',
     )

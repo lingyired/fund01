@@ -211,7 +211,7 @@ export type AppSettings = {
   menubarFallColor?: string
   /**
    * popup 分组 Tab 是否显示两行：分组名下方增加当日收益详情行。
-   * 默认 false（单行：名称 + 基金数）。开启后文字整体缩小以适配两行布局。
+   * 默认 true（两行：名称 + 基金数 + 当日收益）。关闭后回到单行。两行模式文字整体缩小。
    */
   groupTabShowDetail?: boolean
   /** popup 分组 Tab 收益详情显示方式：percent=收益率百分比(默认) amount=收益额（k/w/kw 简写） */

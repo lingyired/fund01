@@ -76,6 +76,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarGroupColors: {},
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
+    // popup 分组 Tab 收益详情默认开启（两行：分组名 + 当日收益）
+    groupTabShowDetail: true,
+    groupTabDetailMode: 'percent',
   },
   holdings: {},
 }
@@ -399,6 +402,15 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.menubarFallColor,
         MENUBAR_DEFAULTS.fallColor,
       ),
+      // popup 分组 Tab 收益详情：默认开启（true）；旧配置缺失时回落默认
+      groupTabShowDetail:
+        typeof payload?.settings?.groupTabShowDetail === 'boolean'
+          ? payload.settings.groupTabShowDetail
+          : DEFAULT_CONFIG.settings.groupTabShowDetail,
+      groupTabDetailMode:
+        payload?.settings?.groupTabDetailMode === 'amount'
+          ? 'amount'
+          : DEFAULT_CONFIG.settings.groupTabDetailMode,
     },
     holdings,
   }
