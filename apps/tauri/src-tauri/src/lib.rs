@@ -42,6 +42,7 @@ pub fn run() {
             commands::get_config,
             commands::save_config,
             commands::open_settings_window,
+            commands::open_popup_tab_window,
             commands::get_version,
             commands::open_external,
             commands::dbg_log,
@@ -51,7 +52,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // macOS: 拦截 Dock 右键「退出」/ Cmd+Q → 只关设置窗口，menubar 保持常驻
+            // macOS: 拦截 Dock 右键「退出」/ Cmd+Q → 只关主界面窗口（设置/popup-tab），menubar 保持常驻
             #[cfg(target_os = "macos")]
             window::install_terminate_hook(app.handle());
 

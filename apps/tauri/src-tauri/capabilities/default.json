@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "fund01 主能力集",
-  "windows": ["menubar", "settings"],
+  "windows": ["menubar", "settings", "popup-tab"],
   "permissions": [
     "core:default",
     "store:default"

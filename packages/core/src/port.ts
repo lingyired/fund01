@@ -83,8 +83,13 @@ export interface WindowPort {
    * Tauri: 创建窗口时拼入 URL。设置窗口已存在时仅聚焦，不重新导航）。
    */
   openSettings(tab?: SettingsTabId, anchor?: SettingsAnchorId): Promise<void>
-  /** 新窗口 / 新标签页打开主视图（Chrome: window.open(popup.html?tab=1)；Tauri 无此概念可不实现，UI 自动隐藏按钮） */
+  /**
+   * 新窗口 / 新标签页打开主视图（Chrome: window.open(popup.html?tab=1) 新标签页；
+   * Tauri: 打开持久化 popup-tab 独立窗口）。不实现 → UI 自动隐藏按钮。
+   */
   openInNewWindow?(): Promise<void>
+  /** 「在新窗口打开」按钮的悬停文案（Chrome: 新标签页；Tauri: 新窗口）。不实现 → UI 用默认「在新标签页中打开」 */
+  openInNewWindowTitle?(): string
   /** 是否支持菜单栏（Tauri 实现返回 true；Chrome 不实现 → undefined → UI 自动隐藏「菜单栏」设置 tab） */
   supportsMenubar?(): boolean
   /** 是否支持扩展角标（Chrome 实现返回 true；Tauri 实现返回 false → UI 自动隐藏「扩展角标」设置项） */

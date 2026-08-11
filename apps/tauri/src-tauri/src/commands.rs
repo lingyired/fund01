@@ -173,6 +173,12 @@ pub async fn open_settings_window(app: AppHandle, tab: Option<String>, anchor: O
     crate::window::open_settings_window(&app, tab.as_deref(), anchor.as_deref());
 }
 
+/// 打开 popup 独立页面窗口（对齐 Chrome popup.html?tab=1「标签页模式」）
+#[tauri::command]
+pub async fn open_popup_tab_window(app: AppHandle) {
+    crate::window::open_popup_tab_window(&app);
+}
+
 #[tauri::command]
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()

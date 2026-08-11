@@ -69,8 +69,10 @@ export function App() {
 
   // 版本号（header 品牌名右侧）统一走 WindowPort，跨端一致
   const version = windowPort.getVersion()
-  // 新标签页能力为可选：Tauri 无此概念时不实现，按钮自动隐藏
+  // 新窗口/新标签页打开能力为可选：Port 不实现时按钮自动隐藏
   const openInNewWindow = windowPort.openInNewWindow
+  const openInNewWindowTitle =
+    windowPort.openInNewWindowTitle?.() ?? '在新标签页中打开'
 
   // 外部直达分组 tab（Tauri）：
   // 1) 初次创建浮窗时 URL 带 ?tab=xxx（window.rs ensure_popup_window 创建时拼入）；
@@ -166,7 +168,7 @@ export function App() {
             <IconButton
               variant="outline"
               onClick={() => void openInNewWindow()}
-              title="在新标签页中打开"
+              title={openInNewWindowTitle}
             >
               <ExternalLink className="h-4 w-4" />
             </IconButton>

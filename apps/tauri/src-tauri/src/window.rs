@@ -1,7 +1,10 @@
-//! 浮窗（menubar popup）生命周期 + 设置窗口。
+//! 浮窗（menubar popup）生命周期 + 设置窗口 + popup 独立页面（popup-tab）。
 //!
 //! 生命周期：点击 menubar → show；失焦 → hide + 延迟 N 分钟销毁（默认 5min，
 //! 期间再点击直接 show 状态保留；已销毁则重建）。窗口 680×600 与 Chrome popup 同尺寸。
+//!
+//! popup-tab = 「在新窗口打开」独立页面（对齐 Chrome popup.html?tab=1 标签页模式）：
+//! 持久化窗口，手动关闭才销毁；重开聚焦复用，不随 menubar 浮窗隐藏/销毁。
 
 use std::time::Duration;
 
@@ -22,6 +25,8 @@ use crate::state::AppState;
 
 pub const POPUP_LABEL: &str = "menubar";
 pub const SETTINGS_LABEL: &str = "settings";
+/// popup 独立页面窗口（「在新窗口打开」，对齐 Chrome popup.html?tab=1 标签页模式）
+pub const POPUP_TAB_LABEL: &str = "popup-tab";
 /// 浮窗隐藏后延迟销毁时长（秒），TODO: 接入设置项
 pub const POPUP_DESTROY_DELAY_SECS: u64 = 5 * 60;
 
@@ -129,6 +134,50 @@ pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>, tab: Opti
     }
 }
 
+/// macOS：是否存在「主界面形态」窗口（设置窗口 / popup-tab 独立页面）。
+/// Dock 可见性跟随主界面形态窗口：任一存在 → Dock 可见；全部销毁 → 恢复 Accessory。
+fn has_main_window(app: &AppHandle) -> bool {
+    app.get_webview_window(SETTINGS_LABEL).is_some()
+        || app.get_webview_window(POPUP_TAB_LABEL).is_some()
+}
+
+/// 打开 popup 独立页面窗口（对齐 Chrome popup.html?tab=1「标签页模式」）：
+/// - 已存在 → show + focus（持久化窗口，不随 menubar 浮窗隐藏/销毁）；
+/// - 不存在 → 创建独立窗口加载 index.html?tab=1（前端读 ?tab=1 进入 tab 模式铺满视口）。
+/// URL 参数与 Chrome 完全一致：App.tsx 的 requestedTab / FundDetailDialog / viewport 判断自动对齐。
+pub fn open_popup_tab_window(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(POPUP_TAB_LABEL) {
+        // macOS: 主界面形态窗口，确保 Dock 显示应用图标
+        #[cfg(target_os = "macos")]
+        let _ = app.set_dock_visibility(true);
+        let _ = win.show();
+        let _ = win.set_focus();
+        return;
+    }
+    let url = "index.html?tab=1";
+    if let Ok(win) = WebviewWindowBuilder::new(app, POPUP_TAB_LABEL, WebviewUrl::App(url.into()))
+        .title("fund01")
+        .inner_size(1000.0, 760.0)
+        .min_inner_size(680.0, 600.0)
+        .build()
+    {
+        // macOS: 打开时切到 Regular（Dock 出现应用图标）；全部主界面窗口销毁后恢复 Accessory
+        #[cfg(target_os = "macos")]
+        {
+            let _ = app.set_dock_visibility(true);
+            let app2 = app.clone();
+            win.on_window_event(move |event| {
+                if let WindowEvent::Destroyed = event {
+                    if !has_main_window(&app2) {
+                        let _ = app2.set_dock_visibility(false);
+                    }
+                }
+            });
+        }
+        let _ = win.show();
+    }
+}
+
 /// 打开设置窗口（复用 options.html?tab= 约定）
 /// tab = 设置页一级 tab（'holdings' / 'data' / ...）；anchor = 「持仓」tab 内区块锚点 id
 /// （仅 tab='holdings' 时有意义），拼入 URL hash 供前端滚动定位。
@@ -156,14 +205,16 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
         .build()
     {
         // macOS: 打开设置窗口时切到 Regular（Dock 出现应用图标）；
-        // 窗口销毁后恢复 Accessory（menubar 常驻、不占 Dock）
+        // 全部主界面窗口（设置 / popup-tab）销毁后恢复 Accessory（menubar 常驻、不占 Dock）
         #[cfg(target_os = "macos")]
         {
             let _ = app.set_dock_visibility(true);
             let app2 = app.clone();
             win.on_window_event(move |event| {
                 if let WindowEvent::Destroyed = event {
-                    let _ = app2.set_dock_visibility(false);
+                    if !has_main_window(&app2) {
+                        let _ = app2.set_dock_visibility(false);
+                    }
                 }
             });
         }
@@ -172,7 +223,7 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
 }
 
 /// macOS：拦截 Dock 右键「退出」/ Cmd+Q（`NSApp terminate:`），把「退出」改写成
-/// 「只关闭设置窗口，menubar 保持常驻」。
+/// 「只关闭主界面窗口（设置 / popup-tab），menubar 保持常驻」。
 ///
 /// 为什么需要原生 hook：tauri 的 `RunEvent::ExitRequested` + `prevent_exit()` 只覆盖
 /// 「最后一个窗口销毁」和 `app.exit(code)` 两条路径；macOS 系统级 `terminate:`（Dock
@@ -180,7 +231,7 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
 /// 没有实现 `applicationShouldTerminate:`，tauri 拦不到。
 ///
 /// 做法：给现有 AppDelegate 类动态挂 `applicationShouldTerminate:` ——
-/// 有设置窗口 → 关闭它 + 恢复 Accessory + 返回 `TerminateCancel`（取消退出）；
+/// 有主界面窗口（设置 / popup-tab）→ 关闭它 + 恢复 Accessory + 返回 `TerminateCancel`（取消退出）；
 /// 无窗口（纯 menubar 态）→ 返回 `TerminateNow` 放行真正退出。
 #[cfg(target_os = "macos")]
 static APP_HANDLE: Mutex<Option<AppHandle>> = Mutex::new(None);
@@ -233,12 +284,19 @@ unsafe extern "C-unwind" fn application_should_terminate(
     let Some(app) = handle else {
         return NSApplicationTerminateReply::TerminateNow;
     };
-    let Some(win) = app.get_webview_window(SETTINGS_LABEL) else {
-        // 无设置窗口（纯 menubar 态）→ 放行真正退出
+    // 关闭所有主界面窗口（设置 / popup-tab 可能并存）
+    let mut closed_any = false;
+    for label in [SETTINGS_LABEL, POPUP_TAB_LABEL] {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.close();
+            closed_any = true;
+        }
+    }
+    if !closed_any {
+        // 无主界面窗口（纯 menubar 态）→ 放行真正退出
         return NSApplicationTerminateReply::TerminateNow;
-    };
-    eprintln!("[fund01] Dock/Cmd+Q 退出被拦截：仅关闭设置窗口，menubar 保持常驻");
+    }
+    eprintln!("[fund01] Dock/Cmd+Q 退出被拦截：仅关闭主界面窗口，menubar 保持常驻");
     let _ = app.set_dock_visibility(false);
-    let _ = win.close();
     NSApplicationTerminateReply::TerminateCancel
 }

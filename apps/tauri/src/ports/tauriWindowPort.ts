@@ -3,7 +3,7 @@ import type { SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
 
-/** Tauri 窗口 Port：打开设置窗口（Rust 创建/聚焦 settings 窗口） */
+/** Tauri 窗口 Port：打开设置窗口 / popup 独立页面（Rust 创建/聚焦对应窗口） */
 export class TauriWindowPort implements WindowPort {
   async openSettings(tab?: SettingsTabId, anchor?: SettingsAnchorId): Promise<void> {
     await invoke('open_settings_window', {
@@ -11,6 +11,16 @@ export class TauriWindowPort implements WindowPort {
       // anchor 仅对 holdings tab 有意义；非 holdings 场景 Rust 侧忽略
       anchor: tab === 'holdings' ? (anchor ?? null) : null,
     })
+  }
+
+  /** 打开 popup 独立页面窗口（对齐 Chrome popup.html?tab=1 标签页模式） */
+  async openInNewWindow(): Promise<void> {
+    await invoke('open_popup_tab_window')
+  }
+
+  /** 桌面端打开的是独立窗口，按钮文案与 Chrome 标签页区分 */
+  openInNewWindowTitle(): string {
+    return '在新窗口中打开'
   }
 
   /** 桌面版支持 macOS 菜单栏 → 设置页显示「菜单栏」tab */
