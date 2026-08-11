@@ -18,7 +18,9 @@ async function bootstrap() {
   // 与 Chrome 端一致的 ?tab= 解析（Tauri webview 的 location.search 同样可用）
   const urlTab = new URLSearchParams(window.location.search).get('tab')
   const initialTab =
-    urlTab === 'holdings' || urlTab === 'data' || urlTab === 'menubar' ? urlTab : 'general'
+    urlTab === 'holdings' || urlTab === 'data' || urlTab === 'menubar' || urlTab === 'about'
+      ? urlTab
+      : 'general'
   // URL hash 锚点（options.html?tab=holdings#add-fund）：popup 空状态直达「添加/导入持仓」区块
   const initialAnchor = window.location.hash.replace(/^#/, '') || undefined
 

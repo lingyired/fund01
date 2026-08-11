@@ -63,7 +63,7 @@ export interface EventPort {
 }
 
 /** 设置页一级 tab 标识（OptionsApp 与 openSettings 共用） */
-export type SettingsTabId = 'general' | 'holdings' | 'data' | 'menubar' | 'docs'
+export type SettingsTabId = 'general' | 'holdings' | 'data' | 'menubar' | 'docs' | 'about'
 
 /**
  * 设置页「持仓」tab 内的区块锚点 id（与 OptionsApp 的 SectionCard id / HoldingsNav 一致）。
@@ -91,6 +91,11 @@ export interface WindowPort {
   supportsBadge?(): boolean
   /** 应用版本号（Chrome: getManifest().version；Tauri: invoke 或构建注入） */
   getVersion(): string
+  /**
+   * 用系统默认方式打开外部链接（Chrome: chrome.tabs.create 新标签页；Tauri: 系统浏览器）。
+   * 不实现时 UI 回退 window.open（Chrome 扩展 CSP 会拦截外部跳转，因此 Chrome 端必须实现）。
+   */
+  openExternal?(url: string): Promise<void>
 }
 
 /** UI 与具体 app 之间注入的 Port 集合 */

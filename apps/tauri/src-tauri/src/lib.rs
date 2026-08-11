@@ -43,6 +43,7 @@ pub fn run() {
             commands::save_config,
             commands::open_settings_window,
             commands::get_version,
+            commands::open_external,
             commands::dbg_log,
         ])
         .setup(|app| {

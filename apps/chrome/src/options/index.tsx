@@ -16,7 +16,8 @@ initTheme()
 // 非法/缺失参数一律回落「通用」。anchor 来自 URL hash（popup 空状态「添加持仓/批量导入」按钮
 // 打开 options.html?tab=holdings#add-fund），仅 holdings tab 下生效。
 const urlTab = new URLSearchParams(location.search).get('tab')
-const initialTab = urlTab === 'holdings' || urlTab === 'data' ? urlTab : 'general'
+const initialTab =
+  urlTab === 'holdings' || urlTab === 'data' || urlTab === 'about' ? urlTab : 'general'
 const initialAnchor = location.hash.replace(/^#/, '') || undefined
 
 // 注入四个 Port 实现，UI 通过 PortsContext 拿到运行时能力（含窗口/导航操作）

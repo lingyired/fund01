@@ -23,6 +23,11 @@ export class TauriWindowPort implements WindowPort {
     return false
   }
 
+  /** 外部链接：Rust 侧用系统默认浏览器打开（macOS `open`） */
+  async openExternal(url: string): Promise<void> {
+    await invoke('open_external', {url})
+  }
+
   getVersion(): string {
     if (!versionCache) {
       invoke<string>('get_version').then((v) => {

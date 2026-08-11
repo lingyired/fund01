@@ -33,6 +33,11 @@ export class ChromeWindowPort implements WindowPort {
     return true
   }
 
+  /** 外部链接：chrome.tabs.create 新标签页打开（扩展页 CSP 拦截 window.open，必须走 tabs API） */
+  async openExternal(url: string): Promise<void> {
+    await chrome.tabs.create({url})
+  }
+
   getVersion(): string {
     return chrome.runtime.getManifest().version
   }

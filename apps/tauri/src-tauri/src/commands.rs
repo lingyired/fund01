@@ -177,3 +177,28 @@ pub async fn open_settings_window(app: AppHandle, tab: Option<String>, anchor: O
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
+
+/// 外部链接：用系统默认浏览器打开（macOS `open`；Windows 用 `cmd /c start`）。
+/// 桌面端 webview 的 window.open 默认被 WKWebView 拦截，必须走系统命令。
+#[tauri::command]
+pub fn open_external(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(format!("拒绝打开非 http(s) 链接：{url}"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(&url).spawn()
+            .map_err(|e| format!("打开链接失败：{e}"))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd").args(["/c", "start", "", &url]).spawn()
+            .map_err(|e| format!("打开链接失败：{e}"))?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::process::Command::new("xdg-open").arg(&url).spawn()
+            .map_err(|e| format!("打开链接失败：{e}"))?;
+    }
+    Ok(())
+}

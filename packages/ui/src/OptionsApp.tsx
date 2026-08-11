@@ -7,6 +7,7 @@ import {
   Download,
   FolderTree,
   GripVertical,
+  Heart,
   Info,
   Menu,
   Plus,
@@ -93,6 +94,7 @@ const TABS: {id: TabId; label: string; icon: typeof Settings2}[] = [
   {id: 'menubar', label: '菜单栏', icon: Menu},
   {id: 'data', label: '备份', icon: Database},
   {id: 'docs', label: '数据说明', icon: Info},
+  {id: 'about', label: '关于', icon: Heart},
 ]
 
 const THEME_OPTIONS: {value: AppThemePref; label: string}[] = [
@@ -245,6 +247,10 @@ export function OptionsApp({
 
           <Tabs.Content value="docs">
             <DataDocsSection />
+          </Tabs.Content>
+
+          <Tabs.Content value="about">
+            <AboutSection />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -2344,6 +2350,110 @@ function DataDocsSection() {
             官方净值一般当日 <b className="text-ink">20:00 后</b> 开始更新；美股 QDII 多为美东交易日行情 → 净值日多为该日 → 常见北京时间次日晚约 20:00 后陆续看到（非固定钟点，港股/亚太往往更早）。
           </p>
         </DocItem>
+      </div>
+    </SectionCard>
+  )
+}
+
+/* ── 关于 ───────────────────────────────────────────────── */
+/**
+ * 外部链接：优先走 WindowPort.openExternal（Chrome 走 tabs API 新标签页、Tauri 走系统浏览器，
+ * 扩展页 CSP 会拦截 window.open 外部跳转，必须由各端 Port 打开），未实现时兜底 window.open。
+ */
+function ExternalLink({
+  href,
+  children,
+}: {
+  href: string
+  children: React.ReactNode
+}) {
+  const ports = usePorts()
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="font-mono text-[12px] text-accent break-all underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+      onClick={(e) => {
+        e.preventDefault()
+        if (ports.window.openExternal) {
+          void ports.window.openExternal(href)
+        } else {
+          window.open(href, '_blank', 'noopener,noreferrer')
+        }
+      }}
+    >
+      {children}
+    </a>
+  )
+}
+
+function AboutSection() {
+  return (
+    <SectionCard title="关于">
+      {/* 项目信息 */}
+      <div className="space-y-1.5">
+        <div className="font-display text-base font-bold tracking-tight text-ink">
+          Fund01 基金盯盘
+        </div>
+        <p className="text-xs text-muted">
+          基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。
+        </p>
+        <div className="flex flex-col gap-1 pt-0.5 text-xs text-ink-soft">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">项目仓库：</span>
+            <ExternalLink href="https://github.com/lingyired/fund01">
+              github.com/lingyired/fund01
+            </ExternalLink>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">作者主页：</span>
+            <ExternalLink href="https://github.com/lingyired">
+              github.com/lingyired
+            </ExternalLink>
+          </div>
+        </div>
+      </div>
+
+      {/* 致谢 */}
+      <div className="space-y-1.5 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">致谢</div>
+        <p className="text-xs text-muted">
+          本项目部分灵感与基金计算的逻辑沿用自以下两个开源项目，在此致谢：
+        </p>
+        <div className="flex flex-col gap-1 pt-0.5">
+          <ExternalLink href="https://github.com/x2rr/funds">
+            github.com/x2rr/funds
+          </ExternalLink>
+          <ExternalLink href="https://github.com/kid-kang/wzk-fund">
+            github.com/kid-kang/wzk-fund
+          </ExternalLink>
+        </div>
+      </div>
+
+      {/* 作者的其他项目 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">作者的其他项目</div>
+        <div className="space-y-2">
+          <div className="space-y-0.5">
+            <div className="text-xs font-medium text-ink-soft">
+              newtab01 · 由书签驱动的 Chrome 新标签页
+            </div>
+            <p className="text-xs text-muted">支持分组和分屏打开目录。</p>
+            <ExternalLink href="https://chromewebstore.google.com/detail/newtab01-bookmark-driven/nlecfkdndodablijmfcjbnannkgmpegj">
+              chromewebstore.google.com/.../newtab01-bookmark-driven
+            </ExternalLink>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-xs font-medium text-ink-soft">
+              No lazyload · 禁用图片懒加载
+            </div>
+            <p className="text-xs text-muted">强制网页立即加载所有图片。</p>
+            <ExternalLink href="https://chromewebstore.google.com/detail/no-lazyload-disable-image/gdaoomgmekonglmdeaoengblkjeopall">
+              chromewebstore.google.com/.../no-lazyload-disable-image
+            </ExternalLink>
+          </div>
+        </div>
       </div>
     </SectionCard>
   )
