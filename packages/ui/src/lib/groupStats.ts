@@ -164,6 +164,15 @@ export interface TabInfo {
   key: GroupKey
   label: string
   count: number
+  /** 该 tab 持仓金额合计（'all' 为全部持仓，分组为该分组金额，与 GroupSummary.amount 同口径） */
+  amount: number
+  /** 当日收益额（用于分组 tab 红绿点与收益详情：>0 红 / <0 绿 / 0 或全 nil 不画点）。
+   *  聚合规则同 GroupSummary.pnl：跳过当日收益为空的成员（QDII 盘中 pnl=null），
+   *  不按 0 计入（§六）。 */
+  pnl: number
+  /** 当日收益率(%) = pnl / amount × 100；amount 为 0（全部 0 金额关注）时为 null。
+   *  精度同 GroupSummary.pnlPercent（不 round，UI 展示时格式化）。 */
+  pnlPercent: number | null
   up: number
   down: number
 }
@@ -173,13 +182,29 @@ export function buildTabs(list: FundQuoteRow[], groupKeys: GroupKey[]): TabInfo[
   const allRows = list
   let allUp = 0
   let allDown = 0
+  let allPnl = 0
+  let allAmount = 0
   for (const r of allRows) {
     const p = r.pnl ?? 0
     if (p > 0) allUp++
     else if (p < 0) allDown++
+    // 当日收益额聚合：跳过空值（QDII 盘中 pnl=null），不按 0 计入（§六）；
+    // 与 summarizeGroup 的 groupPnl 口径一致（null 跳过，等价于 ??0 的求和）
+    if (r.pnl != null) allPnl += r.pnl
+    allAmount += r.amount || 0
   }
   const tabs: TabInfo[] = [
-    {id: 'all', key: '', label: '全部', count: allRows.length, up: allUp, down: allDown},
+    {
+      id: 'all',
+      key: '',
+      label: '全部',
+      count: allRows.length,
+      amount: Math.round(allAmount * 100) / 100,
+      pnl: Math.round(allPnl * 100) / 100,
+      pnlPercent: allAmount > 0 ? (allPnl / allAmount) * 100 : null,
+      up: allUp,
+      down: allDown,
+    },
   ]
   for (const g of groupKeys) {
     const s = summarizeGroup(list, g)
@@ -188,6 +213,9 @@ export function buildTabs(list: FundQuoteRow[], groupKeys: GroupKey[]): TabInfo[
       key: g,
       label: s.label,
       count: s.count,
+      amount: s.amount,
+      pnl: s.pnl,
+      pnlPercent: s.pnlPercent,
       up: s.up,
       down: s.down,
     })

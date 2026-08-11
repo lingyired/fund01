@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react'
 import type {HoldingsPayload, SettingsAnchorId} from '@fund01/core'
 import {usePorts} from '../../context'
-import {listHoldingGroups} from '../../lib/fundOps'
+import {fetchSettings, listHoldingGroups} from '../../lib/fundOps'
 import {
   buildDisplayRows,
   buildTabs,
@@ -9,6 +9,7 @@ import {
   summarizeGroup,
 } from '../../lib/groupStats'
 import {GroupTabs} from './GroupTabs'
+import type {GroupTabDetailMode} from './GroupTabs'
 import {FundList} from './FundList'
 import {FooterBar} from './FooterBar'
 
@@ -34,6 +35,11 @@ export function PopupLayout({
   const ports = usePorts()
   const list = data?.list || []
   const holdingGroups = listHoldingGroups(ports)
+  // 分组 Tab 收益详情设置（设置页「分组 Tab 收益详情」控制；popup 每次打开/刷新读取最新值）
+  const groupTabSettings = fetchSettings(ports)
+  const showTabDetail = groupTabSettings.groupTabShowDetail === true
+  const tabDetailMode: GroupTabDetailMode =
+    groupTabSettings.groupTabDetailMode === 'amount' ? 'amount' : 'percent'
   // 空状态直达设置页「持仓」tab 的对应区块（单独添加 / 批量导入）
   const openSettingsAnchor = (anchor: SettingsAnchorId) => {
     void ports.window.openSettings('holdings', anchor)
@@ -105,7 +111,13 @@ export function PopupLayout({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <GroupTabs tabs={tabs} activeTab={validTab} onChange={setActiveTab} />
+      <GroupTabs
+        tabs={tabs}
+        activeTab={validTab}
+        onChange={setActiveTab}
+        showDetail={showTabDetail}
+        detailMode={tabDetailMode}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-3 scrollbar-thin">
         <FundList
           rows={displayRows}

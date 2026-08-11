@@ -289,6 +289,10 @@ function GeneralSection({
 }) {
   const ports = usePorts()
   const [badgeMode, setBadgeMode] = useState<BadgeMode>('percent')
+  const [groupTabDetail, setGroupTabDetail] = useState(false)
+  const [groupTabDetailMode, setGroupTabDetailMode] = useState<'percent' | 'amount'>(
+    'percent',
+  )
   const [themePref, setThemePref] = useState<AppThemePref>('system')
   const [selectedIndices, setSelectedIndices] = useState<string[]>(
     DEFAULT_SELECTED_INDICES,
@@ -330,6 +334,10 @@ function GeneralSection({
     setQuoteSource(s.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo')
     setTrading(String(s.refreshInterval?.trading ?? ''))
     setNonTrading(String(s.refreshInterval?.nonTrading ?? ''))
+    setGroupTabDetail(s.groupTabShowDetail === true)
+    setGroupTabDetailMode(
+      s.groupTabDetailMode === 'amount' ? 'amount' : 'percent',
+    )
   }, [ports])
 
   async function handleThemeChange(next: AppThemePref) {
@@ -356,6 +364,36 @@ function GeneralSection({
       )
     } catch (e: unknown) {
       setError((e as Error)?.message || '保存角标设置失败')
+    }
+  }
+
+  async function handleGroupTabDetailChange(next: boolean) {
+    if (next === groupTabDetail) return
+    setGroupTabDetail(next)
+    setError('')
+    setMessage('')
+    try {
+      await updateSettings(ports, {groupTabShowDetail: next})
+      setMessage(next ? '分组 Tab 已开启收益详情' : '分组 Tab 收益详情已关闭')
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '保存分组 Tab 设置失败')
+    }
+  }
+
+  async function handleGroupTabDetailModeChange(next: 'percent' | 'amount') {
+    if (next === groupTabDetailMode) return
+    setGroupTabDetailMode(next)
+    setError('')
+    setMessage('')
+    try {
+      await updateSettings(ports, {groupTabDetailMode: next})
+      setMessage(
+        `分组 Tab 收益详情已切换为 ${
+          next === 'percent' ? '收益率' : '收益额'
+        }`,
+      )
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '保存分组 Tab 设置失败')
     }
   }
 
@@ -507,6 +545,42 @@ function GeneralSection({
         </div>
       ) : null}
 
+      {/* 分组 Tab 收益详情（popup 持仓分组 Tab 两行显示） */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ink">分组 Tab 收益详情</div>
+            <p className="text-xs text-muted">
+              popup 持仓分组 Tab 显示两行：分组名下方显示当日收益。开启后 Tab 文字整体缩小。
+            </p>
+          </div>
+          <Switch
+            radius="full"
+            checked={groupTabDetail}
+            onCheckedChange={(c) => void handleGroupTabDetailChange(c === true)}
+            aria-label="分组 Tab 显示收益详情"
+          />
+        </div>
+        {groupTabDetail ? (
+          <div className="space-y-1 pt-1">
+            <SegmentedControl.Root
+              value={groupTabDetailMode}
+              onValueChange={(v) =>
+                void handleGroupTabDetailModeChange(v as 'percent' | 'amount')
+              }
+            >
+              <SegmentedControl.Item value="percent">
+                收益率
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
+            </SegmentedControl.Root>
+            <p className="text-[11px] text-muted">
+              收益额用 k(千)/w(万)/kw(千万) 简写。
+            </p>
+          </div>
+        ) : null}
+      </div>
+
       {/* 指数看板 */}
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="flex items-center justify-between">
@@ -650,19 +724,19 @@ function GeneralSection({
             <Select.Trigger id="quote-source" className="w-full" placeholder="选择数据源" />
             <Select.Content position="popper">
               <Select.Item value="fundmnfinfo">
-                FundMNFInfo（东方财富批量接口，默认）
+                FundMNFInfo（东方财富批量数据，默认）
               </Select.Item>
               <Select.Item value="fund123">fund123（蚂蚁基金）</Select.Item>
             </Select.Content>
           </Select.Root>
           <p className="text-[11px] text-muted">
-            FundMNFInfo：批量请求东方财富接口（最多 200 只/次），速度更快；fund123：逐只请求蚂蚁基金 + 东方财富历史净值。
+            FundMNFInfo：一次可批量获取东方财富数据（最多 200 只/次），速度更快；fund123：逐只获取蚂蚁基金 + 东方财富历史净值。
           </p>
           <p className="text-[11px] text-muted">
-            估值兜底规则 · FundMNFInfo 源：盘中无估值时先用重仓股当日涨跌幅自算；自算失败时，非 QDII（黄金/商品 ETF 联接等）自动改用该基金的 fund123 官方分时估值。QDII 按「披露日」对齐普通基金口径（披露日 = 净值日的下一交易日，净值 T+1 披露）：净值披露后保留到披露日的下一交易日开盘前，周末照常显示「已更新」与当日收益；开盘后恢复盘中估算，未更新时段显示「-」（灰色）。净值日期恒标注在基金名下，便于知晓滞后性。
+            估值兜底规则 · FundMNFInfo 源：盘中看不到估值时，会先用基金重仓股当天的涨跌幅估算一个参考值；若基金没有重仓股（如黄金、商品 ETF 联接等非 QDII 品种），则改用 fund123 的盘中走势估算。QDII 按「披露日」规则处理（披露日 = 净值日的下一交易日，净值通常 T+1 披露）：官方披露后保留到披露日的下一交易日开盘前，周末照常显示「已更新」与当日收益；未更新时段显示「-」（灰色）。净值日期标注在基金名下，便于知晓滞后性。
           </p>
           <p className="text-[11px] text-muted">
-            估值兜底规则 · fund123 源：QDII 不显示昨日涨幅冒充今日（净值 T+1 披露），只认当日分时估值；该数据源下 QDII 同样按「披露日」对齐普通基金口径（净值披露后保留到披露日的下一交易日开盘前，周末照常显示；开盘后未更新显示「-」灰色），不认 fund123 `matiaria.dayOfGrowth` 与东财 hist 滞后日涨幅。
+            估值兜底规则 · fund123 源：QDII 同样遵循「披露日」规则，只有官方披露了最新净值才显示当日收益，不会用昨天或滞后的涨幅顶替；未披露时显示「-」（灰色）。
           </p>
           <p className="text-[11px] text-muted">
             说明：不同数据源的预估收益计算方式不同，实际当日收益可能存在差异；一般当日 20:00 后开始更新真实净值，以官方净值为准。
@@ -2194,7 +2268,7 @@ function DataDocsSection() {
       <div className="space-y-3">
         <DocItem q="数据来源与口径">
           <p>
-            基金净值、估值、涨跌幅来自两个数据源：<b className="text-ink">FundMNFInfo</b>（天天基金移动接口）与 <b className="text-ink">fund123</b>（蚂蚁基金）。
+            基金净值、估值、涨跌幅来自两个数据源：<b className="text-ink">FundMNFInfo</b>（天天基金）与 <b className="text-ink">fund123</b>（蚂蚁基金）。
           </p>
           <p>两种数据源的<b className="text-ink">盘中分时走势</b>均走 fund123。</p>
           <p>
@@ -2217,13 +2291,13 @@ function DataDocsSection() {
 
         <DocItem q="估值兜底规则">
           <p>
-            <b className="text-ink">FundMNFInfo 源</b>：盘中无估值时先用重仓股当日涨跌幅自算；自算失败时，非 QDII（黄金/商品 ETF 联接等）自动改用该基金 fund123 官方分时估值。
+            <b className="text-ink">FundMNFInfo 源</b>：盘中看不到估值时，会先用该基金重仓股当天的涨跌幅估算一个参考值；若基金没有重仓股（如黄金、商品 ETF 联接等非 QDII 品种），则改用 fund123 的盘中走势来估算。
           </p>
           <p>
-            <b className="text-ink">QDII</b>：无重仓股也无 fund123 分时估值，盘中与未更新期间当日收益均显示「-」（灰色）；按「披露日」对齐普通基金口径（披露日 = 净值日的下一交易日，净值 T+1 披露）——净值披露后保留到披露日的下一交易日开盘前，周末照常显示「已更新」徽标与当日收益；开盘后恢复盘中口径，未更新时段保持「-」。净值日期恒标注在基金名下。官方净值更新后显示「已更新」徽标（与当日收益同步，下一交易日开盘后自动清除）。
+            <b className="text-ink">QDII</b>：本身没有可靠的盘中估值，盘中及官方尚未更新期间，当日收益都显示「-」（灰色）。它按「披露日」规则处理——只有官方披露了最新净值，才显示「已更新」徽标和当日收益，之后保留到下一个交易日上午开盘前（周末也照常显示）。净值日期会标注在基金名称下方，方便你判断数据是否滞后。
           </p>
           <p>
-            <b className="text-ink">fund123 源</b>：QDII 同样按「披露日」对齐普通基金口径，不认 fund123 `matiaria.dayOfGrowth` 与东财 hist 滞后日涨幅。
+            <b className="text-ink">fund123 源</b>：QDII 同样遵循「披露日」规则——只有官方披露了最新净值才显示当日收益，不会用昨天或滞后的涨幅来顶替；未披露时显示「-」。
           </p>
         </DocItem>
 

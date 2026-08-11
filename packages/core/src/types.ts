@@ -209,6 +209,13 @@ export type AppSettings = {
   menubarRiseColor?: string
   /** 菜单栏下行跌色（hex，默认 #34C759）。仅 tauri 生效 */
   menubarFallColor?: string
+  /**
+   * popup 分组 Tab 是否显示两行：分组名下方增加当日收益详情行。
+   * 默认 false（单行：名称 + 基金数）。开启后文字整体缩小以适配两行布局。
+   */
+  groupTabShowDetail?: boolean
+  /** popup 分组 Tab 收益详情显示方式：percent=收益率百分比(默认) amount=收益额（k/w/kw 简写） */
+  groupTabDetailMode?: 'percent' | 'amount'
 }
 
 export type AppConfig = {

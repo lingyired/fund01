@@ -495,6 +495,15 @@ export async function updateSettings(
   if (patch.holdingsNavPosition === 'top' || patch.holdingsNavPosition === 'side') {
     config.settings.holdingsNavPosition = patch.holdingsNavPosition
   }
+  if (typeof patch.groupTabShowDetail === 'boolean') {
+    config.settings.groupTabShowDetail = patch.groupTabShowDetail
+  }
+  if (
+    patch.groupTabDetailMode === 'percent' ||
+    patch.groupTabDetailMode === 'amount'
+  ) {
+    config.settings.groupTabDetailMode = patch.groupTabDetailMode
+  }
   if (Array.isArray(patch.selectedIndices)) {
     const next = Array.from(
       new Set(

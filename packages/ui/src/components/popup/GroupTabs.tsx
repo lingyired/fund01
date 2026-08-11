@@ -1,6 +1,9 @@
 import {useEffect, useRef, useState} from 'react'
 import type {TabInfo} from '../../lib/groupStats'
-import {cn} from '@fund01/core'
+import {cn, formatPct, formatShortAmount} from '@fund01/core'
+
+/** popup 分组 Tab 收益详情的显示方式（由设置页「分组 Tab 收益详情」控制） */
+export type GroupTabDetailMode = 'percent' | 'amount'
 
 function ChevronLeft() {
   return (
@@ -38,17 +41,27 @@ function ChevronRight() {
   )
 }
 
-/** 分组 Tab 栏：全部 + 各分组，显示基金数；组内涨多于跌点红点，跌多于涨点绿点。
+/** 分组 Tab 栏：全部 + 各分组，显示基金数；分组当日收益额 >0 点红点、<0 点绿点，
+ *  收益额 =0（或全是 QDII 盘中 pnl 为空）不画点。点的语义是「收益额方向」而非涨跌家数，
+ *  更贴合「这个分组今天整体赚/亏」的直觉。
+ *  showDetail 开启时每个 Tab 显示两行：第一行 名称 + 基金数（字号缩小），
+ *  第二行 当日收益详情（收益率百分比或收益额简写，红涨绿跌、0/无数据显示「-」）。
  *  分组过多时横向滚动：隐藏原生滚动条，左/右出现可点击的箭头图标，
  *  边缘渐隐提示还有更多内容（canLeft / canRight 由滚动位置与容器宽度动态计算）。 */
 export function GroupTabs({
   tabs,
   activeTab,
   onChange,
+  showDetail = false,
+  detailMode = 'percent',
 }: {
   tabs: TabInfo[]
   activeTab: string
   onChange: (id: string) => void
+  /** 是否显示两行（分组名下方增加当日收益详情行），由设置页控制 */
+  showDetail?: boolean
+  /** 收益详情显示方式：percent=收益率百分比（默认） amount=收益额（k/w/kw 简写） */
+  detailMode?: GroupTabDetailMode
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [canLeft, setCanLeft] = useState(false)
@@ -138,8 +151,29 @@ export function GroupTabs({
       >
         {tabs.map((t) => {
           const active = t.id === activeTab
+          // 点反映分组当日收益额方向：赚=红、亏=绿；收益额 0 或全 nil 不画点
           const dot =
-            t.up > t.down ? 'bg-rise' : t.down > t.up ? 'bg-fall' : ''
+            t.pnl > 0 ? 'bg-rise' : t.pnl < 0 ? 'bg-fall' : ''
+          // 第二行收益详情：百分比模式用 formatPct（自带 +/- 与 %，null → '--'）；
+          // 金额模式用 formatShortAmount 简写（k/w/kw，取绝对值）再手动补符号
+          const detailText =
+            detailMode === 'amount'
+              ? `${t.pnl > 0 ? '+' : t.pnl < 0 ? '-' : ''}${formatShortAmount(t.pnl)}`
+              : formatPct(t.pnlPercent)
+          const detailCls =
+            detailMode === 'amount'
+              ? t.pnl > 0
+                ? 'text-rise'
+                : t.pnl < 0
+                  ? 'text-fall'
+                  : 'text-muted'
+              : t.pnlPercent == null
+                ? 'text-muted'
+                : t.pnlPercent > 0
+                  ? 'text-rise'
+                  : t.pnlPercent < 0
+                    ? 'text-fall'
+                    : 'text-muted'
           return (
             <div
               key={t.id}
@@ -155,15 +189,42 @@ export function GroupTabs({
                 }
               }}
               className={cn(
-                'relative flex cursor-pointer items-center whitespace-nowrap px-3 py-2 text-sm transition-colors',
+                'relative flex cursor-pointer flex-col whitespace-nowrap px-3 transition-colors',
+                showDetail ? 'py-1.5' : 'items-center py-2',
                 active ? 'font-medium text-ink' : 'text-muted hover:text-ink-soft',
               )}
             >
-              {dot ? (
-                <span className={cn('mr-1 inline-block h-1.5 w-1.5 rounded-full', dot)} />
+              {/* 第一行：红绿点 + 分组名 + 基金数；两行模式下整体缩小一档 */}
+              <span
+                className={cn(
+                  'flex items-center',
+                  showDetail ? 'text-xs' : 'text-sm',
+                )}
+              >
+                {dot ? (
+                  <span className={cn('mr-1 inline-block h-1.5 w-1.5 rounded-full', dot)} />
+                ) : null}
+                {t.label}
+                <span
+                  className={cn(
+                    'ml-1 text-muted',
+                    showDetail ? 'text-[10px]' : 'text-xs',
+                  )}
+                >
+                  {t.count}
+                </span>
+              </span>
+              {/* 第二行：当日收益详情（仅 showDetail 时显示） */}
+              {showDetail ? (
+                <span
+                  className={cn(
+                    'font-mono text-[10px] leading-tight tabular-nums',
+                    detailCls,
+                  )}
+                >
+                  {detailText}
+                </span>
               ) : null}
-              {t.label}
-              <span className="ml-1 text-xs text-muted">{t.count}</span>
               {active ? (
                 <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />
               ) : null}
