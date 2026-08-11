@@ -581,6 +581,12 @@ export async function updateSettings(
   if (typeof patch.menubarBottomBold === 'boolean') {
     config.settings.menubarBottomBold = patch.menubarBottomBold
   }
+  if (patch.menubarTopAlign === 0 || patch.menubarTopAlign === 1 || patch.menubarTopAlign === 2) {
+    config.settings.menubarTopAlign = patch.menubarTopAlign
+  }
+  if (patch.menubarBottomAlign === 0 || patch.menubarBottomAlign === 1 || patch.menubarBottomAlign === 2) {
+    config.settings.menubarBottomAlign = patch.menubarBottomAlign
+  }
   if (typeof patch.menubarTopColor === 'string') {
     config.settings.menubarTopColor = patch.menubarTopColor
   }

@@ -35,6 +35,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  MenubarAlign,
   MenubarLayout,
   ResolveFundResult,
   SettingsTabId,
@@ -2468,6 +2469,13 @@ const MENUBAR_LAYOUTS: {value: string; label: string}[] = [
   {value: '2', label: '等大'},
 ]
 
+/** 菜单栏文字水平对齐选项（value 与插件 setAlignment 一致：0=左 1=中 2=右） */
+const MENUBAR_ALIGNS: {value: string; label: string}[] = [
+  {value: '0', label: '左对齐'},
+  {value: '1', label: '居中'},
+  {value: '2', label: '右对齐'},
+]
+
 function clampToRange(
   v: number | undefined,
   range: readonly [number, number],
@@ -2494,6 +2502,8 @@ function MenubarSection() {
   const [bottomFont, setBottomFont] = useState(MENUBAR_DEFAULTS.bottomFont)
   const [topBold, setTopBold] = useState(MENUBAR_DEFAULTS.topBold)
   const [bottomBold, setBottomBold] = useState(MENUBAR_DEFAULTS.bottomBold)
+  const [topAlign, setTopAlign] = useState<MenubarAlign>(MENUBAR_DEFAULTS.topAlign)
+  const [bottomAlign, setBottomAlign] = useState<MenubarAlign>(MENUBAR_DEFAULTS.bottomAlign)
   const [topColor, setTopColor] = useState(MENUBAR_DEFAULTS.topColor)
   const [groupColors, setGroupColors] = useState<Record<string, string>>({})
   const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
@@ -2515,6 +2525,8 @@ function MenubarSection() {
     setBottomFont(s.menubarBottomFont ?? MENUBAR_DEFAULTS.bottomFont)
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
     setBottomBold(s.menubarBottomBold ?? MENUBAR_DEFAULTS.bottomBold)
+    setTopAlign(s.menubarTopAlign ?? MENUBAR_DEFAULTS.topAlign)
+    setBottomAlign(s.menubarBottomAlign ?? MENUBAR_DEFAULTS.bottomAlign)
     setTopColor(normalizeHexColor(s.menubarTopColor, MENUBAR_DEFAULTS.topColor))
     setGroupColors(s.menubarGroupColors ?? {})
     setRiseColor(normalizeHexColor(s.menubarRiseColor, MENUBAR_DEFAULTS.riseColor))
@@ -2651,6 +2663,22 @@ function MenubarSection() {
       } else {
         setBottomBold(next)
         await updateSettings(ports, {menubarBottomBold: next})
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 对齐方式 SegmentedControl：即时保存（0=左 1=中 2=右） */
+  async function handleAlignChange(side: 'top' | 'bottom', v: string) {
+    const next = Number(v) as MenubarAlign
+    try {
+      if (side === 'top') {
+        setTopAlign(next)
+        await updateSettings(ports, {menubarTopAlign: next})
+      } else {
+        setBottomAlign(next)
+        await updateSettings(ports, {menubarBottomAlign: next})
       }
     } catch {
       /* ignore */
@@ -2989,6 +3017,44 @@ function MenubarSection() {
               onCheckedChange={(c) => void handleBoldChange('bottom', c)}
               aria-label="下行加粗"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* 对齐方式 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">对齐方式</div>
+        <p className="text-xs text-muted">
+          菜单栏两行文字的水平对齐：左对齐（默认）、居中、右对齐，上下行独立设置。
+        </p>
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+            <span className="text-sm text-ink-soft">上行对齐</span>
+            <SegmentedControl.Root
+              value={String(topAlign)}
+              onValueChange={(v) => void handleAlignChange('top', v)}
+              aria-label="上行对齐"
+            >
+              {MENUBAR_ALIGNS.map((opt) => (
+                <SegmentedControl.Item key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SegmentedControl.Item>
+              ))}
+            </SegmentedControl.Root>
+          </div>
+          <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+            <span className="text-sm text-ink-soft">下行对齐</span>
+            <SegmentedControl.Root
+              value={String(bottomAlign)}
+              onValueChange={(v) => void handleAlignChange('bottom', v)}
+              aria-label="下行对齐"
+            >
+              {MENUBAR_ALIGNS.map((opt) => (
+                <SegmentedControl.Item key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SegmentedControl.Item>
+              ))}
+            </SegmentedControl.Root>
           </div>
         </div>
       </div>

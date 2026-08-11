@@ -37,6 +37,8 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_font: Some("Menlo".to_string()),
             menubar_top_bold: Some(false),
             menubar_bottom_bold: Some(true),
+            menubar_top_align: Some(0),
+            menubar_bottom_align: Some(0),
             menubar_top_color: Some("#ffffff".to_string()),
             menubar_group_colors: Some(HashMap::new()),
             menubar_rise_color: Some("#FF4F44".to_string()),
@@ -337,10 +339,20 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             .and_then(|s| s.get(key).and_then(|v| v.as_bool()))
             .unwrap_or(d)
     };
+    // 对齐：仅 0|1|2 合法（0=左 1=中 2=右，插件 v1.5.0+），非法回落 0
+    let align_of = |key: &str| -> u8 {
+        match settings_raw.and_then(|s| s.get(key)).and_then(|v| v.as_u64()) {
+            Some(1) => 1,
+            Some(2) => 2,
+            _ => 0,
+        }
+    };
     let menubar_top_font = font_of("menubarTopFont", "Hiragino Sans GB");
     let menubar_bottom_font = font_of("menubarBottomFont", "Menlo");
     let menubar_top_bold = bool_of("menubarTopBold", false);
     let menubar_bottom_bold = bool_of("menubarBottomBold", true);
+    let menubar_top_align = align_of("menubarTopAlign");
+    let menubar_bottom_align = align_of("menubarBottomAlign");
     let menubar_top_color = color_of("menubarTopColor", "#ffffff");
     let menubar_group_colors: HashMap<String, String> = settings_raw
         .and_then(|s| s.get("menubarGroupColors"))
@@ -427,6 +439,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_bottom_font: Some(menubar_bottom_font),
             menubar_top_bold: Some(menubar_top_bold),
             menubar_bottom_bold: Some(menubar_bottom_bold),
+            menubar_top_align: Some(menubar_top_align),
+            menubar_bottom_align: Some(menubar_bottom_align),
             menubar_top_color: Some(menubar_top_color),
             menubar_group_colors: Some(menubar_group_colors),
             menubar_rise_color: Some(menubar_rise_color),

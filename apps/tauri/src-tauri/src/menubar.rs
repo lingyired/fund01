@@ -322,11 +322,12 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
     map.insert(id.to_string(), event_id);
 }
 
-/// 应用布局模式、上下行字号、字体族与加粗（对所有 desired 实例统一设置，含已存在实例）。
+/// 应用布局模式、上下行字号、字体族、加粗与对齐（对所有 desired 实例统一设置，含已存在实例）。
 /// rebuild（布局/字号/隐藏变更）与 update（刷新兜底）路径都会调用，幂等。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
 /// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
-/// 字体/加粗与布局无关，上下行独立（默认上行 Hiragino Sans GB 不加粗 / 下行 Menlo 加粗）。
+/// 字体/加粗/对齐与布局无关，上下行独立（默认上行 Hiragino Sans GB 不加粗 / 下行 Menlo 加粗；
+/// 对齐默认左对齐 0，0=左 1=中 2=右，非法值插件原生按左处理）。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[InstanceSpec]) {
     let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
@@ -363,12 +364,21 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[InstanceS
         .filter(|s| !s.trim().is_empty());
     let top_bold = config.settings.menubar_top_bold.unwrap_or(false);
     let bottom_bold = config.settings.menubar_bottom_bold.unwrap_or(true);
+    // 对齐：仅 0|1|2 合法（0=左 1=中 2=右），非法回落 0
+    let align_of = |v: Option<u8>| match v {
+        Some(1) => 1,
+        Some(2) => 2,
+        _ => 0,
+    };
+    let top_align = align_of(config.settings.menubar_top_align);
+    let bottom_align = align_of(config.settings.menubar_bottom_align);
     // 隐藏的实例也一并设置：再次显示时样式已经是最新的，无需额外同步
     for spec in desired {
         let _ = mb.set_layout(spec.id.clone(), layout);
         let _ = mb.set_font_sizes(spec.id.clone(), top, bottom);
         let _ = mb.set_font_family(spec.id.clone(), top_font.clone(), bottom_font.clone());
         let _ = mb.set_bold(spec.id.clone(), top_bold, bottom_bold);
+        let _ = mb.set_alignment(spec.id.clone(), top_align, bottom_align);
     }
 }
 

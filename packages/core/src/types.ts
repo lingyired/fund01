@@ -144,6 +144,9 @@ export type BadgeMode = 'percent' | 'amount' | 'hidden'
 /** 菜单栏布局模式：0=下大上小（默认，上行小字/下行大字）2=等大。仅 tauri 生效 */
 export type MenubarLayout = 0 | 2
 
+/** 菜单栏文字水平对齐方式：0=左对齐(默认) 1=居中 2=右对齐。仅 tauri 生效 */
+export type MenubarAlign = 0 | 1 | 2
+
 /** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
 export type HoldingsNavPosition = 'top' | 'side'
 
@@ -191,6 +194,10 @@ export type AppSettings = {
   menubarTopBold?: boolean
   /** 菜单栏下行是否加粗（默认 true，与插件原生「强调行加粗」语义一致）。仅 tauri 生效 */
   menubarBottomBold?: boolean
+  /** 菜单栏上行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐。仅 tauri 生效 */
+  menubarTopAlign?: MenubarAlign
+  /** 菜单栏下行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐。仅 tauri 生效 */
+  menubarBottomAlign?: MenubarAlign
   /** 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）。仅 tauri 生效 */
   menubarTopColor?: string
   /**

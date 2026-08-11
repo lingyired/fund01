@@ -101,6 +101,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_bottom_font = None;
     a.settings.menubar_top_bold = None;
     a.settings.menubar_bottom_bold = None;
+    a.settings.menubar_top_align = None;
+    a.settings.menubar_bottom_align = None;
     a.settings.menubar_top_color = None;
     a.settings.menubar_group_colors = None;
     a.settings.menubar_rise_color = None;
@@ -115,6 +117,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_bottom_font = None;
     b.settings.menubar_top_bold = None;
     b.settings.menubar_bottom_bold = None;
+    b.settings.menubar_top_align = None;
+    b.settings.menubar_bottom_align = None;
     b.settings.menubar_top_color = None;
     b.settings.menubar_group_colors = None;
     b.settings.menubar_rise_color = None;

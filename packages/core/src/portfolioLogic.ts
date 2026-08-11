@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, MenubarLayout, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -20,6 +20,9 @@ export const MENUBAR_DEFAULTS: {
   riseColor: string
   fallColor: string
   flatColor: string
+  /** 上下行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐 */
+  topAlign: MenubarAlign
+  bottomAlign: MenubarAlign
 } = {
   topFont: 'Hiragino Sans GB',
   bottomFont: 'Menlo',
@@ -29,6 +32,8 @@ export const MENUBAR_DEFAULTS: {
   riseColor: '#FF4F44',
   fallColor: '#34C759',
   flatColor: '#8e8e93',
+  topAlign: 0,
+  bottomAlign: 0,
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
@@ -65,6 +70,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarBottomFont: MENUBAR_DEFAULTS.bottomFont,
     menubarTopBold: MENUBAR_DEFAULTS.topBold,
     menubarBottomBold: MENUBAR_DEFAULTS.bottomBold,
+    menubarTopAlign: MENUBAR_DEFAULTS.topAlign,
+    menubarBottomAlign: MENUBAR_DEFAULTS.bottomAlign,
     menubarTopColor: MENUBAR_DEFAULTS.topColor,
     menubarGroupColors: {},
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
@@ -200,6 +207,11 @@ const DEFAULT_MENUBAR_FONT: Record<MenubarLayout, readonly [number, number]> = {
 /** 归一化菜单栏布局模式：仅 0|2 合法（1=上大下小已移除，回落 0） */
 export function normalizeMenubarLayout(v: unknown): MenubarLayout {
   return v === 2 ? 2 : 0
+}
+
+/** 归一化菜单栏文字水平对齐：仅 0|1|2 合法（0=左 1=中 2=右），非法回落 0 */
+export function normalizeMenubarAlign(v: unknown): MenubarAlign {
+  return v === 1 || v === 2 ? v : 0
 }
 
 /** 归一化菜单栏字号：clamp 到布局对应范围，非法值回落 fallback */
@@ -368,6 +380,8 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         typeof payload?.settings?.menubarBottomBold === 'boolean'
           ? payload.settings.menubarBottomBold
           : MENUBAR_DEFAULTS.bottomBold,
+      menubarTopAlign: normalizeMenubarAlign(payload?.settings?.menubarTopAlign),
+      menubarBottomAlign: normalizeMenubarAlign(payload?.settings?.menubarBottomAlign),
       menubarTopColor: normalizeHexColor(
         payload?.settings?.menubarTopColor,
         MENUBAR_DEFAULTS.topColor,

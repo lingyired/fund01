@@ -105,6 +105,12 @@ pub struct AppSettings {
     /// 菜单栏下行是否加粗（默认 true）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_bold: Option<bool>,
+    /// 菜单栏上行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐（插件 v1.5.0+ set_alignment）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_top_align: Option<u8>,
+    /// 菜单栏下行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐（插件 v1.5.0+ set_alignment）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_bottom_align: Option<u8>,
     /// 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_color: Option<String>,
@@ -141,6 +147,8 @@ impl Default for AppSettings {
             menubar_bottom_font: None,
             menubar_top_bold: None,
             menubar_bottom_bold: None,
+            menubar_top_align: None,
+            menubar_bottom_align: None,
             menubar_top_color: None,
             menubar_group_colors: None,
             menubar_rise_color: None,
