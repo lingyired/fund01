@@ -136,7 +136,28 @@ function splitIndices(list: any[] | null | undefined): {a: any[]; us: any[]} {
   return {a, us}
 }
 
+/**
+ * 并发刷新保护：避免 onStartup / onInstalled / alarm / REFRESH 消息在极短时间内
+ * 多次并发触发 refreshAll（重复网络请求 + 缓存写竞争）。同一时刻只允许一个刷新在跑，
+ * 新请求直接跳过——alarm 会按周期重排、用户也可能再点 REFRESH，跳过无副作用。
+ * 注意：此标志只防「同一 SW 实例内」的并发，不跨 SW 重启（重启会丢状态，但那时本就无在跑刷新）。
+ */
+let refreshInFlight = false
+
 async function refreshAll(force = false, kind: RefreshKind = 'all'): Promise<void> {
+  if (refreshInFlight) {
+    console.log(`[fund01] refreshAll 跳过：已有刷新在运行 force=${force} kind=${kind}`)
+    return
+  }
+  refreshInFlight = true
+  try {
+    await refreshAllCore(force, kind)
+  } finally {
+    refreshInFlight = false
+  }
+}
+
+async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise<void> {
   // 无条件入口日志：便于在 SW 控制台确认「SW 是否在跑、跑的是不是新代码」
   // （chrome MV3 SW 按需启动，扩展卡片不打开时可能一直休眠，此日志可定位「没刷新」的原因）
   console.log(`[fund01] SW refreshAll 开始 force=${force} kind=${kind} now=${new Date().toISOString()}`)
@@ -330,8 +351,46 @@ const ALARM_TAGS: Record<string, string> = {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  // 首次安装：用默认间隔启动两个 alarm
+  // 安装 / 版本更新 / 「扩展页 reload」都会触发 onInstalled；其中 reload 不会触发
+  // onStartup。这里重排 alarm 并立即强制刷新一次，使「reload 扩展」也能像重启浏览器
+  // 一样立刻刷新后台数据，无需先打开 popup（首次全新安装时 config 尚未生成，
+  // refreshAll 会因无 config 自动跳过，不浪费请求）。
   scheduleAllAlarms(null)
+  // 返回 promise：避免 SW 在 refreshAll 完成前被回收
+  return (async () => {
+    try {
+      await refreshAll(true)
+    } catch (e) {
+      console.warn('[fund01] onInstalled refresh failed', e)
+    }
+  })()
+})
+
+/**
+ * 浏览器启动：立即唤醒 SW 并刷新一次缓存与角标。
+ *
+ * 背景：MV3 的告警（chrome.alarms）虽会随浏览器重启保留、到点唤醒 SW，
+ * 但其首次触发可能要等数十秒~数分钟；非交易时段 / 未配置美股指数时
+ * 告警甚至不会刷新。这就造成「重启浏览器后、首次打开 popup 之前」数据一直
+ * 停在旧缓存的空窗（打开 popup 时 App.tsx 会在挂载时 force 刷新，所以一旦
+ * 打开就更新，反衬出此前的静止）。
+ *
+ * 这里在 onStartup 主动拉一次（force=true，与「打开 popup 时强制刷新」行为
+ * 一致），确保浏览器一启动后台数据就自行刷新，无需先打开 popup。
+ * 同时幂等重排两个 alarm，防止极端情况下 alarm 丢失导致后续不再刷新。
+ */
+chrome.runtime.onStartup.addListener(() => {
+  // 返回 promise：MV3 中 SW 会等待事件监听器返回的 promise 完成才允许休眠，
+  // 若用 void 触发则同步部分立即结束，Chrome 可能在 refreshAll 完成前杀掉 SW。
+  return (async () => {
+    try {
+      const cfg = await getSessionConfig()
+      scheduleAllAlarms(cfg)
+      await refreshAll(true)
+    } catch (e) {
+      console.warn('[fund01] onStartup refresh failed', e)
+    }
+  })()
 })
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
