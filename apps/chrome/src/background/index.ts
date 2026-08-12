@@ -86,6 +86,11 @@ function mergeStaleEstimate(
     if (row?.code) cacheMap.set(String(row.code), row)
   }
   for (const q of newQuotes) {
+    // QDII/海外延迟披露：盘中无估算是全天常态（provider 跳过自算估值），并非空窗期。
+    // 若合并会把昨晚缓存的 confirmed 涨幅 + prevNetValue 带回盘中，冒充「今日」收益
+    // （8/12 实测：Chrome 盘中显示昨日收益，Tauri 归零）。QDII 直接跳过，保持
+    // percent/prevNetValue 为空，严格走披露日窗口（盘中显示「-」）。
+    if (q?.isQdii) continue
     const hasNewEstimate =
       q?.estimateNetValue != null || q?.estimateGrowth != null
     if (hasNewEstimate) continue
@@ -98,15 +103,18 @@ function mergeStaleEstimate(
     if (q.estimateGrowth == null && old.estimateGrowth != null) {
       q.estimateGrowth = old.estimateGrowth
     }
-    // percent/percentSource/time：旧估算仍有效，保留展示
-    if (q.percent == null && old.percent != null) {
+    // percent/percentSource/time：旧估算仍有效，保留展示。
+    // 排除 confirmed 旧值——confirmed 是历史确认涨幅，不是「今日估算」；只允许
+    // estimate 旧值在空窗期保留（黄金 ETF 联接等无 GSZ 基金同样受益，避免昨晚
+    // 确认涨幅冒充今日盘中收益）。
+    if (q.percent == null && old.percent != null && old.percentSource !== 'confirmed') {
       q.percent = old.percent
       q.percentSource = old.percentSource ?? 'estimate'
     }
     if (q.time == null && old.time != null) {
       q.time = old.time
     }
-    // prevNetValue：新数据若无（QDII 等），用旧值避免 pnl 计算失效
+    // prevNetValue：新数据若无，用旧值避免 pnl 计算失效（仅非 QDII）
     if (q.prevNetValue == null && old.prevNetValue != null) {
       q.prevNetValue = old.prevNetValue
     }
