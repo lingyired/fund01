@@ -36,6 +36,7 @@ pub fn run() {
             commands::fetch_holdings,
             commands::fetch_indices,
             commands::fetch_last_update,
+            commands::get_refresh_schedule,
             commands::fetch_fund_history,
             commands::fetch_index_history,
             commands::fetch_fund_intraday,

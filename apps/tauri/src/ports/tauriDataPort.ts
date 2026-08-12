@@ -7,6 +7,7 @@ import type {
   IndexHistoryPayload,
   IndexItem,
   IntradayPoint,
+  RefreshSchedule,
   ResolveFundPayload,
 } from '@fund01/core'
 
@@ -31,6 +32,11 @@ export class TauriDataPort implements DataPort {
   /** 最近一次后台刷新时间：读 Rust 内存缓存 quote.time（后台静默刷新也持续更新） */
   async fetchLastUpdate(): Promise<number> {
     return invoke<number>('fetch_last_update')
+  }
+
+  /** 当前自动刷新计划：读 Rust 依据当前市场档位算出的权威 nextRefreshAt */
+  async fetchRefreshSchedule(): Promise<RefreshSchedule> {
+    return invoke<RefreshSchedule>('get_refresh_schedule')
   }
 
   async fetchFundHistory(code: string, range: FundHistoryRange = '1y'): Promise<FundHistoryPayload> {

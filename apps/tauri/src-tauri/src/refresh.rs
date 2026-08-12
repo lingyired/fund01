@@ -20,7 +20,7 @@ use crate::state::AppState;
 /// 推送给前端的自动刷新计划
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RefreshSchedule {
+pub struct RefreshSchedule {
     interval_seconds: u64,
     next_refresh_at: i64,
 }
@@ -35,6 +35,18 @@ fn emit_refresh_schedule(app: &AppHandle, interval_seconds: u64) {
             next_refresh_at,
         },
     );
+}
+
+/// 供 popup 打开即拉的权威刷新计划（与循环 emit 的口径一致：interval 取当前市场档位，
+/// nextRefreshAt = 现在 + interval）。避免前端用 trading 间隔瞎猜导致进度环过早走满、卡在满格。
+/// 前端挂载时调用，第一时间拿到真实周期，进度环从首帧就准确。
+pub fn current_refresh_schedule(app: &AppHandle) -> RefreshSchedule {
+    let interval = current_interval(app);
+    let next_refresh_at = chrono::Local::now().timestamp_millis() + (interval as i64) * 1000;
+    RefreshSchedule {
+        interval_seconds: interval,
+        next_refresh_at,
+    }
 }
 
 /// 手动刷新时唤醒两个循环，重置其待定 sleep（使下次自动刷新从「现在」重新计时，

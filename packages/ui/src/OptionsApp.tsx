@@ -2152,15 +2152,18 @@ function ImportSection({
         <div className="space-y-1.5 px-3 py-2 text-[12px] leading-relaxed text-ink-soft">
           <div>
             <b className="mr-1 text-gold">1.</b>
-            在基金 App 里用<b>手机长截图</b>截取完整的持仓列表（包含每只基金的金额、收益、净值日期等）。
+            在基金 App 里用<b>手机长截图</b>截取完整的持仓列表（包含每只基金的金额、收益、净值日期等）。如果手机不支持长截图（如 iPhone），也可以分开截多张图片。
           </div>
           <div>
             <b className="mr-1 text-gold">2.</b>
-            把截图和下方提示词一起交给<b>豆包、千问</b>等支持读取图片的 AI 助手，
-            <b>尽量选择专家模式</b>，识别更准。
+            把长截图（或所有分段截图）一起交给<b>豆包</b>（或千问等支持读图的 AI 助手），发送时<b>建议使用原图，图片更清晰</b>；尽量选择专家模式，识别更准。
           </div>
           <div>
             <b className="mr-1 text-gold">3.</b>
+            拷贝下方提示词后，你也可以补充自己的要求，比如让 AI 按基金类型自动分组，或说明这些基金属于哪个分组。不额外说明的话，AI 生成的 JSON 通常不带分组，导入后会归入界面设置的<b>「默认分组」</b>（默认未分组）。
+          </div>
+          <div>
+            <b className="mr-1 text-gold">4.</b>
             把 AI 返回的 JSON 粘贴到上方输入框（或存成文件走「选择文件」导入）。
           </div>
         </div>

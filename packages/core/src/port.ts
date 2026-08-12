@@ -36,6 +36,12 @@ export interface DataPort {
    * Tauri：暂不实现（可选方法）→ UI 回退 0，等待后端事件推送更新时间。
    */
   fetchLastUpdate?(): Promise<number>
+  /**
+   * 当前自动刷新计划（周期与下次触发时间 ms），popup 打开即拉以纠正进度环初始时刻。
+   * Tauri：invoke get_refresh_schedule（后端依据当前市场档位算权威 nextRefreshAt）；
+   * Chrome 不实现 → UI 回退到监听 refresh-schedule 事件的首帧。
+   */
+  fetchRefreshSchedule?(): Promise<RefreshSchedule>
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>

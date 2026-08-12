@@ -41,6 +41,13 @@ pub fn fetch_last_update(state: State<AppState>) -> i64 {
     state.quote.read().unwrap().as_ref().map(|q| q.time).unwrap_or(0)
 }
 
+/// 当前自动刷新计划（周期与下次触发时间），供前端 popup 打开即拉进度环权威时刻，
+/// 避免用交易时段间隔瞎猜导致进度环过早走满、卡在满格。
+#[tauri::command]
+pub fn get_refresh_schedule(app: AppHandle) -> crate::refresh::RefreshSchedule {
+    crate::refresh::current_refresh_schedule(&app)
+}
+
 #[tauri::command]
 pub async fn fetch_fund_history(
     state: State<'_, AppState>,
