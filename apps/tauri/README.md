@@ -243,7 +243,7 @@ createRoot(...).render(<PortsContext.Provider value={ports}>
 - [x] `#[tauri::command]`：已实现 **15** 个（原计划 10 个，覆盖 DataPort 8 / ConfigPort 2 / WindowPort 4 + `get_version` / `dbg_log`）
 - [x] `open_settings_window`（`?tab=` + `#anchor`）+ `get_version` 已实现
 - [x] `emit('quote-update')` / `emit('config-change')` 已实现，另增 `refresh-schedule` / `popup-open-group`
-- [ ] 托盘徽章（动态 PNG 或 `set_title`）：**未实现**。改用 multiline-menubar 原生 hex 每行着色表达涨跌；`badge.rs` 仅预留（`#[allow(dead_code)]`），`TauriWindowPort.supportsBadge()` 返回 false
+- [ ] ~~托盘徽章（动态 PNG 或 `set_title`）~~：**已改用 `tauri-plugin-multiline-menubar` 原生 hex 每行着色表达涨跌，本项取消**；`badge.rs` 仅预留（`#[allow(dead_code)]`），`TauriWindowPort.supportsBadge()` 返回 false
 - [x] 前端 4 个 Port（`tauriDataPort` / `tauriConfigPort` / `tauriEventPort` / `tauriWindowPort`）已实现
 - [x] `menubar.tsx` 挂载 `App` + 注入 Tauri Ports 已实现
 - [x] `options.tsx` 挂载 `OptionsApp`（`?tab=` 解析）已实现
@@ -253,7 +253,7 @@ createRoot(...).render(<PortsContext.Provider value={ports}>
 - [x] 路径 A（Rust 重写 services + holdingsCalc）已落地
 - [ ] 打包 `dmg` 分发：**未签名 / 未公证**（Gatekeeper 会拦截首次打开），见 §13 注意事项
 
-> 16 项中 14 项已完成，2 项未做：第 8 项（托盘徽章，被多实例 hex 着色方案取代）、第 16 项（dmg 签名分发）。第 3 项实现方式与原清单不同（插件 vs `TrayIconBuilder`），但功能等价。
+> 16 项中 14 项已完成，2 项未做：第 8 项 ~~托盘徽章~~（已被 multiline-menubar 多实例 hex 着色方案取代，删除线标注）、第 16 项（dmg 签名分发）。第 3 项实现方式与原清单不同（插件 vs `TrayIconBuilder`），但功能等价。
 
 ## 13. 注意事项
 
