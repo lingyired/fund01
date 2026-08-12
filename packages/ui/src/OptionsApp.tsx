@@ -1365,8 +1365,11 @@ function EditHoldingsSection({
       const sh = Number(r.shares) || 0
       const meta = nav[r.code]
       if (!meta) {
-        // 无净值（新基金/取数失败）：保持空白，标记已尝试避免反复计算
-        return {...r, initialized: true}
+        // 无净值（新基金/取数失败）：保持空白。**不能标记 initialized**——
+        // 否则批量导入新基金触发主加载重跑时（此时 navMeta 还是旧缓存、没有新 code 的净值），
+        // 行会被永久标记为已处理；等净值异步就绪后 prefill 又跳过 initialized 行，
+        // 新导入分组的「持有金额 / 持有收益」就永远空白（同页不刷新的话）。
+        return r
       }
       if (sh <= 0) {
         // 0 份额（0 金额关注基金）：金额 = 0，收益留空
