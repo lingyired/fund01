@@ -8,6 +8,7 @@ import {getIndices, getIndexHistory, isUsIndexCode} from '@fund01/services'
 import {
   isDayMarketActive,
   isNightMarketActive,
+  secondsUntilNextSwitch,
   shouldRefreshAShareMarket,
   shouldRefreshFund,
   shouldRefreshUSIndex,
@@ -340,8 +341,14 @@ const alarmNext: Record<string, {intervalSeconds: number; nextRefreshAt: number}
 function scheduleAlarm(name: string, config: AppConfig | null, isActive: boolean): void {
   const {trading, nonTrading} = getRefreshInterval(config)
   const delaySec = isActive ? trading : nonTrading
+  // 准点切换：若下一个时段翻转点比当前档位的下一周期更近，先睡到翻转点，
+  // 到点后（onAlarm 尾部）按最新时段重判档位 —— 消除「非交易档最坏滞后一个周期」。
+  const switchFn = name === ALARM_DAY ? isDayMarketActive : isNightMarketActive
+  const untilSwitch = secondsUntilNextSwitch(isActive, switchFn)
+  const effectiveSec =
+    untilSwitch != null && untilSwitch < delaySec ? Math.max(1, untilSwitch) : delaySec
   // chrome.alarms 最小 0.5 分钟，转分钟时向上取整避免被截断
-  const delayMin = Math.max(0.5, delaySec / 60)
+  const delayMin = Math.max(0.5, effectiveSec / 60)
   chrome.alarms.create(name, {delayInMinutes: delayMin})
   // 读取 Chrome 实际排定的触发时间（scheduledTime），让进度环与真实闹钟严格对齐：
   // chrome.alarms 对短周期会做对齐/取整（例如请求 0.5min 实际约 60s 才响），

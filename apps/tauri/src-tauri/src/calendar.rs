@@ -127,19 +127,27 @@ pub fn is_a_share_trading_time(now: &DateTime<Local>) -> bool {
     m >= 9 * 60 + 15 && m <= 15 * 60 + 30
 }
 
-/// 基金是否需要刷新：A 股交易日 09:15-23:00（盘中估值 + 空窗自算 + 晚间确认）
+/// 基金是否需要刷新：A 股交易日 09:00-23:00（09:00 起与黄金日盘对齐，
+/// 避免 09:00-09:15 定时器空转——开盘前拉到的是静态数据，无副作用；
+/// 盘中估值 + 空窗自算 + 晚间确认）
 pub fn should_refresh_fund(now: &DateTime<Local>) -> bool {
     let day = now.weekday();
     if day == Weekday::Sat || day == Weekday::Sun {
         return false;
     }
     let m = hms_to_minutes(now);
-    m >= 9 * 60 + 15 && m <= 23 * 60
+    m >= 9 * 60 && m <= 23 * 60
 }
 
-/// A 股指数 / 大盘：仅交易日 09:15-15:30
+/// A 股指数 / 大盘：交易日 09:00-15:30（09:00 起覆盖黄金 AU9999 日盘 09:00 开盘，
+/// 避免 09:00-09:15 空窗）
 pub fn should_refresh_a_share_market(now: &DateTime<Local>) -> bool {
-    is_a_share_trading_time(now)
+    let day = now.weekday();
+    if day == Weekday::Sat || day == Weekday::Sun {
+        return false;
+    }
+    let m = hms_to_minutes(now);
+    m >= 9 * 60 && m <= 15 * 60 + 30
 }
 
 /// 黄金 AU9999 日盘：周一至周五 09:00-15:30（归日盘循环）
@@ -186,6 +194,26 @@ pub fn is_day_market_active(now: &DateTime<Local>) -> bool {
 /// 夜盘市场活跃（决定夜盘循环档位）：黄金夜盘 20:00 或 美股 21:30 起，至次日 04:00
 pub fn is_night_market_active(now: &DateTime<Local>) -> bool {
     is_gold_night_session(now) || should_refresh_us_index(now)
+}
+
+/// 距下一个「时段状态翻转」的秒数（定时器准点切换用，与 TS
+/// `secondsUntilNextSwitch` 1:1 对应）。从 now 起逐分钟扫描（上限 48 小时，
+/// 覆盖周末），找第一个 `is_active(t) != current_active` 的时刻；无翻转返回 None。
+pub fn seconds_until_next_switch(
+    current_active: bool,
+    is_active: impl Fn(&DateTime<Local>) -> bool,
+    now: &DateTime<Local>,
+) -> Option<u64> {
+    let step = chrono::Duration::minutes(1);
+    let limit = *now + chrono::Duration::hours(48);
+    let mut t = *now + step;
+    while t <= limit {
+        if is_active(&t) != current_active {
+            return Some((t - *now).num_seconds().max(1) as u64);
+        }
+        t = t + step;
+    }
+    None
 }
 
 /// 延迟披露基金（QDII/海外）：净值 T+1/T+2 披露。判定与 `fundmnfinfo::is_qdii_name`

@@ -90,7 +90,8 @@ export function isAShareTradingTime(now = new Date()): boolean {
 
 /**
  * 基金是否需要刷新：
- * - A 股交易日 09:15-15:30（盘中估值，FundMNFInfo 返回 GSZ）
+ * - A 股交易日 09:00-15:30（盘中估值，FundMNFInfo 返回 GSZ；09:00 起与黄金日盘
+ *   对齐，避免 09:00-09:15 定时器空转——开盘前拉到的是静态数据，无副作用）
  * - A 股交易日 15:30-20:00（空窗期，FundMNFInfo 停止返回 GSZ；用重仓股自算估值
  *   覆盖今日估算收益，并轮询检测官方净值披露）
  * - A 股交易日 20:00-23:00（晚间官方确认涨跌更新）
@@ -99,12 +100,15 @@ export function shouldRefreshFund(now = new Date()): boolean {
   const day = now.getDay()
   if (day === 0 || day === 6) return false
   const m = hmsToMinutes(now)
-  return m >= 9 * 60 + 15 && m <= 23 * 60
+  return m >= 9 * 60 && m <= 23 * 60
 }
 
-/** A 股指数 / 大盘（涨跌家数、板块排行）：仅交易日 09:15-15:30 */
+/** A 股指数 / 大盘（涨跌家数、板块排行）：交易日 09:00-15:30（09:00 起覆盖黄金 AU9999 日盘 09:00 开盘，避免 09:00-09:15 空窗） */
 export function shouldRefreshAShareMarket(now = new Date()): boolean {
-  return isAShareTradingTime(now)
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+  const m = hmsToMinutes(now)
+  return m >= 9 * 60 && m <= 15 * 60 + 30
 }
 
 /** 黄金 AU9999 日盘：周一至周五 09:00-15:30（归日盘循环） */
@@ -147,6 +151,31 @@ export function isDayMarketActive(now = new Date()): boolean {
 /** 夜盘市场活跃（决定夜盘循环档位）：黄金夜盘 20:00 或 美股 21:30 起，至次日 04:00 */
 export function isNightMarketActive(now = new Date()): boolean {
   return isGoldNightSession(now) || shouldRefreshUSIndex(now)
+}
+
+/**
+ * 距下一个「时段状态翻转」的秒数（定时器准点切换用）。
+ *
+ * 背景：Chrome alarm / Tauri 循环都是「睡满当前档位周期 → 醒来重判档位」，
+ * 非交易档（600s）最后一次触发若落在开盘前，切换会滞后近一个周期。
+ * 本函数从 now 起逐分钟扫描（上限 48 小时，覆盖周末），找到第一个
+ * `isActiveFn(t) != currentActive` 的时刻，返回距它的秒数；无翻转返回 null。
+ * 调用方据此在「切换点比下一周期更近」时先睡到切换点，到点后重判档位。
+ * 分钟粒度近似：醒来后一律按真实时间重判，误差无实际影响。
+ */
+export function secondsUntilNextSwitch(
+  currentActive: boolean,
+  isActiveFn: (d: Date) => boolean,
+  now = new Date(),
+): number | null {
+  const stepMs = 60_000
+  const limit = now.getTime() + 48 * 3_600_000
+  for (let t = now.getTime() + stepMs; t <= limit; t += stepMs) {
+    if (isActiveFn(new Date(t)) !== currentActive) {
+      return Math.max(1, Math.round((t - now.getTime()) / 1000))
+    }
+  }
+  return null
 }
 
 /**

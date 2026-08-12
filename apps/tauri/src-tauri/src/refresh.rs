@@ -92,11 +92,18 @@ pub fn start_day_loop(app: AppHandle) {
     let notify = DAY_NOTIFY.get_or_init(|| Arc::new(Notify::new())).clone();
     tauri::async_runtime::spawn(async move {
         loop {
-            let secs =
-                loop_interval(&app, calendar::is_day_market_active(&chrono::Local::now()));
-            emit_refresh_schedule(&app, secs);
+            let now = chrono::Local::now();
+            let active = calendar::is_day_market_active(&now);
+            let secs = loop_interval(&app, active);
+            // 准点切换：距下一时段翻转点比当前档位周期更近时，先睡到翻转点，
+            // 醒来（顶部重判）即切档，消除「非交易档最坏滞后一个周期」
+            let sleep_secs = match calendar::seconds_until_next_switch(active, calendar::is_day_market_active, &now) {
+                Some(s) if s < secs => s.max(5),
+                _ => secs.max(5),
+            };
+            emit_refresh_schedule(&app, sleep_secs);
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(secs.max(5))) => {
+                _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {
                     // 定时器触发日志：便于观察各循环定时情况（trigger_refresh 手动刷新不走这里；release 打包移除）
                     #[cfg(debug_assertions)]
                     eprintln!(
@@ -120,6 +127,7 @@ pub fn start_night_loop(app: AppHandle) {
     let notify = NIGHT_NOTIFY.get_or_init(|| Arc::new(Notify::new())).clone();
     tauri::async_runtime::spawn(async move {
         loop {
+            let now = chrono::Local::now();
             let secs = {
                 let config = app.state::<AppState>().config.read().unwrap().clone();
                 let ri = config
@@ -127,13 +135,22 @@ pub fn start_night_loop(app: AppHandle) {
                     .refresh_interval
                     .clone()
                     .unwrap_or(DEFAULT_REFRESH_INTERVAL);
-                let active = calendar::is_night_market_active(&chrono::Local::now());
+                let active = calendar::is_night_market_active(&now);
                 let needed = has_us_indices(&config);
                 if active && needed { ri.trading } else { ri.non_trading }
             };
-            emit_refresh_schedule(&app, secs);
+            // 准点切换：距下一时段翻转点更近时先睡到翻转点（与日盘循环一致）
+            let sleep_secs = match calendar::seconds_until_next_switch(
+                calendar::is_night_market_active(&now),
+                calendar::is_night_market_active,
+                &now,
+            ) {
+                Some(s) if s < secs => s.max(5),
+                _ => secs.max(5),
+            };
+            emit_refresh_schedule(&app, sleep_secs);
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(secs.max(5))) => {
+                _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {
                     #[cfg(debug_assertions)]
                     eprintln!(
                         "[fund01] ----------------------定时器夜盘 {}-----------------------",
