@@ -15,8 +15,8 @@ import type {
  * 历史/解析类走实时 invoke RPC。
  */
 export class TauriDataPort implements DataPort {
-  async triggerRefresh(): Promise<void> {
-    await invoke('trigger_refresh')
+  async triggerRefresh(resetTimer = true): Promise<void> {
+    await invoke('trigger_refresh', {resetTimer})
   }
 
   async fetchHoldings(): Promise<HoldingsPayload> {

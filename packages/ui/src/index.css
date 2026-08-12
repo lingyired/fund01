@@ -242,6 +242,19 @@ html[data-theme='light'] .radix-themes {
     outline: 2px solid var(--accent-8);
     outline-offset: 2px;
   }
+
+  /* 刷新图标 loading 态：数据加载期间持续旋转。
+     本项目 tw-shim 未生成 Tailwind 的 animate-spin 工具类（仅生成了 animate-pulse），
+     直接依赖该类则图标不会转。这里在源码层显式定义，避免依赖 shim 自动生成、
+     也不怕 shim 重新生成时被冲掉。仅作用于图标本身（按钮本体不转）。 */
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .animate-spin {
+    animation: spin 1s linear infinite;
+  }
 }
 
 /* Radix Dialog 关闭按钮（DialogContent 适配器内置） */

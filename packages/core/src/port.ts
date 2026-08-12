@@ -8,13 +8,20 @@ import type {
   IndexItem,
   IntradayPoint,
   QuoteUpdate,
+  RefreshSchedule,
   ResolveFundPayload,
 } from './types'
 
 /** UI 数据访问抽象 —— 各 app 必须提供实现 */
 export interface DataPort {
-  /** 触发后端立即刷新（异步，不等待结果） */
-  triggerRefresh(): Promise<void>
+  /**
+   * 触发后端立即刷新（异步，不等待结果）。
+   * @param resetTimer 是否同时重置自动刷新定时器与进度环。
+   *   - true（默认）：用于「用户手动点击刷新」，后端重排定时器并从现在重新计时，进度环归零。
+   *   - false：仅拉取最新数据，不影响后台自动刷新周期，进度环继续反映真实进度。
+   *   用于「打开 popup 时拉数据」——避免打开浮窗就把进度环与定时器重置。
+   */
+  triggerRefresh(resetTimer?: boolean): Promise<void>
   /**
    * 清除缓存并重新加载（Chrome：清 chrome.storage.local 全部 cache-* + 强制刷新；
    * 用于「改动代码后缓存不失效」场景）。Tauri 无 SW 缓存概念，可不实现（UI 回退 triggerRefresh）。
@@ -55,6 +62,11 @@ export interface EventPort {
    * payload 即 popup 分组 tab id：'all' / 分组名 / '__ungrouped__'
    */
   onPopupOpenGroup?(cb: (tabId: string) => void): () => void
+  /**
+   * 订阅后端自动刷新计划（周期与下次触发时间），用于在刷新按钮上展示倒计时进度。
+   * Tauri 实现监听 refresh-schedule 事件；Chrome 实现监听 cache-refresh-schedule 存储变化。
+   */
+  onRefreshSchedule?(cb: (payload: RefreshSchedule) => void): () => void
   /**
    * 前端调试日志转发（可选）：Tauri 实现 → invoke dbg_log 打到终端 stdout；Chrome 实现 → console.log。
    * webview 的 console 在 Tauri 默认不进终端，UI 交互链路（开关点击等）用它对齐 Rust 侧日志排查。

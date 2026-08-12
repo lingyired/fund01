@@ -20,8 +20,8 @@ pub fn persist_config(app: &AppHandle, config: &AppConfig) {
 // ------------------------- DataPort -------------------------
 
 #[tauri::command]
-pub async fn trigger_refresh(app: AppHandle) {
-    crate::refresh::trigger_refresh(app);
+pub async fn trigger_refresh(app: AppHandle, reset_timer: bool) {
+    crate::refresh::trigger_refresh(app, reset_timer);
 }
 
 #[tauri::command]
@@ -154,7 +154,7 @@ pub async fn save_config(
     // 仅当「影响行情数据的配置」变更时才立即刷新；
     // 纯菜单栏展示设置（隐藏分组/布局/字号）不触发网络请求
     if !is_menubar_only_settings_change(&old, &normalized) {
-        crate::refresh::trigger_refresh(app);
+        crate::refresh::trigger_refresh(app, true);
     }
     Ok(normalized)
 }

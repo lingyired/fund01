@@ -12,7 +12,7 @@ import type {
 
 // SW 消息协议（与 background/index.ts 的 Message 类型保持一致）
 type Message =
-  | { type: 'REFRESH' }
+  | { type: 'REFRESH'; resetTimer?: boolean }
   | { type: 'CLEAR_CACHE' }
   | { type: 'FETCH_QUOTES'; funds: any[]; quoteType?: 'hold' }
   | { type: 'FETCH_FUND_HISTORY'; code: string; range: string }
@@ -47,8 +47,8 @@ function sendMessage<T>(msg: Message): Promise<T> {
  * - 历史类（fundHistory/indexHistory/intraday/resolveFund）走 sendMessage 让 SW 拉取
  */
 export class ChromeDataPort implements DataPort {
-  async triggerRefresh(): Promise<void> {
-    await sendMessage({ type: 'REFRESH' })
+  async triggerRefresh(resetTimer = true): Promise<void> {
+    await sendMessage({ type: 'REFRESH', resetTimer })
   }
 
   /** 清空全部缓存（cache-*）并强制刷新 —— 改代码后缓存不失效时一键重置 */

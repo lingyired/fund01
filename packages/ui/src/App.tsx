@@ -1,5 +1,5 @@
-import {useEffect, useState} from 'react'
-import {ExternalLink, Moon, RefreshCw, Settings2, Sun} from 'lucide-react'
+import {useCallback, useEffect, useState} from 'react'
+import {ExternalLink, Moon, Settings2, Sun} from 'lucide-react'
 import type {AppThemePref} from '@fund01/core'
 import {DEFAULT_SELECTED_INDICES} from '@fund01/core'
 import {
@@ -13,6 +13,7 @@ import {useMarketData} from './hooks'
 import {usePorts} from './context'
 import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
+import {AutoRefreshButton} from './components/AutoRefreshButton'
 import {IconButton, Theme} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
@@ -22,9 +23,21 @@ import './index.css'
 export function App() {
   const ports = usePorts()
   const {config, window: windowPort} = ports
-  const {holdings, indices, lastUpdate, loading, refresh} = useMarketData()
+  const {holdings, indices, lastUpdate, loading, refresh, refreshSchedule} = useMarketData()
   const [refreshing, setRefreshing] = useState(false)
   const [cfgTick, setCfgTick] = useState(0)
+
+  // 手动刷新入口：拉数据期间图标持续旋转，结束后复原。
+  // resetTimer=true 会重置后台定时器与进度环，并广播新计划让其他已打开的标签页 / Tauri 独立窗口同步。
+  // 注意：打开 popup 不再触发刷新（避免频繁网络请求，尤其非盘中期），数据靠挂载时的初始拉取 + 后台定时刷新。
+  const doRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await refresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [refresh])
 
   // 主题：偏好 + 实际生效（system 跟随系统）
   const [themePref, setThemePref] = useState<AppThemePref>(() =>
@@ -61,11 +74,6 @@ export function App() {
   // 实际生效的亮/暗（system 时取系统值）
   const resolved: 'light' | 'dark' =
     themePref === 'system' ? systemTheme : themePref
-
-  // 首次拉取
-  useEffect(() => {
-    void refresh().catch(() => undefined)
-  }, [refresh])
 
   // 版本号（header 品牌名右侧）统一走 WindowPort，跨端一致
   const version = windowPort.getVersion()
@@ -107,18 +115,9 @@ export function App() {
     setThemePref((p) => (resolveTheme(p) === 'dark' ? 'light' : 'dark'))
   }
 
-  async function handleRefresh() {
-    setRefreshing(true)
-    try {
-      await refresh()
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
   function onConfigChanged() {
     setCfgTick((t) => t + 1)
-    void refresh()
+    void doRefresh()
   }
 
   // 刻意不传 appearance：Radix 官方建议依赖祖先 class 切换（applyTheme 写在 <html> 上），
@@ -145,14 +144,14 @@ export function App() {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <IconButton
-            variant="outline"
-            onClick={handleRefresh}
+          <AutoRefreshButton
+            intervalSeconds={refreshSchedule.intervalSeconds}
+            nextRefreshAt={refreshSchedule.nextRefreshAt}
+            onClick={doRefresh}
             disabled={refreshing}
+            loading={refreshing}
             title="刷新"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          </IconButton>
+          />
           <IconButton
             variant="outline"
             onClick={toggleTheme}

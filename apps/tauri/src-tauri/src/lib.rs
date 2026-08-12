@@ -81,7 +81,7 @@ pub fn run() {
 
             // 启动两个定时刷新循环（日盘 A 股 / 夜盘 美股）+ 立即刷新一次
             refresh::start_refresh_loops(handle.clone());
-            refresh::trigger_refresh(handle);
+            refresh::trigger_refresh(handle, true);
 
             Ok(())
         })

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>刷新按钮方形边框进度预览</title>
+<style>
+  :root { color-scheme: dark; --ring: #a1a1aa; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 28px;
+    background: #1a1a1a; color: #e4e4e7;
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .btn-wrap {
+    position: relative; display: inline-flex; height: 32px; width: 32px;
+    align-items: center; justify-content: center;
+  }
+  .ring {
+    position: absolute; inset: -2px; height: calc(100% + 4px); width: calc(100% + 4px);
+    overflow: visible; pointer-events: none;
+  }
+  .ring-rect {
+    fill: none; stroke: var(--ring); stroke-width: 2.5;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  .btn {
+    height: 32px; width: 32px; border-radius: 6px; display: inline-flex;
+    align-items: center; justify-content: center; background: transparent;
+    border: 1px solid #3f3f46; color: #e4e4e7; cursor: pointer;
+  }
+  .btn:hover { border-color: #52525b; }
+  .btn svg { width: 18px; height: 18px; }
+  .btn svg.spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .panel { display: flex; flex-direction: column; gap: 14px; align-items: center; font-size: 13px; color: #a1a1aa; }
+  .controls { display: flex; gap: 10px; align-items: center; }
+  select, button.act {
+    background: #27272a; color: #e4e4e7; border: 1px solid #3f3f46;
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+  }
+  .readout { font-variant-numeric: tabular-nums; }
+  .readout b { color: #e4e4e7; }
+  .hint { max-width: 360px; text-align: center; color: #71717a; font-size: 12px; line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="btn-wrap" id="wrap">
+    <svg class="ring" viewBox="0 0 34.5 34.5" aria-hidden="true">
+      <rect class="ring-rect" id="ring" x="1.25" y="1.25" width="32" height="32" rx="6" ry="6"></rect>
+    </svg>
+    <button class="btn" id="refreshBtn" title="刷新">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36"></path><path d="M21 3v6h-6"></path>
+      </svg>
+    </button>
+  </div>
+  <div class="panel">
+    <div class="readout">剩余 <b id="remain">5.0</b>s · 周期 <b id="period">5</b>s · 进度 <b id="pct">0</b>%</div>
+    <div class="controls">
+      <label>模拟周期
+        <select id="periodSelect">
+          <option value="5">5s（演示）</option>
+          <option value="60">60s（交易）</option>
+          <option value="600">600s（非交易）</option>
+        </select>
+      </label>
+      <button class="act" id="nowBtn">立即刷新（重置进度）</button>
+    </div>
+    <div class="hint">
+      按钮外圈是贴合按钮的<b>方形圆角边框</b>，随周期从 0% 走到 100%，走满即代表一次自动刷新；
+      点击按钮（或「立即刷新」）会重置周期从头再走一遍。这与 Fund01 popup 刷新按钮的行为一致。
+      刷新期间图标会<b>持续旋转</b>表示加载中，数据更新结束后复原。
+    </div>
+  </div>
+
+<script>
+  // 与 packages/ui/src/components/AutoRefreshButton.tsx 完全相同的方角矩形周长与进度公式
+  // 按钮 32×32，ring 矩形与按钮外轮廓重合，stroke 一半向内覆盖、一半向外延伸
+  const BW = 32, BH = 32, R = 6, STROKE = 2.5
+  const RW = BW
+  const RH = BH
+  const STRAIGHT = 2 * (RW - 2 * R + (RH - 2 * R))
+  const ARC = 2 * Math.PI * R
+  const PERIMETER = STRAIGHT + ARC
+  const ring = document.getElementById('ring')
+  ring.setAttribute('stroke-dasharray', PERIMETER)
+  const remainEl = document.getElementById('remain')
+  const pctEl = document.getElementById('pct')
+  const periodEl = document.getElementById('period')
+  const periodSelect = document.getElementById('periodSelect')
+  const btn = document.getElementById('refreshBtn')
+  const nowBtn = document.getElementById('nowBtn')
+
+  let intervalSeconds = 5
+  let nextRefreshAt = Date.now() + intervalSeconds * 1000
+
+  function resetProgress() {
+    nextRefreshAt = Date.now() + intervalSeconds * 1000
+  }
+  function manualRefresh() {
+    resetProgress()
+    // 模拟「数据加载中」：图标旋转 ~1.1s 后复原（对应 popup 刷新时的 loading 态）
+    const svg = btn.querySelector('svg')
+    if (svg && !svg.classList.contains('spin')) {
+      svg.classList.add('spin')
+      setTimeout(() => svg.classList.remove('spin'), 1100)
+    }
+  }
+  periodSelect.addEventListener('change', (e) => {
+    intervalSeconds = Number(e.target.value)
+    periodEl.textContent = intervalSeconds
+    resetProgress()
+  })
+  nowBtn.addEventListener('click', manualRefresh)
+  btn.addEventListener('click', manualRefresh)
+
+  function tick() {
+    const now = Date.now()
+    const total = Math.max(1, intervalSeconds * 1000)
+    const remaining = Math.max(0, nextRefreshAt - now)
+    const p = Math.min(1, Math.max(0, 1 - remaining / total))
+    ring.setAttribute('stroke-dashoffset', PERIMETER * (1 - p))
+    remainEl.textContent = (remaining / 1000).toFixed(1)
+    pctEl.textContent = Math.round(p * 100)
+    requestAnimationFrame(tick)
+  }
+  tick()
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import type { AppConfig, EventPort, QuoteUpdate } from '@fund01/core'
+import type { AppConfig, EventPort, QuoteUpdate, RefreshSchedule } from '@fund01/core'
 
 // popup 本地缓存的配置 key（与 chromeConfigPort 保持一致）
 const STORAGE_KEY = 'fund01-config'
@@ -69,5 +69,32 @@ export class ChromeEventPort implements EventPort {
     }
     window.addEventListener('storage', listener)
     return () => window.removeEventListener('storage', listener)
+  }
+
+  /** 订阅 Service Worker 写入的自动刷新计划，驱动刷新按钮进度环 */
+  onRefreshSchedule(cb: (payload: RefreshSchedule) => void): () => void {
+    const listener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
+      if (area !== 'local') return
+      const change = changes['cache-refresh-schedule']
+      if (!change) return
+      try {
+        cb(change.newValue as RefreshSchedule)
+      } catch {
+        // 忽略解析或回调错误
+      }
+    }
+    chrome.storage.onChanged.addListener(listener)
+    // popup 打开瞬间若 storage 里已有计划但暂无变化，主动读一次立即生效，
+    // 避免进度环要等下次 storage 写入（交易时段最快 60s、非交易 600s）才出现。
+    void chrome.storage.local.get('cache-refresh-schedule').then((r) => {
+      const s = r['cache-refresh-schedule'] as RefreshSchedule | undefined
+      if (s && typeof s.intervalSeconds === 'number' && typeof s.nextRefreshAt === 'number') {
+        cb(s)
+      }
+    })
+    return () => chrome.storage.onChanged.removeListener(listener)
   }
 }

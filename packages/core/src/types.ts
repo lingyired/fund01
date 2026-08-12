@@ -97,6 +97,14 @@ export type RefreshInterval = {
   nonTrading: number
 }
 
+/** 后端推送给前端的自动刷新计划：当前周期长度与下次触发时间 */
+export type RefreshSchedule = {
+  /** 当前刷新周期长度（秒） */
+  intervalSeconds: number
+  /** 下次自动刷新的 Unix 毫秒时间戳 */
+  nextRefreshAt: number
+}
+
 /**
  * 基金当日行情数据源。
  * - fundmnfinfo：东方财富 FundMNFInfo 批量接口（净值/估值/涨跌幅），默认；分时走势仍走 fund123

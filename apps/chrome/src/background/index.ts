@@ -26,6 +26,8 @@ const CACHE_KEYS = {
   time: 'cache-time',
   // 内部 meta：最近一次基金刷新使用的数据源，用于 mergeStaleEstimate 同源判断
   source: 'cache-source',
+  // 自动刷新计划：供 popup 刷新按钮进度环读取
+  refreshSchedule: 'cache-refresh-schedule',
 } as const
 
 /** 状态类日志开关：生产构建（rsbuild build）时 process.env.NODE_ENV='production'，常量折叠为 false，定时器日志不输出 */
@@ -36,7 +38,7 @@ const DEFAULT_REFRESH_INTERVAL = {trading: 60, nonTrading: 600}
 const MIN_REFRESH_INTERVAL = {trading: 30, nonTrading: 300}
 
 type Message =
-  | {type: 'REFRESH'}
+  | {type: 'REFRESH'; resetTimer?: boolean}
   | {type: 'CLEAR_CACHE'}
   | {type: 'FETCH_QUOTES'; funds: any[]; quoteType?: 'hold'}
   | {type: 'FETCH_FUND_HISTORY'; code: string; range: string}
@@ -323,6 +325,9 @@ async function applyBadge(config: AppConfig | null): Promise<void> {
   chrome.action.setBadgeBackgroundColor({color})
 }
 
+/** 各 alarm 的真实下次触发计划（内存态），用于向 popup 发布「最近一次」 */
+const alarmNext: Record<string, {intervalSeconds: number; nextRefreshAt: number}> = {}
+
 /** 按循环盘中窗口调度 alarm：盘中用 trading 间隔，非盘中用 nonTrading */
 function scheduleAlarm(name: string, config: AppConfig | null, isActive: boolean): void {
   const {trading, nonTrading} = getRefreshInterval(config)
@@ -330,6 +335,35 @@ function scheduleAlarm(name: string, config: AppConfig | null, isActive: boolean
   // chrome.alarms 最小 0.5 分钟，转分钟时向上取整避免被截断
   const delayMin = Math.max(0.5, delaySec / 60)
   chrome.alarms.create(name, {delayInMinutes: delayMin})
+  // 读取 Chrome 实际排定的触发时间（scheduledTime），让进度环与真实闹钟严格对齐：
+  // chrome.alarms 对短周期会做对齐/取整（例如请求 0.5min 实际约 60s 才响），
+  // 若仍按请求的 30s 推算 nextRefreshAt，环会提前跑完、走满瞬间数据尚未更新
+  // （「满了却不刷新」「重启时已在半程」）。以 scheduledTime 作 nextRefreshAt、
+  // 以 (scheduledTime-now) 作展示周期，环走满即真实触发。
+  chrome.alarms.get(name, (alarm) => {
+    if (alarm?.scheduledTime) {
+      const nextRefreshAt = alarm.scheduledTime
+      const intervalSeconds = Math.max(1, Math.round((nextRefreshAt - Date.now()) / 1000))
+      alarmNext[name] = {intervalSeconds, nextRefreshAt}
+    } else {
+      const effectiveSec = Math.round(delayMin * 60)
+      alarmNext[name] = {intervalSeconds: effectiveSec, nextRefreshAt: Date.now() + effectiveSec * 1000}
+    }
+    publishRefreshSchedule()
+  })
+}
+
+/**
+ * 把「最近一次自动刷新」计划写入缓存，供 popup 进度环读取。
+ * 手动刷新 / 配置变化 / alarm 触发后都会重排 alarm 并调用本函数，
+ * 保证进度环展示的「下一次刷新」与真实定时器一致。
+ */
+function publishRefreshSchedule(): void {
+  const entries = Object.values(alarmNext)
+  if (entries.length === 0) return
+  // 取下次触发时间最早的一条，作为进度环展示的「下一次刷新」
+  const nearest = entries.reduce((a, b) => (a.nextRefreshAt <= b.nextRefreshAt ? a : b))
+  void chrome.storage.local.set({[CACHE_KEYS.refreshSchedule]: nearest})
 }
 
 /** 夜盘是否「需要活跃」：有美股指数时夜盘窗口才高频，否则低频空转 */
@@ -337,7 +371,7 @@ function nightNeeded(config: AppConfig | null): boolean {
   return !!config && hasUS(config)
 }
 
-/** 根据当前各市场状态重排两个 alarm（配置变化 / 安装时调用） */
+/** 根据当前各市场状态重排两个 alarm（配置变化 / 安装时 / 手动刷新时调用） */
 function scheduleAllAlarms(config: AppConfig | null): void {
   const now = new Date()
   scheduleAlarm(ALARM_DAY, config, isDayMarketActive(now))
@@ -454,6 +488,14 @@ chrome.runtime.onMessage.addListener(
         switch (msg.type) {
           case 'REFRESH': {
             await refreshAll(true)
+            // resetTimer 默认 true（手动点击刷新）：重排两个 alarm（清除旧定时、从现在
+            // 重新计时）并发布新计划，使进度环周期与实际下次刷新一致。
+            // resetTimer=false：仅刷新数据、不重排定时器，进度环继续反映后台真实进度。
+            // （打开 popup 已不再调用此分支，目前只有显式传 false 才会走这里。）
+            if (msg.resetTimer !== false) {
+              const cfg = await getSessionConfig()
+              scheduleAllAlarms(cfg)
+            }
             sendResponse({ok: true})
             return
           }

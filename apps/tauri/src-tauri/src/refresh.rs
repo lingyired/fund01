@@ -3,9 +3,11 @@
 //! 两窗口不重叠，任意时刻至多一个循环走盘中档；数据源按配置按需拉取
 //! （无美股指数则不拉夜盘）。trigger_refresh 走全量。
 
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::Notify;
 
 use crate::calc::{calc_holdings, PersistPatch};
 use crate::calendar;
@@ -14,6 +16,49 @@ use crate::model::{AppConfig, FundRecord, HoldingsPayload, IndexItem, QuoteUpdat
 use crate::portfolio::DEFAULT_REFRESH_INTERVAL;
 use crate::providers::{get_quote_provider, FundQuoteInput, QuoteSource};
 use crate::state::AppState;
+
+/// 推送给前端的自动刷新计划
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshSchedule {
+    interval_seconds: u64,
+    next_refresh_at: i64,
+}
+
+/// 通知前端下一次自动刷新将在何时发生，用于刷新按钮的进度环
+fn emit_refresh_schedule(app: &AppHandle, interval_seconds: u64) {
+    let next_refresh_at = chrono::Local::now().timestamp_millis() + (interval_seconds as i64) * 1000;
+    let _ = app.emit(
+        "refresh-schedule",
+        RefreshSchedule {
+            interval_seconds,
+            next_refresh_at,
+        },
+    );
+}
+
+/// 手动刷新时唤醒两个循环，重置其待定 sleep（使下次自动刷新从「现在」重新计时，
+/// 与进度环周期对齐）。两个循环的 Notify 句柄在 start_*_loop 时初始化。
+static DAY_NOTIFY: OnceLock<Arc<Notify>> = OnceLock::new();
+static NIGHT_NOTIFY: OnceLock<Arc<Notify>> = OnceLock::new();
+
+/// 根据当前市场状态与配置返回合适的刷新间隔（秒）
+fn current_interval(app: &AppHandle) -> u64 {
+    let config = app.state::<AppState>().config.read().unwrap().clone();
+    let ri = config
+        .settings
+        .refresh_interval
+        .clone()
+        .unwrap_or(DEFAULT_REFRESH_INTERVAL);
+    let now = chrono::Local::now();
+    let day_active = calendar::is_day_market_active(&now);
+    let night_active = calendar::is_night_market_active(&now) && has_us_indices(&config);
+    if day_active || night_active {
+        ri.trading
+    } else {
+        ri.non_trading
+    }
+}
 
 /// 启动日盘 / 夜盘两个刷新循环（应用 setup 时调用）
 pub fn start_refresh_loops(app: AppHandle) {
@@ -44,18 +89,27 @@ fn has_us_indices(config: &AppConfig) -> bool {
 
 /// 日盘循环：基金持仓 + A 股指数；盘中 09:00-15:30 用盘中档
 pub fn start_day_loop(app: AppHandle) {
+    let notify = DAY_NOTIFY.get_or_init(|| Arc::new(Notify::new())).clone();
     tauri::async_runtime::spawn(async move {
         loop {
             let secs =
                 loop_interval(&app, calendar::is_day_market_active(&chrono::Local::now()));
-            tokio::time::sleep(Duration::from_secs(secs.max(5))).await;
-            // 定时器触发日志：便于观察各循环定时情况（trigger_refresh 手动刷新不走这里；release 打包移除）
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[fund01] ----------------------定时器日盘 {}-----------------------",
-                chrono::Local::now().format("%H：%M")
-            );
-            refresh_day(&app, false).await;
+            emit_refresh_schedule(&app, secs);
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(secs.max(5))) => {
+                    // 定时器触发日志：便于观察各循环定时情况（trigger_refresh 手动刷新不走这里；release 打包移除）
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[fund01] ----------------------定时器日盘 {}-----------------------",
+                        chrono::Local::now().format("%H：%M")
+                    );
+                    refresh_day(&app, false).await;
+                }
+                _ = notify.notified() => {
+                    // 被手动刷新唤醒：仅重置定时器（重新 emit 周期 + 重新 sleep），不重复拉数据
+                    continue;
+                }
+            }
         }
     });
 }
@@ -63,6 +117,7 @@ pub fn start_day_loop(app: AppHandle) {
 /// 夜盘循环：美股指数；盘中 20:00-次日 04:00 用盘中档，
 /// 无美股指数时退化为低频空转（不拉数据）
 pub fn start_night_loop(app: AppHandle) {
+    let notify = NIGHT_NOTIFY.get_or_init(|| Arc::new(Notify::new())).clone();
     tauri::async_runtime::spawn(async move {
         loop {
             let secs = {
@@ -76,21 +131,44 @@ pub fn start_night_loop(app: AppHandle) {
                 let needed = has_us_indices(&config);
                 if active && needed { ri.trading } else { ri.non_trading }
             };
-            tokio::time::sleep(Duration::from_secs(secs.max(5))).await;
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[fund01] ----------------------定时器夜盘 {}-----------------------",
-                chrono::Local::now().format("%H：%M")
-            );
-            refresh_night(&app, false).await;
+            emit_refresh_schedule(&app, secs);
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(secs.max(5))) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[fund01] ----------------------定时器夜盘 {}-----------------------",
+                        chrono::Local::now().format("%H：%M")
+                    );
+                    refresh_night(&app, false).await;
+                }
+                _ = notify.notified() => {
+                    // 被手动刷新唤醒：仅重置定时器（重新 emit 周期 + 重新 sleep），不重复拉数据
+                    continue;
+                }
+            }
         }
     });
 }
 
 /// 立即触发一次全量刷新（trigger_refresh 命令）
-pub fn trigger_refresh(app: AppHandle) {
+/// - reset_timer=true（手动点击刷新）：拉数据 + 重置进度环 + 唤醒两个循环，
+///   使下次自动刷新从「现在」重新计时，与进度环对齐。
+/// - reset_timer=false（打开 popup 拉数据）：仅拉数据，不动定时器与进度环，
+///   避免打开浮窗就把环重置、与后台真实进度脱节。
+pub fn trigger_refresh(app: AppHandle, reset_timer: bool) {
     tauri::async_runtime::spawn(async move {
         refresh_all(&app, true).await;
+        if reset_timer {
+            // 手动刷新立即重置进度环：前端按当前市场档位展示新的周期
+            emit_refresh_schedule(&app, current_interval(&app));
+            // 重置两个循环的定时器，使下次自动刷新从「现在」重新计时，与进度环对齐
+            if let Some(n) = DAY_NOTIFY.get() {
+                n.notify_one();
+            }
+            if let Some(n) = NIGHT_NOTIFY.get() {
+                n.notify_one();
+            }
+        }
     });
 }
 
