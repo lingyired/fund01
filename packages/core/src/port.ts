@@ -30,6 +30,12 @@ export interface DataPort {
   /** 持仓汇总（后端已合并行情 + 配置） */
   fetchHoldings(): Promise<HoldingsPayload>
   fetchIndices(): Promise<IndexItem[]>
+  /**
+   * 最近一次后台成功刷新的时间戳（ms），无缓存时返回 0。
+   * Chrome：读 SW 写入的 cache-time（后台静默刷新也在写，popup 打开即可直接显示）；
+   * Tauri：暂不实现（可选方法）→ UI 回退 0，等待后端事件推送更新时间。
+   */
+  fetchLastUpdate?(): Promise<number>
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
   fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>

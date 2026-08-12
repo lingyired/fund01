@@ -34,6 +34,13 @@ pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
     state.quote.read().unwrap().as_ref().and_then(|q| q.indices.clone()).unwrap_or_default()
 }
 
+/// 最近一次后台成功刷新的时间戳（ms）；尚未刷新过返回 0。
+/// 供前端 popup 打开时直接显示更新时间（无需等待下一次事件推送）。
+#[tauri::command]
+pub fn fetch_last_update(state: State<AppState>) -> i64 {
+    state.quote.read().unwrap().as_ref().map(|q| q.time).unwrap_or(0)
+}
+
 #[tauri::command]
 pub async fn fetch_fund_history(
     state: State<'_, AppState>,

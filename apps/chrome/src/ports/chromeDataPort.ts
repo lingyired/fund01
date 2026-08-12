@@ -66,6 +66,12 @@ export class ChromeDataPort implements DataPort {
     return (r['cache-indices'] as IndexItem[]) || []
   }
 
+  /** 最近一次后台刷新时间：读 SW 写入的 cache-time（后台静默刷新也持续更新） */
+  async fetchLastUpdate(): Promise<number> {
+    const r = await chrome.storage.local.get('cache-time')
+    return (r['cache-time'] as number) || 0
+  }
+
   async fetchFundHistory(
     code: string,
     range: FundHistoryRange = '1y',

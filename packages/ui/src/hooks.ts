@@ -24,14 +24,17 @@ export function useMarketData() {
   }))
 
   useEffect(() => {
-    // 1. 首次拉缓存
+    // 1. 首次拉缓存：持仓 + 指数 + 最近一次后台刷新时间（SW 静默刷新也在写 cache-time，
+    //    因此打开 popup 无需等待下一次事件推送即可直接显示更新时间）
     Promise.all([
       data.fetchHoldings(),
       data.fetchIndices(),
+      data.fetchLastUpdate?.(),
     ])
-      .then(([h, i]) => {
+      .then(([h, i, t]) => {
         setHoldings(h)
         setIndices(i)
+        if (typeof t === 'number' && t > 0) setLastUpdate(t)
         setLoading(false)
       })
       .catch(() => setLoading(false))

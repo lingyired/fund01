@@ -28,6 +28,11 @@ export class TauriDataPort implements DataPort {
     return invoke<IndexItem[]>('fetch_indices')
   }
 
+  /** 最近一次后台刷新时间：读 Rust 内存缓存 quote.time（后台静默刷新也持续更新） */
+  async fetchLastUpdate(): Promise<number> {
+    return invoke<number>('fetch_last_update')
+  }
+
   async fetchFundHistory(code: string, range: FundHistoryRange = '1y'): Promise<FundHistoryPayload> {
     return invoke<FundHistoryPayload>('fetch_fund_history', { code, range: range ?? null })
   }
