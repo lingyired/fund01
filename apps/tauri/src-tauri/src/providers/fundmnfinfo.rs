@@ -52,14 +52,14 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
                     if !success {
                         let err_code = v.get("ErrCode").map(|x| x.to_string()).unwrap_or_default();
                         let err_msg = v.get("ErrMsg").and_then(|x| x.as_str()).unwrap_or("?");
-                        eprintln!("[fund01] FundMNFInfo 业务失败 attempt={attempt} ErrCode={err_code} ErrMsg={err_msg}");
+                        crate::err_log!("FundMNFInfo 业务失败 attempt={attempt} ErrCode={err_code} ErrMsg={err_msg}");
                     }
                     data = Some(v);
                     break;
                 }
                 Err(e) => {
                     if attempt == 1 {
-                        eprintln!("[fund01] FundMNFInfo 批量拉取失败: {e}");
+                        crate::err_log!("FundMNFInfo 批量拉取失败: {e}");
                     }
                     tokio::time::sleep(Duration::from_millis(400)).await;
                 }
@@ -77,14 +77,14 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
                 }
                 crate::dbg_log!("FundMNFInfo 响应 Datas={} 有效命中={hit}", list.len());
             } else {
-                eprintln!(
-                    "[fund01] FundMNFInfo 响应无 Datas 字段（Success={}，原始前 120 字: {}）",
+                crate::err_log!(
+                    "FundMNFInfo 响应无 Datas 字段（Success={}，原始前 120 字: {}）",
                     data.get("Success").map(|x| x.to_string()).unwrap_or_default(),
                     data.to_string().chars().take(120).collect::<String>()
                 );
             }
         } else {
-            eprintln!("[fund01] FundMNFInfo chunk 全部尝试失败（网络层）");
+            crate::err_log!("FundMNFInfo chunk 全部尝试失败（网络层）");
         }
     }
     crate::dbg_log!("FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
@@ -258,7 +258,7 @@ async fn fetch_stock_pct_changes(secids: &[String]) -> HashMap<String, f64> {
     {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("[fund01] fetchStockPctChanges 失败: {e}");
+            crate::err_log!("fetchStockPctChanges 失败: {e}");
             return out;
         }
     };
@@ -472,7 +472,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         mnf_time = p.time;
         use_calc_needed = p.use_calc_needed;
         crate::dbg_log!(
-            "FundMNFInfo 行情 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} est_growth={estimate_growth:?} est_net={estimate_net_value:?} net_value={net_value:?} prev_net={prev_net_value:?} date={net_value_date} time={mnf_time:?} use_calc_needed={use_calc_needed}"
+            "FundMNFInfo 行情 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} est_growth={estimate_growth:?} est_net={estimate_net_value:?} net_value={net_value:?} prev_net={prev_net_value:?} date={net_value_date} {} time={mnf_time:?} use_calc_needed={use_calc_needed}",
+            chrono::Local::now().format("%H:%M")
         );
     } else {
         crate::dbg_log!(
@@ -563,7 +564,8 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
         percent_source = Some("estimate".to_string());
     }
     crate::dbg_log!(
-        "FundMNFInfo 展示 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} estimate_growth={estimate_growth:?} percent={percent:?} src={percent_source:?} use_calc={use_calc} net={net_value:?} prev={prev_net_value:?} date={net_value_date}"
+        "FundMNFInfo 展示 code={code} name={name} confirmed={confirmed} day_growth={day_growth:?} estimate_growth={estimate_growth:?} percent={percent:?} src={percent_source:?} use_calc={use_calc} net={net_value:?} prev={prev_net_value:?} date={net_value_date} {}",
+        chrono::Local::now().format("%H:%M")
     );
 
     // 板块推断

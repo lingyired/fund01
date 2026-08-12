@@ -250,7 +250,7 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
             });
         }
         Err(e) => {
-            eprintln!("[fund01] resolveFund searchFund 失败: {e}");
+            crate::err_log!("resolveFund searchFund 失败: {e}");
             if payload.name.is_none() {
                 return Err(e);
             }
@@ -300,7 +300,7 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
                         fund_key: s.fund_key,
                     });
                 }
-                Err(e) => eprintln!("[fund01] resolveFund 纠正代码后重查失败: {e}"),
+                Err(e) => crate::err_log!("resolveFund 纠正代码后重查失败: {e}"),
             }
         }
     }

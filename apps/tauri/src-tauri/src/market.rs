@@ -101,7 +101,7 @@ async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
     let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("[fund01] getIndices 失败: {e}");
+            crate::err_log!("getIndices 失败: {e}");
             let code = error_code_of(&e).to_string();
             return list
                 .iter()
@@ -316,7 +316,7 @@ async fn fetch_eastmoney_daily(secid: &str, limit: u32) -> Result<Vec<(String, O
             }
             Err(e) => {
                 last_err = Some(format!("{host}: {e}"));
-                eprintln!("[fund01] fetchEastmoneyDaily 失败 {last_err:?}");
+                crate::err_log!("fetchEastmoneyDaily 失败 {last_err:?}");
             }
         }
     }
@@ -366,7 +366,7 @@ pub async fn get_index_history(code: &str, range: &str) -> Result<IndexHistoryPa
     if let Some(tx) = meta.tx {
         match fetch_tencent_daily(tx, limit).await {
             Ok(p) => points = p,
-            Err(e) => eprintln!("[fund01] fetchTencentDaily 失败 tx={tx}: {e}"),
+            Err(e) => crate::err_log!("fetchTencentDaily 失败 tx={tx}: {e}"),
         }
     }
     if points.len() < 10 {
@@ -374,7 +374,7 @@ pub async fn get_index_history(code: &str, range: &str) -> Result<IndexHistoryPa
             match fetch_sina_cn_daily(sina, limit).await {
                 Ok(p) if p.len() > points.len() => points = p,
                 Ok(_) => {}
-                Err(e) => eprintln!("[fund01] fetchSinaCnDaily 失败 sina={sina}: {e}"),
+                Err(e) => crate::err_log!("fetchSinaCnDaily 失败 sina={sina}: {e}"),
             }
         }
     }
@@ -383,7 +383,7 @@ pub async fn get_index_history(code: &str, range: &str) -> Result<IndexHistoryPa
             match fetch_sina_us_daily(sina_us, limit).await {
                 Ok(p) if p.len() > points.len() => points = p,
                 Ok(_) => {}
-                Err(e) => eprintln!("[fund01] fetchSinaUsDaily 失败 sinaUs={sina_us}: {e}"),
+                Err(e) => crate::err_log!("fetchSinaUsDaily 失败 sinaUs={sina_us}: {e}"),
             }
         }
     }
@@ -391,7 +391,7 @@ pub async fn get_index_history(code: &str, range: &str) -> Result<IndexHistoryPa
     if points.len() < 10 && meta.em_kline {
         match fetch_eastmoney_daily(meta.secid, limit).await {
             Ok(p) => points = p,
-            Err(e) => eprintln!("[fund01] fetchEastmoneyDaily 失败 secid={}: {e}", meta.secid),
+            Err(e) => crate::err_log!("fetchEastmoneyDaily 失败 secid={}: {e}", meta.secid),
         }
     }
     if points.len() < 10 {
@@ -399,7 +399,7 @@ pub async fn get_index_history(code: &str, range: &str) -> Result<IndexHistoryPa
             match fetch_sina_fx_daily(fx, limit).await {
                 Ok(p) if p.len() > points.len() => points = p,
                 Ok(_) => {}
-                Err(e) => eprintln!("[fund01] fetchSinaFxDaily 失败 symbol={fx}: {e}"),
+                Err(e) => crate::err_log!("fetchSinaFxDaily 失败 symbol={fx}: {e}"),
             }
         }
     }

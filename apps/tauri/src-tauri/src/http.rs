@@ -157,7 +157,7 @@ pub async fn eastmoney_get(
         match http_get_json(&url, query, DESKTOP_UA, Some("https://quote.eastmoney.com/"), Duration::from_secs(12)).await {
             Ok(v) => return Ok(v),
             Err(e) => {
-                eprintln!("[fund01] eastmoney_get 失败 host={host} path={path} err={e}");
+                crate::err_log!("eastmoney_get 失败 host={host} path={path} err={e}");
                 last_err = Some(e);
             }
         }
@@ -175,7 +175,7 @@ pub async fn retry_3(
         match f().await {
             Ok(v) => return Ok(v),
             Err(e) => {
-                eprintln!("[fund01] {label} attempt={}/3 失败: {e}", i + 1);
+                crate::err_log!("{label} attempt={}/3 失败: {e}", i + 1);
                 last_err = Some(e);
             }
         }

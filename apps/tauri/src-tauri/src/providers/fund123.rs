@@ -74,13 +74,13 @@ async fn fund123_post(path: &str, body: &Value) -> Result<Value, String> {
     match run(path, body, false).await {
         Ok(v) => Ok(v),
         Err(e) if e.contains("403") || e.contains("401") => {
-            eprintln!("[fund01] fund123_post {path} 首次失败 ({e})，刷新 CSRF 重试");
+            crate::err_log!("fund123_post {path} 首次失败 ({e})，刷新 CSRF 重试");
             // 风控 403：退避 1s 再强制刷新重试（避免立即再触发）
             tokio::time::sleep(Duration::from_millis(1000)).await;
             match run(path, body, true).await {
                 Ok(v) => Ok(v),
                 Err(e2) => {
-                    eprintln!("[fund01] fund123_post {path} 重试仍失败: {e2}");
+                    crate::err_log!("fund123_post {path} 重试仍失败: {e2}");
                     Err(e2)
                 }
             }
@@ -160,7 +160,7 @@ pub async fn search_funds_by_keyword(keyword: &str) -> Vec<(String, String)> {
                 .collect()
         }
         Err(e) => {
-            eprintln!("[fund01] searchFundsByKeyword 失败: {e}");
+            crate::err_log!("searchFundsByKeyword 失败: {e}");
             vec![]
         }
     }

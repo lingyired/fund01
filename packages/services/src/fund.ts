@@ -1399,8 +1399,10 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     }
 
     // 诊断日志（chrome SW 控制台可见）：核对最终展示口径
+    // date 后追加拉取时刻 HH:MM（与 Tauri Rust 端日志格式一致）
+    const logNow = new Date().toLocaleTimeString('zh-CN', {hour12: false}).slice(0, 5)
     console.log(
-      `[fund01] FundMNFInfo 展示 code=${code} name=${name} confirmed=${confirmed} dayGrowth=${dayGrowth} estimateGrowth=${estimateGrowth} percent=${percent} src=${percentSource} useCalc=${useCalc} net=${netValue} prev=${prevNetValue} date=${netValueDate}`,
+      `[fund01] FundMNFInfo 展示 code=${code} name=${name} confirmed=${confirmed} dayGrowth=${dayGrowth} estimateGrowth=${estimateGrowth} percent=${percent} src=${percentSource} useCalc=${useCalc} net=${netValue} prev=${prevNetValue} date=${netValueDate} ${logNow}`,
     )
 
     // 板块推断（与 fund123 数据源一致，走东方财富持仓 + 基金信息）
