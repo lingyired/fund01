@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "fund01-tauri"
-version = "1.0.22"
+version = "1.0.23"
 dependencies = [
  "chrono",
  "futures",

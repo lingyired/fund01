@@ -101,9 +101,14 @@ export function parseImport(input: string): ImportEntry[] {
   const trimmed = input.trim()
   if (!trimmed) throw new Error('内容为空')
 
+  // 容错：容忍 markdown 代码块包裹、以及头部/尾部非 JSON 文字
+  // （如 AI 在 JSON 数组之后附的「待确认：<名称>」清单）。
+  // 提取首个 [...] 段，忽略其前后的多余内容。
+  const m = trimmed.match(/\[[\s\S]*\]/)
+  if (!m) throw new Error('未找到 JSON 数组')
   let data: unknown
   try {
-    data = JSON.parse(trimmed)
+    data = JSON.parse(m[0])
   } catch (e) {
     throw new Error('JSON 格式错误：' + (e as Error).message)
   }

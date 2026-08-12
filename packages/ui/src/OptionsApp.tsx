@@ -2077,7 +2077,12 @@ function ImportSection({
   async function runImport() {
     if (!entries.length) return
     setRunning(true)
-    setProgress({done: 0, total: entries.length, failed: []})
+    // 分离「代码未识别」的待确认条目（code === '000000'）：不发起导入，避免创建空基金，
+    // 仅在结果区提示用户手动补全代码。
+    const pending = entries.filter((e) => e.code === '000000')
+    const valid = entries.filter((e) => e.code !== '000000')
+
+    setProgress({done: 0, total: valid.length, failed: []})
     setWarnings([])
     setError('')
     setMessage('')
@@ -2097,8 +2102,8 @@ function ImportSection({
 
     const failed: string[] = []
     const warns: string[] = []
-    for (let i = 0; i < entries.length; i++) {
-      const e = entries[i]
+    for (let i = 0; i < valid.length; i++) {
+      const e = valid[i]
       try {
         const group = e.group || defaultGroup
         await createFund(ports, {
@@ -2119,7 +2124,13 @@ function ImportSection({
       } catch (err) {
         failed.push(`${e.code}：${(err as Error)?.message || '失败'}`)
       }
-      setProgress({done: i + 1, total: entries.length, failed: [...failed]})
+      setProgress({done: i + 1, total: valid.length, failed: [...failed]})
+      setWarnings([...warns])
+    }
+    // 待确认（代码未识别）条目：不导入，提示用户手动补全
+    if (pending.length) {
+      const names = pending.map((p) => p.name || '(未提供名称)').join('、')
+      warns.push(`有 ${pending.length} 条代码未识别，未导入，请手动添加：${names}`)
       setWarnings([...warns])
     }
     setRunning(false)
@@ -2131,7 +2142,7 @@ function ImportSection({
     // 才会看到新写入的成本/份额（周末会残留一整天旧快照，详见 docs/导入后持有成本显示横杠-诊断.md）
     await refreshHoldingsCache(ports)
     if (failed.length === 0) {
-      setMessage(`成功导入 ${entries.length} 条`)
+      setMessage(`成功导入 ${valid.length} 条`)
       // 重置，便于再次导入
       setText('')
       setEntries([])
