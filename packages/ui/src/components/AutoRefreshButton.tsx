@@ -65,7 +65,7 @@ export function AutoRefreshButton({
     <div className="relative inline-flex h-8 w-8 items-center justify-center">
       {/* 方形进度边框：与按钮外轮廓重合，不拦截点击 */}
       <svg
-        className="pointer-events-none absolute inset-[-2px] h-[calc(100%+4px)] w-[calc(100%+4px)] overflow-visible"
+        className="pointer-events-none absolute inset-[-2px] overflow-visible"
         viewBox={`0 0 ${RW + EXTRA} ${RH + EXTRA}`}
         aria-hidden="true"
       >

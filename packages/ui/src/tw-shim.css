@@ -217,6 +217,7 @@
 .overflow-x-auto{overflow-x:auto}
 .overflow-x-hidden{overflow-x:hidden}
 .overflow-y-auto{overflow-y:auto}
+.overflow-visible{overflow:visible}
 .p-0{padding:0}
 .p-2{padding:8px}
 .p-3{padding:12px}
@@ -338,6 +339,7 @@
 .inset-0{top:0;right:0;bottom:0;left:0}
 .inset-x-0{right:0;left:0}
 .inset-y-0{top:0;bottom:0}
+.inset-[-2px]{inset:-2px}
 .left-0{left:0px}
 .max-w-none{max-width:none}
 .rounded-none{border-radius:0}
