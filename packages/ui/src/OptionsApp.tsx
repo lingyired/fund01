@@ -2,6 +2,7 @@ import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import type * as React from 'react'
 import {
   Check,
+  Clock,
   Copy,
   Database,
   Download,
@@ -11,6 +12,7 @@ import {
   Info,
   Menu,
   Plus,
+  RefreshCw,
   RotateCcw,
   Settings2,
   Sparkles,
@@ -37,6 +39,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  FundQuoteRow,
   MenubarAlign,
   MenubarLayout,
   ResolveFundResult,
@@ -1288,22 +1291,41 @@ function EditHoldingsSection({
   const [groups, setGroups] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<string>(ALL_TAB)
   const [saving, setSaving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   // 净值缓存（code → resolveFund 完整结果，含今/昨净值与日期），供折算份额与只读派生用
   const [navMeta, setNavMeta] = useState<Record<string, ResolveFundResult>>({})
+  // SW 行情缓存（code → FundQuoteRow）：打开即直填「持有金额/持有收益」，不等待网络；
+  // 同时用于判定「全部基金是否已含今日净值」（决定编辑建议提示的文案）
+  const [cacheMeta, setCacheMeta] = useState<Record<string, FundQuoteRow>>({})
+  // 最近一次后台刷新时间（ms，cache-time，与 popup 顶栏同源）
+  const [lastUpdate, setLastUpdate] = useState(0)
 
   useEffect(() => {
     setError('')
     setMessage('')
-    loadEditRows(ports)
-      .then(({rows, groups}) => {
-        setRows(prefillRows(rows, navMeta))
-        setGroups(groups)
+    let cancelled = false
+    Promise.all([
+      loadEditRows(ports),
+      ports.data.fetchHoldings(),
+      ports.data.fetchLastUpdate?.(),
+    ])
+      .then(([loaded, payload, t]) => {
+        if (cancelled) return
+        const cm: Record<string, FundQuoteRow> = {}
+        for (const q of payload?.list || []) cm[q.code.padStart(6, '0')] = q
+        setCacheMeta(cm)
+        if (typeof t === 'number' && t > 0) setLastUpdate(t)
+        setRows(prefillRows(loaded.rows, cm, navMeta))
+        setGroups(loaded.groups)
         setActiveTab(ALL_TAB)
       })
       .catch((e) => setError((e as Error)?.message || '加载失败'))
+    return () => {
+      cancelled = true
+    }
   }, [ports, reloadSignal, groupsReload])
 
   // 行集合的 code 指纹：编辑份额/成本不触发重拉，删除行或重载时才重新拉净值
@@ -1351,15 +1373,44 @@ function EditHoldingsSection({
   }
 
   /**
-   * 用当前净值把未初始化、且用户未手动编辑的行预填「持有金额 / 持有收益」
-   * （金额 = 份额 × auto 基准净值；收益 = 金额 − 份额 × 成本单价）。
-   * 抽成独立函数，供两处调用：① 主加载（loadEditRows）完成后用已有 navMeta 立即预填；
-   * ② navMeta 就绪/变化时补填。避免「改分组顺序触发主加载重置 rows、而 navMeta 未变导致
-   * 预填 effect 不重跑、输入框被清空」的问题。
+   * 预填「持有金额 / 持有收益」：
+   * ① 优先用 SW 行情缓存（cacheMeta）直填——金额 = 份额 × 缓存确认净值，收益 = 金额 − 份额 × 成本单价，
+   *    打开即满、不等待网络；② 缓存无净值（新基金/取数失败）时退回 resolveFund 的 navMeta 兜底。
+   * 数据保护：用户手动编辑过（touched）的行任何情况下不覆盖；刷新/重算只更新未 touched 的行。
    */
-  function prefillRows(src: EditRow[], nav: Record<string, ResolveFundResult>): EditRow[] {
-    if (!Object.keys(nav).length) return src
+  function prefillRows(
+    src: EditRow[],
+    cache: Record<string, FundQuoteRow>,
+    nav: Record<string, ResolveFundResult>,
+  ): EditRow[] {
+    if (!Object.keys(cache).length && !Object.keys(nav).length) return src
     return src.map((r) => {
+      // 用户已编辑（touched）的行：回填/刷新一律不覆盖
+      if (r.touched) return r
+      // ① 缓存直填：缓存确认净值 → 金额 = 份额 × 净值；收益 = 金额 − 份额 × 成本单价
+      const cacheRow = cache[r.code.padStart(6, '0')]
+      const cacheNav =
+        cacheRow?.netValue != null && cacheRow.netValue > 0
+          ? cacheRow.netValue
+          : undefined
+      if (cacheNav != null) {
+        const sh = Number(r.shares) || 0
+        if (sh <= 0) {
+          // 0 份额（0 金额关注基金）：金额 = 0，收益留空
+          return {...r, initialized: true, amount: '0', holdProfit: ''}
+        }
+        const amount = Math.round(sh * cacheNav * 100) / 100
+        const cost = Number(r.cost) || 0
+        const holdProfit =
+          cost > 0 ? Math.round((amount - sh * cost) * 100) / 100 : ''
+        return {
+          ...r,
+          initialized: true,
+          amount: String(amount),
+          holdProfit: holdProfit === '' ? '' : String(holdProfit),
+        }
+      }
+      // ② 缓存无净值：保持空白，等 resolveFund 兜底补填
       if (r.initialized) return r
       if (r.amount.trim() !== '' || r.holdProfit.trim() !== '') return r
       const sh = Number(r.shares) || 0
@@ -1395,13 +1446,13 @@ function EditHoldingsSection({
     })
   }
 
-  // 净值就绪后，为未初始化的行回填「持有金额 / 持有收益」预填值：
+  // 净值就绪后，为未初始化（缓存里无净值）的行回填「持有金额 / 持有收益」预填值：
   // 金额 = 份额 × 最新可用确认净值（auto）；收益 = 金额 − 份额 × 成本单价。
-  // initialized 标记防重载覆盖；用户已动手（金额/收益非空）的行不覆盖。
+  // touched 标记防覆盖用户编辑；initialized 标记防重载覆盖已填行。
   useEffect(() => {
-    if (!Object.keys(navMeta).length) return
-    setRows((cur) => prefillRows(cur, navMeta))
-  }, [navMeta])
+    if (!Object.keys(cacheMeta).length && !Object.keys(navMeta).length) return
+    setRows((cur) => prefillRows(cur, cacheMeta, navMeta))
+  }, [navMeta, cacheMeta])
 
   function updateRow(index: number, patch: Partial<EditRow>) {
     setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch, touched: true} : r)))
@@ -1482,7 +1533,8 @@ function EditHoldingsSection({
     try {
       await removeHoldingGroupWithFunds(ports, group)
       const {rows: newRows, groups: newGroups} = await loadEditRows(ports)
-      setRows(newRows)
+      // 立即用当前缓存直填，不等 navMeta 异步就绪（避免删除分组后金额先空白一拍）
+      setRows(prefillRows(newRows, cacheMeta, navMeta))
       setGroups(newGroups)
       setActiveTab(ALL_TAB)
       setMessage(`已删除分组「${label}」`)
@@ -1586,6 +1638,33 @@ function EditHoldingsSection({
     }
   }
 
+  /**
+   * 手动刷新：等后端刷完行情缓存（Chrome SW 在 refreshAll 完成后才回响应）再重读缓存，
+   * 未 touched 的行按新缓存重算，用户已编辑的行不动。refreshing 期间按钮防重入 + 输入框 loading mask。
+   */
+  async function handleRefresh() {
+    if (refreshing || saving) return
+    setRefreshing(true)
+    setError('')
+    try {
+      await ports.data.triggerRefresh(true)
+      const [payload, t] = await Promise.all([
+        ports.data.fetchHoldings(),
+        ports.data.fetchLastUpdate?.(),
+      ])
+      const cm: Record<string, FundQuoteRow> = {}
+      for (const q of payload?.list || []) cm[q.code.padStart(6, '0')] = q
+      setCacheMeta(cm)
+      if (typeof t === 'number' && t > 0) setLastUpdate(t)
+      // 数据保护：只重算未 touched 的行
+      setRows((cur) => prefillRows(cur, cm, navMeta))
+    } catch (e) {
+      setError((e as Error)?.message || '刷新失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const tabs: {id: string; label: string}[] = useMemo(() => {
     const t: {id: string; label: string}[] = [{id: ALL_TAB, label: '全部'}]
     for (const g of groups) {
@@ -1606,8 +1685,51 @@ function EditHoldingsSection({
     [rows, isAllTab, activeGroupKey],
   )
 
+  // 全部持仓基金是否都已含今日净值（决定「可直接编辑」还是「建议盘后更新」提示）
+  const allNavToday = useMemo(() => {
+    if (!rows.length) return false
+    const d = new Date()
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    return rows.every((r) => {
+      const q = cacheMeta[r.code.padStart(6, '0')]
+      return !!q?.netValueDate && q.netValueDate.slice(0, 10) === today
+    })
+  }, [rows, cacheMeta])
+
   return (
     <SectionCard id="edit-holdings" title="编辑持仓">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs text-muted">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          数据更新于{' '}
+          {lastUpdate
+            ? new Date(lastUpdate).toLocaleTimeString('zh-CN', {hour12: false})
+            : '—'}
+        </div>
+        <Button
+          type="button"
+          size="1"
+          variant="ghost"
+          disabled={saving || refreshing}
+          onClick={() => void handleRefresh()}
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+          {refreshing ? '刷新中…' : '刷新持仓数据'}
+        </Button>
+      </div>
+      {rows.length > 0 ? (
+        allNavToday ? (
+          <div className="flex items-center gap-1.5 rounded-md border border-line/50 bg-paper-deep/50 px-3 py-2 text-sm text-ink">
+            <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+            数据已含今日净值，可直接编辑
+          </div>
+        ) : (
+          <div className="flex items-start gap-1.5 rounded-md border border-gold/25 bg-gold/10 px-3 py-2 text-sm text-ink">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gold" />
+            建议在今晚 9:30 至明早 8:30 期间更新持仓，此时基金当日净值已披露，App 将按最新净值计算金额。
+          </div>
+        )
+      ) : null}
       <p className="text-xs text-muted">
         可编辑「持有金额」与「持有收益」（当前市值 − 成本本金）；「持有份额 / 成本单价 / 持有成本」由金额与收益自动派生、只读展示，无需手填。删除分组会连带删除组内所有基金。记得点保存。
       </p>
@@ -1627,7 +1749,7 @@ function EditHoldingsSection({
                 : rows.filter((r) => (t.id === UNGROUPED_TAB ? r.group === '' : r.group === t.id))
                     .length
             return (
-              <Tabs.Trigger key={t.id} value={t.id} disabled={saving}>
+              <Tabs.Trigger key={t.id} value={t.id} disabled={saving || refreshing}>
                 {t.label}
                 <span className="ml-1 text-xs text-muted">{count}</span>
               </Tabs.Trigger>
@@ -1657,7 +1779,7 @@ function EditHoldingsSection({
                     type="button"
                     size="1"
                     variant="ghost"
-                    disabled={saving}
+                    disabled={saving || refreshing}
                     onClick={() =>
                       setConfirmAction({
                         title: `删除分组「${groupKey || '未分组'}」及其内所有基金？`,
@@ -1728,27 +1850,45 @@ function EditHoldingsSection({
                               </div>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
-                              <TextField.Root
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={r.amount}
-                                onChange={(e) => updateRow(i, {amount: e.target.value})}
-                                disabled={saving}
-                                className="h-8 text-right font-mono text-xs"
-                                placeholder="当前市值"
-                              />
+                              <div className="relative">
+                                <TextField.Root
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={r.amount}
+                                  onChange={(e) =>
+                                    updateRow(i, {amount: e.target.value})
+                                  }
+                                  disabled={saving || refreshing}
+                                  className="h-8 text-right font-mono text-xs"
+                                  placeholder="当前市值"
+                                />
+                                {refreshing ? (
+                                  <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-paper-deep/80">
+                                    <RefreshCw className="h-3 w-3 animate-spin text-muted" />
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
-                              <TextField.Root
-                                type="number"
-                                step="0.01"
-                                value={r.holdProfit}
-                                onChange={(e) => updateRow(i, {holdProfit: e.target.value})}
-                                disabled={saving}
-                                className="h-8 text-right font-mono text-xs"
-                                placeholder="如 123.45"
-                              />
+                              <div className="relative">
+                                <TextField.Root
+                                  type="number"
+                                  step="0.01"
+                                  value={r.holdProfit}
+                                  onChange={(e) =>
+                                    updateRow(i, {holdProfit: e.target.value})
+                                  }
+                                  disabled={saving || refreshing}
+                                  className="h-8 text-right font-mono text-xs"
+                                  placeholder="如 123.45"
+                                />
+                                {refreshing ? (
+                                  <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-paper-deep/80">
+                                    <RefreshCw className="h-3 w-3 animate-spin text-muted" />
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                             <td
                               className="px-2 py-1.5 text-right align-middle font-mono tabular-nums text-ink-soft"
@@ -1786,7 +1926,7 @@ function EditHoldingsSection({
                                 onValueChange={(v) =>
                                   handleGroupChange(i, v === UNGROUPED_VALUE ? '' : v)
                                 }
-                                disabled={saving}
+                                disabled={saving || refreshing}
                                 size="1"
                               >
                                 <Select.Trigger
@@ -1813,7 +1953,7 @@ function EditHoldingsSection({
                                     type="button"
                                     variant="ghost"
                                     className="h-7 w-7 text-rise hover:bg-rise/10"
-                                    disabled={saving}
+                                    disabled={saving || refreshing}
                                     onClick={() => removeRow(i)}
                                     aria-label="移除该分组份额"
                                   >
@@ -1835,7 +1975,7 @@ function EditHoldingsSection({
       </Tabs.Root>
 
       <div className="flex justify-end pt-1">
-        <Button type="button" disabled={saving} onClick={handleSave}>
+        <Button type="button" disabled={saving || refreshing} onClick={handleSave}>
           {saving ? '保存中...' : '保存'}
         </Button>
       </div>
