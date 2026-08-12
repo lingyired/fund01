@@ -1,5 +1,5 @@
 import {ArrowDown, ArrowUp, PencilLine} from 'lucide-react'
-import {Button} from '@radix-ui/themes'
+import {Button, Tooltip} from '@radix-ui/themes'
 import {cn, formatAmount, formatMoney, formatPct, pctClass} from '@fund01/core'
 
 /** 底部汇总栏（单行）：左侧持仓金额（大字）+ 当日收益 + 涨跌基金数，右侧「修改持仓」入口 */
@@ -54,17 +54,18 @@ export function FooterBar({
           ) : null}
         </div>
       </div>
-      <Button
-        size="1"
-        variant="soft"
-        color="gray"
-        onClick={onEditHoldings}
-        className="shrink-0"
-        title="在设置中修改持仓"
-      >
-        <PencilLine className="h-3 w-3" />
-        修改持仓
-      </Button>
+      <Tooltip content="在设置中修改持仓">
+        <Button
+          size="1"
+          variant="soft"
+          color="gray"
+          onClick={onEditHoldings}
+          className="shrink-0"
+        >
+          <PencilLine className="h-3 w-3" />
+          修改持仓
+        </Button>
+      </Tooltip>
     </div>
   )
 }

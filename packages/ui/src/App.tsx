@@ -14,7 +14,7 @@ import {usePorts} from './context'
 import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
 import {AutoRefreshButton} from './components/AutoRefreshButton'
-import {IconButton, Theme} from '@radix-ui/themes'
+import {IconButton, Theme, Tooltip} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
 // 以便和 Tailwind 建立正确的 CSS 层级顺序（详见 index.css 顶部注释）。
@@ -152,33 +152,39 @@ export function App() {
             loading={refreshing}
             title="刷新"
           />
-          <IconButton
-            variant="outline"
-            onClick={toggleTheme}
-            title={resolved === 'light' ? '切换暗色' : '切换亮色'}
-          >
-            {resolved === 'light' ? (
-              <Moon className="h-4 w-4" />
-            ) : (
-              <Sun className="h-4 w-4" />
-            )}
-          </IconButton>
-          {openInNewWindow ? (
+          <Tooltip content={resolved === 'light' ? '切换暗色' : '切换亮色'}>
             <IconButton
               variant="outline"
-              onClick={() => void openInNewWindow()}
-              title={openInNewWindowTitle}
+              onClick={toggleTheme}
+              aria-label={resolved === 'light' ? '切换暗色' : '切换亮色'}
             >
-              <ExternalLink className="h-4 w-4" />
+              {resolved === 'light' ? (
+                <Moon className="h-4 w-4" />
+              ) : (
+                <Sun className="h-4 w-4" />
+              )}
             </IconButton>
+          </Tooltip>
+          {openInNewWindow ? (
+            <Tooltip content={openInNewWindowTitle}>
+              <IconButton
+                variant="outline"
+                onClick={() => void openInNewWindow()}
+                aria-label={openInNewWindowTitle}
+              >
+                <ExternalLink className="h-4 w-4" />
+              </IconButton>
+            </Tooltip>
           ) : null}
-          <IconButton
-            variant="outline"
-            onClick={() => void windowPort.openSettings()}
-            title="设置"
-          >
-            <Settings2 className="h-4 w-4" />
-          </IconButton>
+          <Tooltip content="设置">
+            <IconButton
+              variant="outline"
+              onClick={() => void windowPort.openSettings()}
+              aria-label="设置"
+            >
+              <Settings2 className="h-4 w-4" />
+            </IconButton>
+          </Tooltip>
         </div>
       </header>
 

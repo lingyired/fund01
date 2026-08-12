@@ -31,6 +31,7 @@ import {
   TextArea,
   TextField,
   Theme,
+  Tooltip,
 } from '@radix-ui/themes'
 import type {
   AppConfig,
@@ -604,83 +605,85 @@ function GeneralSection({
         {selectedMeta.length > 0 ? (
           <div className="space-y-1 pt-1">
             {selectedMeta.map((item, idx) => (
-              <div
-                key={item.code}
-                ref={(el) => {
-                  rowEls.current[idx] = el
-                }}
-                onPointerDown={(e) => {
-                  if (e.button !== 0) return
-                  try {
-                    ;(e.currentTarget as HTMLDivElement).setPointerCapture(
-                      e.pointerId,
-                    )
-                  } catch {
-                    /* ignore */
-                  }
-                  dragState.current = {
-                    from: idx,
-                    index: idx,
-                    pointerId: e.pointerId,
-                    startY: e.clientY,
-                    active: false,
-                  }
-                  dragOrder.current = null
-                  setDragIndex(idx)
-                }}
-                onPointerMove={(e) => {
-                  const d = dragState.current
-                  if (!d || e.pointerId !== d.pointerId) return
-                  if (!d.active) {
-                    if (Math.abs(e.clientY - d.startY) < 6) return
-                    d.active = true
-                  }
-                  const target = findRowIndex(e.clientY)
-                  if (target != null) swapRowTo(d, target)
-                }}
-                onPointerUp={(e) => {
-                  const d = dragState.current
-                  if (!d || e.pointerId !== d.pointerId) return
-                  dragState.current = null
-                  setDragIndex(null)
-                  const order = dragOrder.current
-                  dragOrder.current = null
-                  if (d.active && order && d.index !== d.from) {
-                    void persistIndices(order)
-                  }
-                }}
-                onPointerCancel={() => {
-                  dragState.current = null
-                  dragOrder.current = null
-                  setDragIndex(null)
-                }}
-                className={cn(
-                  'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
-                  dragIndex === idx && 'opacity-60',
-                )}
-                style={{
-                  cursor: dragIndex === idx ? 'grabbing' : 'grab',
-                  userSelect: 'none',
-                  WebkitUserSelect: 'none',
-                  touchAction: 'none',
-                }}
-                title="按住拖动调整看板顺序"
-              >
-                <GripVertical className="h-4 w-4 shrink-0 text-muted" />
-                <span className="flex-1 truncate text-sm text-ink">{item.name}</span>
-                <span className="font-mono text-[11px] text-muted">{item.code}</span>
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  className="h-7 w-7"
-                  // 阻止 pointerdown 冒泡到行启动拖拽：否则 setPointerCapture 后按钮收不到 click
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => void toggleIndex(item.code)}
-                  title="从看板移除"
+              <Tooltip content="按住拖动调整看板顺序" key={item.code}>
+                <div
+                  ref={(el) => {
+                    rowEls.current[idx] = el
+                  }}
+                  onPointerDown={(e) => {
+                    if (e.button !== 0) return
+                    try {
+                      ;(e.currentTarget as HTMLDivElement).setPointerCapture(
+                        e.pointerId,
+                      )
+                    } catch {
+                      /* ignore */
+                    }
+                    dragState.current = {
+                      from: idx,
+                      index: idx,
+                      pointerId: e.pointerId,
+                      startY: e.clientY,
+                      active: false,
+                    }
+                    dragOrder.current = null
+                    setDragIndex(idx)
+                  }}
+                  onPointerMove={(e) => {
+                    const d = dragState.current
+                    if (!d || e.pointerId !== d.pointerId) return
+                    if (!d.active) {
+                      if (Math.abs(e.clientY - d.startY) < 6) return
+                      d.active = true
+                    }
+                    const target = findRowIndex(e.clientY)
+                    if (target != null) swapRowTo(d, target)
+                  }}
+                  onPointerUp={(e) => {
+                    const d = dragState.current
+                    if (!d || e.pointerId !== d.pointerId) return
+                    dragState.current = null
+                    setDragIndex(null)
+                    const order = dragOrder.current
+                    dragOrder.current = null
+                    if (d.active && order && d.index !== d.from) {
+                      void persistIndices(order)
+                    }
+                  }}
+                  onPointerCancel={() => {
+                    dragState.current = null
+                    dragOrder.current = null
+                    setDragIndex(null)
+                  }}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
+                    dragIndex === idx && 'opacity-60',
+                  )}
+                  style={{
+                    cursor: dragIndex === idx ? 'grabbing' : 'grab',
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                    touchAction: 'none',
+                  }}
                 >
-                  <X className="h-3.5 w-3.5 text-rise" />
-                </IconButton>
-              </div>
+                  <GripVertical className="h-4 w-4 shrink-0 text-muted" />
+                  <span className="flex-1 truncate text-sm text-ink">{item.name}</span>
+                  <span className="font-mono text-[11px] text-muted">{item.code}</span>
+                  <Tooltip content="从看板移除">
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      // 阻止 pointerdown 冒泡到行启动拖拽：否则 setPointerCapture 后按钮收不到 click
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => void toggleIndex(item.code)}
+                      aria-label="从看板移除"
+                    >
+                      <X className="h-3.5 w-3.5 text-rise" />
+                    </IconButton>
+                  </Tooltip>
+                </div>
+              </Tooltip>
             ))}
           </div>
         ) : (
@@ -1083,100 +1086,109 @@ function HoldingGroupsSection({
         {groups.length === 0 ? (
           <div className="text-xs text-muted">暂无分组</div>
         ) : (
-          groups.map((g, idx) => (
-            <div
-              key={g}
-              ref={(el) => {
-                groupRowEls.current[idx] = el
-              }}
-              onPointerDown={(e) => handleGroupRowPointerDown(e, idx)}
-              onPointerMove={handleGroupRowPointerMove}
-              onPointerUp={(e) => void handleGroupRowPointerUp(e)}
-              onPointerCancel={handleGroupRowPointerCancel}
-              className={cn(
-                'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
-                groupDragIndex === idx && 'opacity-60',
-              )}
-              style={{
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                touchAction: 'none',
-                cursor:
-                  editingIdx === idx ? 'default' : groupDragIndex === idx ? 'grabbing' : 'grab',
-              }}
-              title={editingIdx === idx ? undefined : '按住拖动调整分组顺序'}
-            >
-              {editingIdx === idx ? (
-                <>
-                  <TextField.Root
-                    type="text"
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    autoFocus
-                    className="h-7 flex-1 text-sm"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRenameGroup(idx)
-                      if (e.key === 'Escape') setEditingIdx(null)
-                    }}
-                  />
-                  <IconButton
-                    type="button"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => handleRenameGroup(idx)}
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </IconButton>
-                  <IconButton
-                    type="button"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => setEditingIdx(null)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </IconButton>
-                </>
-              ) : (
-                <>
-                  <GripVertical className="h-4 w-4 shrink-0 text-muted" />
-                  <span className="flex-1 truncate text-sm text-ink">{g}</span>
-                  <IconButton
-                    type="button"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => {
-                      setEditingIdx(idx)
-                      setEditingName(g)
-                    }}
-                  >
-                    <Plus className="hidden" />
-                    <span className="text-xs">重命名</span>
-                  </IconButton>
-                  <IconButton
-                    type="button"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() =>
-                      setConfirmAction({
-                        title: `删除分组「${g}」？`,
-                        description: '该分组下的持仓将变成未分组。',
-                        confirmText: '确认删除',
-                        onConfirm: () => {
-                          void handleRemoveGroup(g)
-                        },
-                      })
-                    }
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-rise" />
-                  </IconButton>
-                </>
-              )}
-            </div>
-          ))
+          groups.map((g, idx) => {
+            const row = (
+              <div
+                key={g}
+                ref={(el) => {
+                  groupRowEls.current[idx] = el
+                }}
+                onPointerDown={(e) => handleGroupRowPointerDown(e, idx)}
+                onPointerMove={handleGroupRowPointerMove}
+                onPointerUp={(e) => void handleGroupRowPointerUp(e)}
+                onPointerCancel={handleGroupRowPointerCancel}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border border-line/50 bg-panel/60 px-2 py-1.5',
+                  groupDragIndex === idx && 'opacity-60',
+                )}
+                style={{
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
+                  touchAction: 'none',
+                  cursor:
+                    editingIdx === idx ? 'default' : groupDragIndex === idx ? 'grabbing' : 'grab',
+                }}
+              >
+                {editingIdx === idx ? (
+                  <>
+                    <TextField.Root
+                      type="text"
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      autoFocus
+                      className="h-7 flex-1 text-sm"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRenameGroup(idx)
+                        if (e.key === 'Escape') setEditingIdx(null)
+                      }}
+                    />
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => handleRenameGroup(idx)}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => setEditingIdx(null)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </IconButton>
+                  </>
+                ) : (
+                  <>
+                    <GripVertical className="h-4 w-4 shrink-0 text-muted" />
+                    <span className="flex-1 truncate text-sm text-ink">{g}</span>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => {
+                        setEditingIdx(idx)
+                        setEditingName(g)
+                      }}
+                    >
+                      <Plus className="hidden" />
+                      <span className="text-xs">重命名</span>
+                    </IconButton>
+                    <IconButton
+                      type="button"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() =>
+                        setConfirmAction({
+                          title: `删除分组「${g}」？`,
+                          description: '该分组下的持仓将变成未分组。',
+                          confirmText: '确认删除',
+                          onConfirm: () => {
+                            void handleRemoveGroup(g)
+                          },
+                        })
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-rise" />
+                    </IconButton>
+                  </>
+                )}
+              </div>
+            )
+            // 编辑模式下无提示；非编辑模式 hover 显示「按住拖动调整分组顺序」
+            return editingIdx === idx ? (
+              row
+            ) : (
+              <Tooltip content="按住拖动调整分组顺序" key={g}>
+                {row}
+              </Tooltip>
+            )
+          })
         )}
       </div>
       <div className="flex gap-2 pt-1">
@@ -1793,16 +1805,18 @@ function EditHoldingsSection({
                             </td>
                             <td className="px-1 py-1.5 align-middle">
                               <div className="flex justify-center">
-                                <IconButton
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-7 w-7 text-rise hover:bg-rise/10"
-                                  disabled={saving}
-                                  onClick={() => removeRow(i)}
-                                  title="移除该分组份额"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </IconButton>
+                                <Tooltip content="移除该分组份额">
+                                  <IconButton
+                                    type="button"
+                                    variant="ghost"
+                                    className="h-7 w-7 text-rise hover:bg-rise/10"
+                                    disabled={saving}
+                                    onClick={() => removeRow(i)}
+                                    aria-label="移除该分组份额"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </IconButton>
+                                </Tooltip>
                               </div>
                             </td>
                           </tr>
@@ -2576,30 +2590,32 @@ function DataBackupSection() {
           <Upload className="h-4 w-4" />
           导入配置
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          color="red"
-          disabled={busy}
-          onClick={handleClearCache}
-          title="清除扩展的行情缓存并强制重新拉取（改动代码后界面仍是旧数据时使用）"
-        >
-          <Trash2 className="h-4 w-4" />
-          清除缓存并重新加载
-        </Button>
+        <Tooltip content="清除扩展的行情缓存并强制重新拉取（改动代码后界面仍是旧数据时使用）">
+          <Button
+            type="button"
+            variant="outline"
+            color="red"
+            disabled={busy}
+            onClick={handleClearCache}
+          >
+            <Trash2 className="h-4 w-4" />
+            清除缓存并重新加载
+          </Button>
+        </Tooltip>
         <AlertDialog.Root open={resetOpen} onOpenChange={setResetOpen}>
-          <AlertDialog.Trigger>
-            <Button
-              type="button"
-              variant="solid"
-              color="red"
-              disabled={busy}
-              title="清空全部持仓与设置，恢复出厂默认"
-            >
-              <RotateCcw className="h-4 w-4" />
-              重置全部数据
-            </Button>
-          </AlertDialog.Trigger>
+          <Tooltip content="清空全部持仓与设置，恢复出厂默认">
+            <AlertDialog.Trigger>
+              <Button
+                type="button"
+                variant="solid"
+                color="red"
+                disabled={busy}
+              >
+                <RotateCcw className="h-4 w-4" />
+                重置全部数据
+              </Button>
+            </AlertDialog.Trigger>
+          </Tooltip>
           <AlertDialog.Content maxWidth="420px">
             <AlertDialog.Title>重置全部数据？</AlertDialog.Title>
             <AlertDialog.Description>

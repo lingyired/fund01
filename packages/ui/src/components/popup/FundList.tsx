@@ -315,24 +315,25 @@ export function FundList({
                       </span>
                     ) : null}
                     <div className="min-w-0">
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setDetailRow(row)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            setDetailRow(row)
-                          }
-                        }}
-                        className={cn(
-                          'block max-w-full cursor-pointer truncate text-left text-sm font-medium hover:underline',
-                          pctClass(pnl),
-                        )}
-                        title="点击查看详情"
-                      >
-                        {row.name}
-                      </span>
+                      <Tooltip content="点击查看详情">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setDetailRow(row)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setDetailRow(row)
+                            }
+                          }}
+                          className={cn(
+                            'block max-w-full cursor-pointer truncate text-left text-sm font-medium hover:underline',
+                            pctClass(pnl),
+                          )}
+                        >
+                          {row.name}
+                        </span>
+                      </Tooltip>
                       <div className="flex min-w-0 items-center gap-1.5">
                         <span className="font-mono text-xs text-muted">
                           {row.code}

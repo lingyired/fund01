@@ -1,6 +1,6 @@
 import {useMemo, useState} from 'react'
 import ReactECharts from 'echarts-for-react'
-import {Dialog} from '@radix-ui/themes'
+import {Dialog, Tooltip} from '@radix-ui/themes'
 import {X} from 'lucide-react'
 import {cn, pctClass} from '@fund01/core'
 import {FundTrendDialog} from './FundTrendDialog'
@@ -235,28 +235,29 @@ export function SparkTrend({
 
   return (
     <>
-      <button
-        type="button"
-        className={cn(
-          'group relative w-2/3 cursor-zoom-in rounded-md text-left transition-opacity hover:opacity-90',
-          className,
-        )}
-        onClick={() => setOpen(true)}
-        title="点击放大查看"
-      >
-        <div className="pointer-events-none absolute right-0 top-0 z-10 flex flex-col items-end gap-0.5">
-          {mode === 'percent' ? <MiniPct value={lastPct} /> : null}
-          {mode === 'price' || lastPrice != null ? (
-            <MiniPrice value={lastPrice} className={mode === 'price' ? 'text-gold' : undefined} />
-          ) : null}
-        </div>
-        <ReactECharts
-          option={miniOption}
-          style={{height, width: '100%'}}
-          opts={{renderer: 'canvas'}}
-          notMerge
-        />
-      </button>
+      <Tooltip content="点击放大查看">
+        <button
+          type="button"
+          className={cn(
+            'group relative w-2/3 cursor-zoom-in rounded-md text-left transition-opacity hover:opacity-90',
+            className,
+          )}
+          onClick={() => setOpen(true)}
+        >
+          <div className="pointer-events-none absolute right-0 top-0 z-10 flex flex-col items-end gap-0.5">
+            {mode === 'percent' ? <MiniPct value={lastPct} /> : null}
+            {mode === 'price' || lastPrice != null ? (
+              <MiniPrice value={lastPrice} className={mode === 'price' ? 'text-gold' : undefined} />
+            ) : null}
+          </div>
+          <ReactECharts
+            option={miniOption}
+            style={{height, width: '100%'}}
+            opts={{renderer: 'canvas'}}
+            notMerge
+          />
+        </button>
+      </Tooltip>
 
       {fundCode ? (
         <FundTrendDialog

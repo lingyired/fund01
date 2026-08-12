@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {RefreshCw} from 'lucide-react'
-import {IconButton} from '@radix-ui/themes'
+import {IconButton, Tooltip} from '@radix-ui/themes'
 
 interface AutoRefreshButtonProps {
   /** 当前自动刷新周期（秒） */
@@ -85,17 +85,18 @@ export function AutoRefreshButton({
           strokeDashoffset={dashOffset}
         />
       </svg>
-      <IconButton
-        variant="outline"
-        size="2"
-        onClick={onClick}
-        disabled={disabled}
-        title={tooltip}
-        aria-label={tooltip}
-        style={{borderRadius: 6}}
-      >
-        <RefreshCw className={`h-4 w-4${loading ? ' animate-spin' : ''}`} />
-      </IconButton>
+      <Tooltip content={tooltip}>
+        <IconButton
+          variant="outline"
+          size="2"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={tooltip}
+          style={{borderRadius: 6}}
+        >
+          <RefreshCw className={`h-4 w-4${loading ? ' animate-spin' : ''}`} />
+        </IconButton>
+      </Tooltip>
     </div>
   )
 }
