@@ -7,7 +7,9 @@
     "dev": "rsbuild dev",
     "build": "rsbuild build",
     "typecheck": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@fund01/core": "workspace:*",

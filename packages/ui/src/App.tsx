@@ -1,7 +1,7 @@
-import {useCallback, useEffect, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {ExternalLink, Moon, Settings2, Sun} from 'lucide-react'
 import type {AppThemePref} from '@fund01/core'
-import {DEFAULT_SELECTED_INDICES} from '@fund01/core'
+import {DEFAULT_SELECTED_INDICES, isNightMarketActive} from '@fund01/core'
 import {
   applyTheme,
   getStoredThemePref,
@@ -38,6 +38,19 @@ export function App() {
       setRefreshing(false)
     }
   }, [refresh])
+
+  // 美股指数 code（与 @fund01/services isUsIndexCode 保持一致：INDEX_LIST 中 sinaUs 项）
+  const US_INDEX_CODES = ['NDX', 'SPX']
+  // 非盘中却显示盘中间隔：通常是勾选了美股指数、当前处于夜盘（20:00–次日 04:00），
+  // 后台据此用 trading 间隔只刷美股行情；其余数据仍按各自市场时段更新。
+  const refreshDetail = useMemo(() => {
+    const sel = (config.getConfig()?.settings?.selectedIndices as string[] | undefined) || []
+    const hasUs = sel.some((c) => US_INDEX_CODES.includes(String(c)))
+    if (hasUs && isNightMarketActive(new Date())) {
+      return '因已勾选美股指数，夜盘按 60 秒获取美股行情；其余数据沿用盘中窗口'
+    }
+    return undefined
+  }, [config, cfgTick])
 
   // 主题：偏好 + 实际生效（system 跟随系统）
   const [themePref, setThemePref] = useState<AppThemePref>(() =>
@@ -151,6 +164,7 @@ export function App() {
             disabled={refreshing}
             loading={refreshing}
             title="刷新"
+            detail={refreshDetail}
           />
           <Tooltip content={resolved === 'light' ? '切换暗色' : '切换亮色'}>
             <IconButton

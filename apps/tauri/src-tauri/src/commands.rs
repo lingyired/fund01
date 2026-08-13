@@ -162,6 +162,30 @@ pub async fn save_config(
     if og != ng {
         eprintln!("[fund01] save_config: holdingGroups {og:?} -> {ng:?}");
     }
+    // 数据源切换：清空内存中旧源的基金行情缓存，避免 popup / menubar 在刷新回来前
+    // 暂显旧源（如东方财富）的当日涨幅百分比与数值，造成「百分比和数值不同」的现象。
+    // 对齐 Chrome 端 oldSource !== newSource 时 remove(cache-holdings / cache-source) 的行为。
+    let old_source = old.settings.quote_source.clone().unwrap_or_default();
+    let new_source = normalized.settings.quote_source.clone().unwrap_or_default();
+    if old_source != new_source {
+        let had_holdings = state
+            .quote
+            .read()
+            .unwrap()
+            .as_ref()
+            .map(|q| q.holdings.is_some())
+            .unwrap_or(false);
+        if had_holdings {
+            eprintln!(
+                "[fund01] save_config: quoteSource {old_source:?} -> {new_source:?}，清空旧源基金行情缓存"
+            );
+        }
+        // 仅清 holdings（基金行情），保留 indices（指数独立、不受数据源切换影响）。
+        // 后续 trigger_refresh 会用新源强制刷新，重新填充 holdings。
+        if let Some(q) = state.quote.write().unwrap().as_mut() {
+            q.holdings = None;
+        }
+    }
     // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
     crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());

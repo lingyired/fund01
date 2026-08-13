@@ -32,6 +32,7 @@ use tauri::Manager;
 use tauri_plugin_multiline_menubar::{ColorStyle, MenuItemDescriptor, MultilineMenubarExt};
 
 use crate::model::{AppConfig, FundQuoteRow, QuoteUpdate};
+use crate::state::AppState;
 use crate::window::{open_settings_window, show_popup};
 
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
@@ -624,6 +625,22 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
 /// 供 refresh 后调用（避免与 config 锁死）
 pub fn update_menubar_with(app: &AppHandle, quote: &Option<QuoteUpdate>) {
     update_menubar(app, quote.as_ref());
+}
+
+/// 启动后「布局重踢」：release 构建下状态项 view 首帧尚未挂载完就可能已下发字号/文字，
+/// 插件据此量出的状态项高度偏矮，下行加粗数字的 descender 被裁切。延迟 ~250ms（此时 view 已挂载）
+/// 重发 set_font_sizes + set_text（带实时 quote，避免把数字刷成 0），强制插件用真实 view bounds
+/// 重测高度。debug 因启动慢天然不触发此竞态，但统一补踢无害。
+///
+/// 注意：必须带实时 quote（从 AppState 读），否则 update_menubar 会以 pct/amount=0 重画，
+/// 把菜单栏数字瞬间刷成 +0.00% / +0，直到下次行情刷新才恢复。
+pub fn kick_menubar_layout(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        let quote = app.state::<AppState>().quote.read().unwrap().clone();
+        update_menubar(&app, quote.as_ref());
+    });
 }
 
 #[allow(dead_code)]

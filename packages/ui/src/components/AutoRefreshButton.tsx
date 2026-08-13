@@ -14,6 +14,8 @@ interface AutoRefreshButtonProps {
   title?: string
   /** 数据加载中为 true：刷新图标持续旋转（loading 态），结束后复原 */
   loading?: boolean
+  /** 额外说明（如「因勾选美股指数，夜盘按盘中间隔获取美股行情」），作为 tooltip 第二行 */
+  detail?: string
 }
 
 /**
@@ -30,6 +32,7 @@ export function AutoRefreshButton({
   disabled,
   title = '刷新',
   loading = false,
+  detail,
 }: AutoRefreshButtonProps) {
   const [progress, setProgress] = useState(0)
 
@@ -59,7 +62,19 @@ export function AutoRefreshButton({
   const ARC = 2 * Math.PI * R
   const PERIMETER = STRAIGHT + ARC
   const dashOffset = PERIMETER * (1 - progress)
-  const tooltip = `${title}（刷新周期 ${intervalSeconds} 秒）`
+  const ariaLabel = `${title}（刷新周期 ${intervalSeconds} 秒）${detail ? `；${detail}` : ''}`
+  const tip = (
+    <div>
+      <div>{title}（刷新周期 {intervalSeconds} 秒）</div>
+      {detail ? (
+        <div
+          style={{maxWidth: 280, marginTop: 4, opacity: 0.85, lineHeight: 1.5}}
+        >
+          {detail}
+        </div>
+      ) : null}
+    </div>
+  )
 
   return (
     <div className="relative inline-flex h-8 w-8 items-center justify-center">
@@ -85,13 +100,13 @@ export function AutoRefreshButton({
           strokeDashoffset={dashOffset}
         />
       </svg>
-      <Tooltip content={tooltip}>
+      <Tooltip content={tip}>
         <IconButton
           variant="outline"
           size="2"
           onClick={onClick}
           disabled={disabled}
-          aria-label={tooltip}
+          aria-label={ariaLabel}
           style={{borderRadius: 6}}
         >
           <RefreshCw className={`h-4 w-4${loading ? ' animate-spin' : ''}`} />

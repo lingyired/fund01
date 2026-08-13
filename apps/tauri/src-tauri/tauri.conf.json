@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "fund01 设置",
+  "productName": "fund01",
   "version": "1.0.23",
   "identifier": "com.lingyi.fund01",
   "build": {
