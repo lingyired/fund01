@@ -167,6 +167,7 @@
 .justify-center{justify-content:center}
 .justify-end{justify-content:flex-end}
 .justify-start{justify-content:flex-start}
+.leading-4{line-height:1rem}
 .leading-none{line-height:1}
 .leading-relaxed{line-height:1.625}
 .leading-tight{line-height:1.25}
