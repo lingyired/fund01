@@ -115,6 +115,14 @@ export function App() {
   }, [popupOpenGroup])
 
   const settings = config.getConfig().settings
+  // 数据源标识：fundmnfinfo=东方财富→「东」，fund123=蚂蚁基金→「蚁」
+  const quoteSource: 'fund123' | 'fundmnfinfo' =
+    settings.quoteSource ?? 'fundmnfinfo'
+  const quoteSourceBadge = quoteSource === 'fund123' ? '蚁' : '东'
+  const quoteSourceTitle =
+    quoteSource === 'fund123'
+      ? '数据源：蚂蚁基金（fund123）'
+      : '数据源：东方财富（FundMNFInfo）'
   const selectedIndices =
     settings.selectedIndices && settings.selectedIndices.length > 0
       ? settings.selectedIndices
@@ -152,6 +160,12 @@ export function App() {
               v{version}
             </span>
           ) : null}
+          <span
+            title={quoteSourceTitle}
+            className="rounded bg-accent/10 px-1 text-[10px] font-semibold leading-4 text-accent"
+          >
+            {quoteSourceBadge}
+          </span>
           <span className="hidden font-mono text-[11px] text-muted sm:inline">
             {updatedAt ? `更新 ${updatedAt}` : ''}
           </span>
