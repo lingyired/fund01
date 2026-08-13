@@ -3335,7 +3335,6 @@ function MenubarSection() {
             <TextField.Root
               type="text"
               value={topFont}
-              placeholder={MENUBAR_DEFAULTS.topFont}
               onChange={(e) => setTopFont(e.target.value)}
               onBlur={(e) => void commitFontFamily('top', e.target.value)}
               onKeyDown={(e) => {
@@ -3350,7 +3349,6 @@ function MenubarSection() {
             <TextField.Root
               type="text"
               value={bottomFont}
-              placeholder={MENUBAR_DEFAULTS.bottomFont}
               onChange={(e) => setBottomFont(e.target.value)}
               onBlur={(e) => void commitFontFamily('bottom', e.target.value)}
               onKeyDown={(e) => {
