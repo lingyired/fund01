@@ -200,6 +200,17 @@ static CALC_GSZZL_CACHE: OnceLock<Mutex<HashMap<String, (f64, Instant)>>> = Once
 const HOLDINGS_TTL: Duration = Duration::from_secs(60 * 60);
 const CALC_GSZZL_TTL: Duration = Duration::from_secs(5 * 60);
 
+/// 手动刷新（force）时清空自算估值缓存，强制下一次自算实时拉取行情，
+/// 保证「点击刷新 = 点击时刻的最新估算值」。
+/// 与 Chrome 端 clearFundEstimateCaches()（清 CALC_GSZZL_CACHE + STOCK_PCT_CACHE）对齐：
+/// - Rust 端 fetch_stock_pct_changes 无缓存，故只需清 CALC_GSZZL_CACHE；
+/// - HOLDINGS_CACHE（重仓股，1h TTL）保留：重仓股为慢变量，清空只会徒增请求。
+pub fn clear_calc_caches() {
+    if let Some(cache) = CALC_GSZZL_CACHE.get() {
+        cache.lock().unwrap().clear();
+    }
+}
+
 async fn fetch_fund_top_holdings(code: &str) -> Vec<Value> {
     {
         let cache = HOLDINGS_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();

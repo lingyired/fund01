@@ -3,6 +3,7 @@ import {
   getFundHistory,
   resolveFund,
   fetchFundIntradayForDialog,
+  clearFundEstimateCaches,
 } from '@fund01/services'
 import {getIndices, getIndexHistory, isUsIndexCode} from '@fund01/services'
 import {
@@ -191,6 +192,14 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
   const quoteSource =
     config.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
 
+  // 手动刷新（force）时清空自算估值/股票涨跌幅缓存，强制本轮实时拉取行情，
+  // 使「点击刷新 = 点击时刻的最新估算值」（与 Tauri refresh_day force=true 对齐）。
+  // 否则手动刷新会命中 5min CALC_GSZZL_CACHE / 30s STOCK_PCT_CACHE，
+  // 返回的是上次自动刷新（最多 5 分钟前）的旧估算值，两端缓存填充时刻不同步 → 分叉。
+  if (force && canRefreshFund) {
+    clearFundEstimateCaches()
+  }
+
   type TaskKey = 'holdings' | 'indicesA' | 'indicesUs'
   const tasks: Promise<any>[] = []
   const taskKeys: TaskKey[] = []
@@ -240,6 +249,9 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
     console.warn(
       `[fund01] refresh 完成：${tasks.length - failedCount}/${tasks.length} 成功，${failedCount} 失败`,
     )
+  } else if (tasks.length > 0) {
+    // 全成功也打一条汇总，便于在 SW 控制台确认本轮刷新确实跑完、没有静默跳过
+    console.log(`[fund01] refresh 完成：${tasks.length}/${tasks.length} 成功（无失败）`)
   }
 
   // 后端合并计算：把行情与配置合并成 UI 可直接渲染的 payload
@@ -502,6 +514,14 @@ chrome.runtime.onMessage.addListener(
       try {
         switch (msg.type) {
           case 'REFRESH': {
+            // 手动刷新入口日志（请求发出前）：带秒时间戳，便于与 Tauri 端
+            // 「----------------------刷新 hh:mm:ss----------------」日志对照两端点击时刻。
+            // 无条件输出（不包 IS_DEBUG），release 构建也能在 SW 控制台看到。
+            const d = new Date()
+            const pad2 = (n: number) => String(n).padStart(2, '0')
+            console.log(
+              `[fund01] ----------------------刷新 ${pad2(d.getHours())}：${pad2(d.getMinutes())}：${pad2(d.getSeconds())}----------------`,
+            )
             await refreshAll(true)
             // resetTimer 默认 true（手动点击刷新）：重排两个 alarm（清除旧定时、从现在
             // 重新计时）并发布新计划，使进度环周期与实际下次刷新一致。

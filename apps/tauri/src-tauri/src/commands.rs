@@ -21,7 +21,15 @@ pub fn persist_config(app: &AppHandle, config: &AppConfig) {
 
 #[tauri::command]
 pub async fn trigger_refresh(app: AppHandle, reset_timer: bool) {
-    crate::refresh::trigger_refresh(app, reset_timer);
+    // 手动刷新入口日志（请求发出前）：带秒时间戳，便于与 Chrome SW 端
+    // 「----------------------刷新 hh:mm:ss----------------」日志对照两端点击时刻。
+    eprintln!(
+        "[fund01] ----------------------刷新 {}----------------",
+        chrono::Local::now().format("%H：%M：%S")
+    );
+    // await 等待刷新真正完成：前端「刷新中」图标在数据回来前持续旋转，
+    // 对齐 Chrome SW REFRESH 消息 await refreshAll 完成才 sendResponse 的行为。
+    crate::refresh::trigger_refresh(app, reset_timer).await;
 }
 
 #[tauri::command]
@@ -138,6 +146,7 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_group_colors = None;
     a.settings.menubar_rise_color = None;
     a.settings.menubar_fall_color = None;
+    a.settings.menubar_flat_color = None;
     b.settings.menubar_hidden_groups = None;
     b.settings.menubar_layout = None;
     b.settings.menubar_top_font_size = None;
@@ -154,6 +163,7 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_group_colors = None;
     b.settings.menubar_rise_color = None;
     b.settings.menubar_fall_color = None;
+    b.settings.menubar_flat_color = None;
     a == b
 }
 
@@ -224,7 +234,11 @@ pub async fn save_config(
     // 仅当「影响行情数据的配置」变更时才立即刷新；
     // 纯菜单栏展示设置（隐藏分组/布局/字号）不触发网络请求
     if !is_menubar_only_settings_change(&old, &normalized) {
-        crate::refresh::trigger_refresh(app, true);
+        // fire-and-forget：保存配置不等待刷新完成（save_config 是同步返回的）
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::refresh::trigger_refresh(app2, true).await;
+        });
     }
     Ok(normalized)
 }

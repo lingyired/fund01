@@ -988,6 +988,11 @@ class TtlCache<V> {
       this.map.delete(oldest)
     }
   }
+
+  /** 清空全部条目（手动刷新时绕过估值/行情缓存，强制实时拉取） */
+  clear(): void {
+    this.map.clear()
+  }
 }
 
 // 持仓按季度更新，缓存 1 小时足够；上限 200 只（自选/持仓合计常见规模）
@@ -1079,6 +1084,17 @@ function calcFundEstimateChange(
  *  因此缓存不会导致过期估值覆盖确认净值。
  *  返回 null 时不缓存，便于下次重试。 */
 const CALC_GSZZL_CACHE = new TtlCache<number>(200, 5 * 60 * 1000)
+
+/**
+ * 手动刷新（force）时清空自算估值缓存 + 股票涨跌幅缓存，强制下一次自算
+ * 实时拉取行情，保证「点击刷新 = 点击时刻的最新估算值」。
+ * 与 Tauri 端 refresh_day(force=true) 清 CALC_GSZZL_CACHE 的行为对齐（跨端铁律）。
+ * HOLDINGS_CACHE（重仓股，1h TTL）保留：重仓股为慢变量，清空只会徒增请求。
+ */
+export function clearFundEstimateCaches(): void {
+  CALC_GSZZL_CACHE.clear()
+  STOCK_PCT_CACHE.clear()
+}
 
 export async function getCalcGszzl(code: string): Promise<number | null> {
   const padded = String(code).padStart(6, '0')

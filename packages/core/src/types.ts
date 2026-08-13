@@ -217,6 +217,8 @@ export type AppSettings = {
   menubarRiseColor?: string
   /** 菜单栏下行跌色（hex，默认 #34C759）。仅 tauri 生效 */
   menubarFallColor?: string
+  /** 菜单栏下行平色（hex，默认 #8e8e93）。仅 tauri 生效 */
+  menubarFlatColor?: string
   /**
    * popup 分组 Tab 是否显示两行：分组名下方增加当日收益详情行。
    * 默认 true（两行：名称 + 基金数 + 当日收益）。关闭后回到单行。两行模式文字整体缩小。

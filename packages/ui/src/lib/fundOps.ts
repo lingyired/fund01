@@ -622,6 +622,9 @@ export async function updateSettings(
   if (typeof patch.menubarFallColor === 'string') {
     config.settings.menubarFallColor = patch.menubarFallColor
   }
+  if (typeof patch.menubarFlatColor === 'string') {
+    config.settings.menubarFlatColor = patch.menubarFlatColor
+  }
   await ports.config.saveConfig(config)
   // 回读服务端归一化后的最新设置（ConfigPort 已乐观同步镜像 + 回包覆盖），保证返回值与后端一致
   return ports.config.getConfig().settings

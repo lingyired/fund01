@@ -39,7 +39,7 @@ pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
 
 const COLOR_RISE_DEFAULT: &str = "#FF4F44"; // 涨/红（默认，可配置 menubarRiseColor）
 const COLOR_FALL_DEFAULT: &str = "#34C759"; // 跌/绿（默认，可配置 menubarFallColor）
-const COLOR_FLAT: &str = "#8e8e93"; // 平/灰（固定）
+const COLOR_FLAT_DEFAULT: &str = "#8e8e93"; // 平/灰（默认，可配置 menubarFlatColor）
 const COLOR_TOP_DEFAULT: &str = "#ffffff"; // 上行固定色默认（可配置 menubarTopColor）
 
 /// 已 create 过的实例 id（会话级）。等价 demo 的 `createdPersistent` Set：
@@ -62,13 +62,13 @@ fn remove_listeners() -> &'static Mutex<HashMap<String, tauri::EventId>> {
     REMOVE_LISTENERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn color_for(pct: f64, rise: &str, fall: &str) -> String {
+fn color_for(pct: f64, rise: &str, fall: &str, flat: &str) -> String {
     if pct > 0.0 {
         rise.to_string()
     } else if pct < 0.0 {
         fall.to_string()
     } else {
-        COLOR_FLAT.to_string()
+        flat.to_string()
     }
 }
 
@@ -552,7 +552,7 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）
     let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
-    // 颜色：上行固定色（默认白色）；下行按涨跌（涨色/跌色可配置，平盘灰固定）
+    // 颜色：上行固定色（默认白色）；下行按涨跌（涨色/跌色/平色均可配置）
     let top_color = config
         .settings
         .menubar_top_color
@@ -568,6 +568,11 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         .menubar_fall_color
         .clone()
         .unwrap_or_else(|| COLOR_FALL_DEFAULT.to_string());
+    let flat_color = config
+        .settings
+        .menubar_flat_color
+        .clone()
+        .unwrap_or_else(|| COLOR_FLAT_DEFAULT.to_string());
     let desired = desired_instances(&config, quote);
     // 刷新后分组/持仓可能已变化：先收敛实例集合，再声明式下发显隐，最后应用布局字号/字体/加粗与文字。
     // 显隐的唯一通道是 sync_instances 内的 set_visible（对齐插件 demo 的合并模型），不回读 is_visible、
@@ -578,9 +583,9 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let mb = app.multiline_menubar();
     for spec in desired {
         let (bottom, color) = if show_amount {
-            (format_amount(spec.amount), color_for(spec.amount, &rise_color, &fall_color))
+            (format_amount(spec.amount), color_for(spec.amount, &rise_color, &fall_color, &flat_color))
         } else {
-            (format_pct(spec.pct), color_for(spec.pct, &rise_color, &fall_color))
+            (format_pct(spec.pct), color_for(spec.pct, &rise_color, &fall_color, &flat_color))
         };
         // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
         // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''

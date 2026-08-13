@@ -43,6 +43,7 @@ pub fn default_config() -> AppConfig {
             menubar_group_colors: Some(HashMap::new()),
             menubar_rise_color: Some("#FF4F44".to_string()),
             menubar_fall_color: Some("#34C759".to_string()),
+            menubar_flat_color: Some("#8e8e93".to_string()),
             group_tab_show_detail: Some(true),
             group_tab_detail_mode: Some("percent".to_string()),
         },
@@ -378,6 +379,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         .unwrap_or_default();
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
+    let menubar_flat_color = color_of("menubarFlatColor", "#8e8e93");
     // popup 分组 Tab 收益详情：默认开启（true）；mode 仅 "amount" 合法，否则 percent
     let group_tab_show_detail = settings_raw
         .and_then(|s| s.get("groupTabShowDetail").and_then(|v| v.as_bool()))
@@ -457,6 +459,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_group_colors: Some(menubar_group_colors),
             menubar_rise_color: Some(menubar_rise_color),
             menubar_fall_color: Some(menubar_fall_color),
+            menubar_flat_color: Some(menubar_flat_color),
             group_tab_show_detail: Some(group_tab_show_detail),
             group_tab_detail_mode: Some(group_tab_detail_mode),
         },

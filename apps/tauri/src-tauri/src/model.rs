@@ -124,6 +124,9 @@ pub struct AppSettings {
     /// 菜单栏下行跌色（hex，默认 #34C759）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_fall_color: Option<String>,
+    /// 菜单栏下行平色（hex，默认 #8e8e93）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_flat_color: Option<String>,
     /// popup 分组 Tab 是否显示两行收益详情（默认 true：分组名 + 当日收益）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_tab_show_detail: Option<bool>,
@@ -159,6 +162,7 @@ impl Default for AppSettings {
             menubar_group_colors: None,
             menubar_rise_color: None,
             menubar_fall_color: None,
+            menubar_flat_color: None,
             group_tab_show_detail: None,
             group_tab_detail_mode: None,
         }

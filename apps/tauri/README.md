@@ -13,7 +13,7 @@
 - **形态**：macOS menubar 常驻（`ActivationPolicy::Accessory`，不占 Dock）；多实例 = 总览
   （`menubar-overview`）+ 每个持仓分组一个 `NSStatusItem`（上行分组名 / 下行涨跌%，可配置），未分组持仓进兜底实例 `menubar-ungrouped`。
 - **菜单栏着色**：`tauri-plugin-multiline-menubar` 原生 `set_colors`（`ColorStyle::Solid` 直接传 hex，涨/跌/平分行着色）、`set_bold`（行独立加粗）、`set_alignment`（行独立 0=左 1=中 2=右）、`set_visible`（显隐，不销毁）、`set_menu`、`remove`。
-  - 默认色：涨 `#FF4F44` / 跌 `#34C759` / 平灰 `#8e8e93`（可在设置里改 `menubarRiseColor` / `menubarFallColor`）。
+  - 默认色：涨 `#FF4F44` / 跌 `#34C759` / 平灰 `#8e8e93`（可在设置里改 `menubarRiseColor` / `menubarFallColor` / `menubarFlatColor`）。
   - 实例生命周期：`create` 一次终生不销毁；显隐只翻 `set_visible`；仅分组被删除/重命名、未分组持仓清空时才 `remove`（避免 macOS 13+ `removeStatusItem` 丢位置）。
   - **⌘-拖出单个实例**：插件 v1.6.0 在用户拖出时 emit `multiline-menubar://{id}//remove`，Rust 侧 `menubar.rs` 监听并 `remove` 该实例（不影响其他实例），与 `is_visible` 回读无关。
 - **架构**：Rust 持有全部数据与计算（`src-tauri/src/{providers,market,gold,history,calc,calendar,portfolio,theme,fundname,format,badge,model,state,refresh,window,menubar,commands}`），TS 只留 `packages/ui` + `packages/core`；4 个 Tauri Port 已实现（`src/ports/`）。
@@ -90,7 +90,7 @@ menubar::rebuild_menubar(&handle, &config, quote.as_ref());
 
 ## 5. 菜单栏着色与角标
 
-- **菜单栏每行着色**走 `menubar.rs::color_for`（涨/跌/平）+ 插件 `set_colors(ColorStyle::Solid)`，颜色来自配置 `menubarRiseColor` / `menubarFallColor`（默认 `#FF4F44` / `#34C759`）与 `menubarTopColor`（上行固定色，默认 `#ffffff`）。不计 macOS `tray.set_title` 文本徽章——本应用用多实例 + 原生 hex 着色表达涨跌。
+- **菜单栏每行着色**走 `menubar.rs::color_for`（涨/跌/平）+ 插件 `set_colors(ColorStyle::Solid)`，颜色来自配置 `menubarRiseColor` / `menubarFallColor` / `menubarFlatColor`（默认 `#FF4F44` / `#34C759` / `#8e8e93`）与 `menubarTopColor`（上行固定色，默认 `#ffffff`）。不计 macOS `tray.set_title` 文本徽章——本应用用多实例 + 原生 hex 着色表达涨跌。
 - **`badge.rs`**：1:1 迁移 `packages/core/src/badge.ts`（`compute_badge(mode, pct, pnl)` → `{text, color}`，`percent` / `amount` / `hidden` 三模式，涨 `#dc2626` / 跌 `#16a34a`），当前 `#![allow(dead_code)]` 预留给未来紧凑角标文本复用。
 
 ## 6. Rust 命令清单（已注册，对应 4 个 Port）

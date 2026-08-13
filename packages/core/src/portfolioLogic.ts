@@ -10,7 +10,7 @@ export const MIN_REFRESH_INTERVAL: RefreshInterval = {trading: 30, nonTrading: 3
 
 /** 菜单栏展示自定义项默认值（core 导出，UI 与 normalize 共用）：
  * 上行 Hiragino Sans GB（分组名/总览，默认白色、不加粗），下行 Menlo（数值，默认加粗），
- * 下行涨色 #FF4F44 / 跌色 #34C759，平盘灰 #8e8e93（固定）。 */
+ * 下行涨色 #FF4F44 / 跌色 #34C759 / 平色 #8e8e93。 */
 export const MENUBAR_DEFAULTS: {
   topFont: string
   bottomFont: string
@@ -76,6 +76,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarGroupColors: {},
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
+    menubarFlatColor: MENUBAR_DEFAULTS.flatColor,
     // popup 分组 Tab 收益详情默认开启（两行：分组名 + 当日收益）
     groupTabShowDetail: true,
     groupTabDetailMode: 'percent',
@@ -401,6 +402,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       menubarFallColor: normalizeHexColor(
         payload?.settings?.menubarFallColor,
         MENUBAR_DEFAULTS.fallColor,
+      ),
+      menubarFlatColor: normalizeHexColor(
+        payload?.settings?.menubarFlatColor,
+        MENUBAR_DEFAULTS.flatColor,
       ),
       // popup 分组 Tab 收益详情：默认开启（true）；旧配置缺失时回落默认
       groupTabShowDetail:

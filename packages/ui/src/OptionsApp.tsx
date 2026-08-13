@@ -2866,6 +2866,7 @@ function MenubarSection() {
   const [groupColors, setGroupColors] = useState<Record<string, string>>({})
   const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
   const [fallColor, setFallColor] = useState(MENUBAR_DEFAULTS.fallColor)
+  const [flatColor, setFlatColor] = useState(MENUBAR_DEFAULTS.flatColor)
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
@@ -2889,6 +2890,7 @@ function MenubarSection() {
     setGroupColors(s.menubarGroupColors ?? {})
     setRiseColor(normalizeHexColor(s.menubarRiseColor, MENUBAR_DEFAULTS.riseColor))
     setFallColor(normalizeHexColor(s.menubarFallColor, MENUBAR_DEFAULTS.fallColor))
+    setFlatColor(normalizeHexColor(s.menubarFlatColor, MENUBAR_DEFAULTS.flatColor))
     const gs = listHoldingGroups(ports)
     setGroups(gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
@@ -3044,11 +3046,14 @@ function MenubarSection() {
   }
 
   /** 颜色：input[type=color] 选择即保存（低频操作） */
-  async function commitColor(
-    key: 'top' | 'rise' | 'fall',
-    v: string,
-  ) {
-    const hex = normalizeHexColor(v, MENUBAR_DEFAULTS[key === 'top' ? 'topColor' : key === 'rise' ? 'riseColor' : 'fallColor'])
+  const COLOR_DEFAULTS = {
+    top: MENUBAR_DEFAULTS.topColor,
+    rise: MENUBAR_DEFAULTS.riseColor,
+    fall: MENUBAR_DEFAULTS.fallColor,
+    flat: MENUBAR_DEFAULTS.flatColor,
+  } as const
+  async function commitColor(key: keyof typeof COLOR_DEFAULTS, v: string) {
+    const hex = normalizeHexColor(v, COLOR_DEFAULTS[key])
     try {
       if (key === 'top') {
         setTopColor(hex)
@@ -3056,9 +3061,12 @@ function MenubarSection() {
       } else if (key === 'rise') {
         setRiseColor(hex)
         await updateSettings(ports, {menubarRiseColor: hex})
-      } else {
+      } else if (key === 'fall') {
         setFallColor(hex)
         await updateSettings(ports, {menubarFallColor: hex})
+      } else {
+        setFlatColor(hex)
+        await updateSettings(ports, {menubarFlatColor: hex})
       }
     } catch {
       /* ignore */
@@ -3421,7 +3429,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">颜色</div>
         <p className="text-xs text-muted">
-          上行（分组名/总览）固定色默认白色；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759，平盘灰色固定。
+          上行（分组名/总览）固定色默认白色；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759、平色默认 #8e8e93。
         </p>
         <div className="space-y-1.5 pt-1">
           {(
@@ -3429,6 +3437,7 @@ function MenubarSection() {
               {key: 'top', label: '上行颜色', value: topColor},
               {key: 'rise', label: '下行涨色', value: riseColor},
               {key: 'fall', label: '下行跌色', value: fallColor},
+              {key: 'flat', label: '下行平色', value: flatColor},
             ] as const
           ).map(({key, label, value}) => (
             <div

@@ -199,21 +199,23 @@ pub fn start_night_loop(app: AppHandle) {
 ///   使下次自动刷新从「现在」重新计时，与进度环对齐。
 /// - reset_timer=false（打开 popup 拉数据）：仅拉数据，不动定时器与进度环，
 ///   避免打开浮窗就把环重置、与后台真实进度脱节。
-pub fn trigger_refresh(app: AppHandle, reset_timer: bool) {
-    tauri::async_runtime::spawn(async move {
-        refresh_all(&app, true).await;
-        if reset_timer {
-            // 手动刷新立即重置进度环：前端按当前市场档位展示新的周期
-            emit_refresh_schedule(&app, current_interval(&app));
-            // 重置两个循环的定时器，使下次自动刷新从「现在」重新计时，与进度环对齐
-            if let Some(n) = DAY_NOTIFY.get() {
-                n.notify_one();
-            }
-            if let Some(n) = NIGHT_NOTIFY.get() {
-                n.notify_one();
-            }
+///
+/// async 版本：命令层 await 本函数，前端「刷新中」图标在数据真正回来前保持旋转
+/// （对齐 Chrome SW 的 REFRESH 消息 await refreshAll 完成才 sendResponse）。
+/// 非命令调用方（导入配置 / 切源后的 fire-and-forget）用 async_runtime::spawn 包装。
+pub async fn trigger_refresh(app: AppHandle, reset_timer: bool) {
+    refresh_all(&app, true).await;
+    if reset_timer {
+        // 手动刷新立即重置进度环：前端按当前市场档位展示新的周期
+        emit_refresh_schedule(&app, current_interval(&app));
+        // 重置两个循环的定时器，使下次自动刷新从「现在」重新计时，与进度环对齐
+        if let Some(n) = DAY_NOTIFY.get() {
+            n.notify_one();
         }
-    });
+        if let Some(n) = NIGHT_NOTIFY.get() {
+            n.notify_one();
+        }
+    }
 }
 
 fn to_input(f: &FundRecord) -> FundQuoteInput {
@@ -378,6 +380,13 @@ async fn refresh_day(app: &AppHandle, force: bool) {
 
     // ---------------- 基金（仅持仓） ----------------
     if force || calendar::should_refresh_fund(&now) {
+        // 手动刷新（force）时清空自算估值缓存，强制本轮实时拉取行情，
+        // 使「点击刷新 = 点击时刻的最新估算值」（与 Chrome SW force=true 时
+        // clearFundEstimateCaches() 对齐）。否则手动刷新会命中 5min CALC_GSZZL_CACHE，
+        // 返回上次自动刷新的旧估算值，两端缓存填充时刻不同步 → 分叉。
+        if force {
+            crate::providers::fundmnfinfo::clear_calc_caches();
+        }
         let holdings_funds: Vec<FundRecord> = config.holdings.values().cloned().collect();
         if !holdings_funds.is_empty() {
             let mut inputs: Vec<FundQuoteInput> = Vec::with_capacity(holdings_funds.len());
