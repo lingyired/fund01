@@ -26,19 +26,36 @@ pub async fn trigger_refresh(app: AppHandle, reset_timer: bool) {
 
 #[tauri::command]
 pub fn fetch_holdings(state: State<AppState>) -> Option<HoldingsPayload> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.holdings.clone())
+    state
+        .quote
+        .read()
+        .unwrap()
+        .as_ref()
+        .and_then(|q| q.holdings.clone())
 }
 
 #[tauri::command]
 pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
-    state.quote.read().unwrap().as_ref().and_then(|q| q.indices.clone()).unwrap_or_default()
+    state
+        .quote
+        .read()
+        .unwrap()
+        .as_ref()
+        .and_then(|q| q.indices.clone())
+        .unwrap_or_default()
 }
 
 /// 最近一次后台成功刷新的时间戳（ms）；尚未刷新过返回 0。
 /// 供前端 popup 打开时直接显示更新时间（无需等待下一次事件推送）。
 #[tauri::command]
 pub fn fetch_last_update(state: State<AppState>) -> i64 {
-    state.quote.read().unwrap().as_ref().map(|q| q.time).unwrap_or(0)
+    state
+        .quote
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|q| q.time)
+        .unwrap_or(0)
 }
 
 /// 当前自动刷新计划（周期与下次触发时间），供前端 popup 打开即拉进度环权威时刻，
@@ -152,13 +169,25 @@ pub async fn save_config(
     *state.config.write().unwrap() = normalized.clone();
     persist_config(&app, &normalized);
     // 诊断日志：menubar 分组显示 / 分组顺序相关变更（排查「开关 A 却隐藏 B」与排序问题）
-    let oh = old.settings.menubar_hidden_groups.clone().unwrap_or_default();
-    let nh = normalized.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    let oh = old
+        .settings
+        .menubar_hidden_groups
+        .clone()
+        .unwrap_or_default();
+    let nh = normalized
+        .settings
+        .menubar_hidden_groups
+        .clone()
+        .unwrap_or_default();
     if oh != nh {
         eprintln!("[fund01] save_config: menubarHiddenGroups {oh:?} -> {nh:?}");
     }
     let og = old.settings.holding_groups.clone().unwrap_or_default();
-    let ng = normalized.settings.holding_groups.clone().unwrap_or_default();
+    let ng = normalized
+        .settings
+        .holding_groups
+        .clone()
+        .unwrap_or_default();
     if og != ng {
         eprintln!("[fund01] save_config: holdingGroups {og:?} -> {ng:?}");
     }
@@ -185,6 +214,9 @@ pub async fn save_config(
         if let Some(q) = state.quote.write().unwrap().as_mut() {
             q.holdings = None;
         }
+        // 同步清空 last_quote_source（与清空 holdings 配套），使下次合并跳过旧源缓存，
+        // 对齐 Chrome 端 oldSource !== newSource 时 remove(cache-holdings / cache-source) 的行为。
+        *state.last_quote_source.write().unwrap() = None;
     }
     // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
@@ -231,17 +263,23 @@ pub fn open_external(url: String) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").arg(&url).spawn()
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
             .map_err(|e| format!("打开链接失败：{e}"))?;
     }
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd").args(["/c", "start", "", &url]).spawn()
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &url])
+            .spawn()
             .map_err(|e| format!("打开链接失败：{e}"))?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        std::process::Command::new("xdg-open").arg(&url).spawn()
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
             .map_err(|e| format!("打开链接失败：{e}"))?;
     }
     Ok(())

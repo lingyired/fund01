@@ -10,6 +10,10 @@ pub struct AppState {
     pub quote: RwLock<Option<QuoteUpdate>>,
     /// 归一化后的当前配置（内存权威副本，save_config 时更新）
     pub config: RwLock<AppConfig>,
+    /// 最近一次基金刷新使用的数据源（"fundmnfinfo" / "fund123"）。
+    /// 供 refresh_day 的 merge_stale_estimate 做同源判断：切源后旧缓存是旧源口径，
+    /// 混入会让 percent 与净值差来自不同源（与 Chrome SW 的 cache-source 对齐）。
+    pub last_quote_source: RwLock<Option<String>>,
     /// popup 延迟销毁计时器句柄（hide 后启动，show 时取消）
     pub popup_destroy_timer: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
@@ -19,6 +23,7 @@ impl AppState {
         Self {
             quote: RwLock::new(None),
             config: RwLock::new(config),
+            last_quote_source: RwLock::new(None),
             popup_destroy_timer: std::sync::Mutex::new(None),
         }
     }

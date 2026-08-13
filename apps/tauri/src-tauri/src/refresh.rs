@@ -12,7 +12,9 @@ use tokio::sync::Notify;
 use crate::calc::{calc_holdings, PersistPatch};
 use crate::calendar;
 use crate::menubar;
-use crate::model::{AppConfig, FundRecord, HoldingsPayload, IndexItem, QuoteUpdate};
+use crate::model::{
+    AppConfig, FundQuote, FundQuoteRow, FundRecord, HoldingsPayload, IndexItem, QuoteUpdate,
+};
 use crate::portfolio::DEFAULT_REFRESH_INTERVAL;
 use crate::providers::{get_quote_provider, FundQuoteInput, QuoteSource};
 use crate::state::AppState;
@@ -27,7 +29,8 @@ pub struct RefreshSchedule {
 
 /// 通知前端下一次自动刷新将在何时发生，用于刷新按钮的进度环
 fn emit_refresh_schedule(app: &AppHandle, interval_seconds: u64) {
-    let next_refresh_at = chrono::Local::now().timestamp_millis() + (interval_seconds as i64) * 1000;
+    let next_refresh_at =
+        chrono::Local::now().timestamp_millis() + (interval_seconds as i64) * 1000;
     let _ = app.emit(
         "refresh-schedule",
         RefreshSchedule {
@@ -86,7 +89,11 @@ fn loop_interval(app: &AppHandle, active: bool) -> u64 {
         .refresh_interval
         .clone()
         .unwrap_or(DEFAULT_REFRESH_INTERVAL);
-    if active { ri.trading } else { ri.non_trading }
+    if active {
+        ri.trading
+    } else {
+        ri.non_trading
+    }
 }
 
 /// 指数看板是否含美股指数（NDX/SPX）
@@ -109,11 +116,15 @@ pub fn start_day_loop(app: AppHandle) {
             let secs = loop_interval(&app, active);
             // 准点切换：距下一时段翻转点比当前档位周期更近时，先睡到翻转点，
             // 醒来（顶部重判）即切档，消除「非交易档最坏滞后一个周期」
-            let sleep_secs = match calendar::seconds_until_next_switch(active, calendar::is_day_market_active, &now) {
+            let sleep_secs = match calendar::seconds_until_next_switch(
+                active,
+                calendar::is_day_market_active,
+                &now,
+            ) {
                 Some(s) if s < secs => s.max(5),
                 _ => secs.max(5),
             };
-            emit_refresh_schedule(&app, sleep_secs);
+            emit_refresh_schedule(&app, current_interval(&app));
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {
                     // 定时器触发日志：便于观察各循环定时情况（trigger_refresh 手动刷新不走这里；release 打包移除）
@@ -149,7 +160,11 @@ pub fn start_night_loop(app: AppHandle) {
                     .unwrap_or(DEFAULT_REFRESH_INTERVAL);
                 let active = calendar::is_night_market_active(&now);
                 let needed = has_us_indices(&config);
-                if active && needed { ri.trading } else { ri.non_trading }
+                if active && needed {
+                    ri.trading
+                } else {
+                    ri.non_trading
+                }
             };
             // 准点切换：距下一时段翻转点更近时先睡到翻转点（与日盘循环一致）
             let sleep_secs = match calendar::seconds_until_next_switch(
@@ -160,7 +175,7 @@ pub fn start_night_loop(app: AppHandle) {
                 Some(s) if s < secs => s.max(5),
                 _ => secs.max(5),
             };
-            emit_refresh_schedule(&app, sleep_secs);
+            emit_refresh_schedule(&app, current_interval(&app));
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(sleep_secs)) => {
                     #[cfg(debug_assertions)]
@@ -219,7 +234,9 @@ pub fn apply_patches(app: &AppHandle, patches: Vec<PersistPatch>) {
     let mut config = state.config.read().unwrap().clone();
     let mut changed = false;
     for patch in patches {
-        let Some(sectors) = patch.sectors else { continue };
+        let Some(sectors) = patch.sectors else {
+            continue;
+        };
         if let Some(f) = config.holdings.get_mut(&patch.code) {
             if f.sectors != sectors {
                 f.sectors = sectors.clone();
@@ -278,6 +295,69 @@ pub async fn refresh_all(app: &AppHandle, force: bool) {
     refresh_night(app, force).await;
 }
 
+/// 对应 Chrome SW `mergeStaleEstimate`：本轮实时自算未拿到估算值时，从上一轮缓存
+/// （state.quote.holdings.list，即上一轮 `HoldingsPayload.list`）合并旧估算字段兜底，
+/// 使空窗期 / 自算偶发失败的基金在 UI 仍能显示最近一次有效估算，从而与 Chrome 端
+/// 当日收益 1:1 对齐，杜绝「同一持仓同一时刻两端当日收益不同」的信任问题。
+///
+/// 合并字段（仅当新值缺失且旧值存在时覆盖）：
+///   estimate_net_value / estimate_growth / percent / percent_source / time / prev_net_value
+/// 不覆盖 net_value / day_growth / net_value_date（新数据更准）。
+///
+/// 跳过条件（与 SW 逐条对齐）：
+///   - q.is_qdii：QDII 盘中无估算为常态（provider 跳过自算估值），合并会把昨日 confirmed
+///     涨幅 + prevNetValue 带回盘中冒充「今日」收益。直接跳过，保持 percent/prevNetValue
+///     为空，严格走披露日窗口（盘中显示「-」）。
+///   - 本轮已有新估算（estimate_net_value 或 estimate_growth 非 null）：不覆盖实时估值，
+///     也不覆盖 20:00 后的官方确认数据。
+///   - 旧值 percent_source == 'confirmed'：仅允许 estimate 旧值保留（黄金 ETF 联接等无 GSZ
+///     基金同样受益），避免历史确认涨幅冒充今日盘中收益。
+/// 同源判断由调用方负责（last_quote_source 比较），本函数不处理。
+fn merge_stale_estimate(quotes: &mut [FundQuote], cached_list: &[FundQuoteRow]) {
+    if cached_list.is_empty() {
+        return;
+    }
+    let cache_map: std::collections::HashMap<&str, &FundQuoteRow> = cached_list
+        .iter()
+        .map(|r| (r.fund.code.as_str(), r))
+        .collect();
+    for q in quotes.iter_mut() {
+        if q.is_qdii.unwrap_or(false) {
+            continue;
+        }
+        let has_new_estimate = q.estimate_net_value.is_some() || q.estimate_growth.is_some();
+        if has_new_estimate {
+            continue;
+        }
+        let old = match cache_map.get(q.code.as_str()) {
+            Some(o) => *o,
+            None => continue,
+        };
+        if q.estimate_net_value.is_none() && old.estimate_net_value.is_some() {
+            q.estimate_net_value = old.estimate_net_value;
+        }
+        if q.estimate_growth.is_none() && old.estimate_growth.is_some() {
+            q.estimate_growth = old.estimate_growth;
+        }
+        if q.percent.is_none()
+            && old.percent.is_some()
+            && old.percent_source.as_deref() != Some("confirmed")
+        {
+            q.percent = old.percent;
+            q.percent_source = old
+                .percent_source
+                .clone()
+                .or_else(|| Some("estimate".to_string()));
+        }
+        if q.time.is_none() && old.time.is_some() {
+            q.time = old.time.clone();
+        }
+        if q.prev_net_value.is_none() && old.prev_net_value.is_some() {
+            q.prev_net_value = old.prev_net_value;
+        }
+    }
+}
+
 /// 日盘数据：基金持仓 + A 股指数
 async fn refresh_day(app: &AppHandle, force: bool) {
     let state = app.state::<AppState>();
@@ -288,30 +368,63 @@ async fn refresh_day(app: &AppHandle, force: bool) {
     let mut indices: Option<Vec<IndexItem>> = None;
     let mut patches: Vec<PersistPatch> = Vec::new();
 
-    let source = QuoteSource::from_str(config.settings.quote_source.as_deref().unwrap_or("fundmnfinfo"));
+    let source_str = config
+        .settings
+        .quote_source
+        .as_deref()
+        .unwrap_or("fundmnfinfo")
+        .to_string();
+    let source = QuoteSource::from_str(&source_str);
 
     // ---------------- 基金（仅持仓） ----------------
     if force || calendar::should_refresh_fund(&now) {
         let holdings_funds: Vec<FundRecord> = config.holdings.values().cloned().collect();
         if !holdings_funds.is_empty() {
-            let mut inputs: Vec<FundQuoteInput> =
-                Vec::with_capacity(holdings_funds.len());
+            let mut inputs: Vec<FundQuoteInput> = Vec::with_capacity(holdings_funds.len());
             for f in &holdings_funds {
                 inputs.push(to_input(f));
             }
             let provider = get_quote_provider(source);
-            let quotes = provider.fetch_quotes(&inputs).await;
+            let mut quotes = provider.fetch_quotes(&inputs).await;
             {
                 let with_percent = quotes.iter().filter(|q| q.percent.is_some()).count();
                 let with_nav = quotes.iter().filter(|q| q.net_value.is_some()).count();
                 crate::dbg_log!(
                     "refresh 基金 source={} inputs={} quotes={} with_percent={} with_nav={}",
-                    config.settings.quote_source.as_deref().unwrap_or("fundmnfinfo"),
+                    config
+                        .settings
+                        .quote_source
+                        .as_deref()
+                        .unwrap_or("fundmnfinfo"),
                     inputs.len(),
                     quotes.len(),
                     with_percent,
                     with_nav
                 );
+            }
+            // 与 Chrome SW mergeStaleEstimate 1:1 对齐：本轮实时自算失败时，从上一轮缓存
+            // 合并旧估算值兜底，避免 Tauri 端 pnl 被永久置 0 而 Chrome 端有值 → 两端当日
+            // 收益分叉。切源后旧缓存是旧源口径，必须同源才合并（与 SW cache-source 对齐）。
+            {
+                let prev = state.quote.read().unwrap();
+                let prev_source = state.last_quote_source.read().unwrap().clone();
+                let same_source = prev_source.as_deref() == Some(source_str.as_str());
+                if let Some(prev_holdings) = prev.as_ref().and_then(|p| p.holdings.as_ref()) {
+                    if same_source && !prev_holdings.list.is_empty() {
+                        crate::dbg_log!(
+                            "refresh mergeStaleEstimate source={} cached={}",
+                            source_str,
+                            prev_holdings.list.len()
+                        );
+                        merge_stale_estimate(&mut quotes, &prev_holdings.list);
+                    } else if !same_source {
+                        crate::dbg_log!(
+                            "refresh 缓存数据源 {:?} ≠ 当前 {}，跳过估算合并",
+                            prev_source,
+                            source_str
+                        );
+                    }
+                }
             }
             let (payload, p) = calc_holdings(&holdings_funds, &quotes);
             holdings_payload = Some(payload);
@@ -321,6 +434,8 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             // 否则 broadcast 会回退旧 state.quote，popup / menubar 浮窗仍显示旧持仓。
             holdings_payload = Some(HoldingsPayload::default());
         }
+        // 记录本轮基金刷新使用的数据源（供下次合并做同源判断；切源即失效，下次跳过合并）
+        *state.last_quote_source.write().unwrap() = Some(source_str.clone());
     }
 
     // ---------------- A 股指数 ----------------

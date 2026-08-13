@@ -63,6 +63,20 @@ packages/core  ◀── packages/services
 
 `core` 不依赖任何 `@fund01/*` 包；`services` 和 `ui` 依赖 `core`；`apps/chrome` 依赖三者并注入 Port 实现。
 
+## ⚠️ Chrome 与 Tauri 数据一致性铁律（跨端对齐，最高优先级）
+
+> **信任红线**：用户同时用 Chrome 扩展和 Tauri 桌面端盯同一组持仓、选同一数据源时，**同一时刻两端显示的「当日收益 / 收益率 / 单只涨跌」必须完全一致**。任何一端偏高/偏低都是严重 Bug，会直接摧毁用户对数据的信任。（2026-08-13 已踩坑：自算估值偶发失败时 Tauri 端当日收益比 Chrome 端少约 ¥479，且手动刷新救不回。）
+
+两条独立实现——**Chrome SW 走 `@fund01/services`+`@fund01/core`（JS），Tauri 走 `apps/tauri/src-tauri/src/`（Rust）**——必须保持逻辑 **1:1**：
+
+1. **改动必须两端同步**：行情 / 计算 / 缓存 / 兜底逻辑的任何改动，必须在 JS 与 Rust 两端同时落地（标注「1:1 迁移」），**禁止只在某一端修改**。改一处忘另一处 = 未完成。
+2. **「跨刷新保留旧值」类逻辑逐条对齐**：如 `mergeStaleEstimate`（自算失败兜底），其同源判断、QDII 跳过、confirmed 旧值不合并等所有条件必须逐字段对齐，差一条即分叉。
+3. **公式层 1:1**：`calc_holdings`↔`calcHoldings`、`resolve_nav_pair`↔`resolveNavPair`、`is_confirmed_session_active` 等输入输出与边界处理必须一致，不得各自「优化」。
+4. **新增数据源 / 兜底分支先对账**：先确认两端 provider 与计算层都覆盖，再做回归验证。
+5. **验证门槛（PR / 发布前必做）**：同一持仓 + 同一数据源，两端各自手动刷新后 `totalPnl` 必须相等；不一致 → 阻断发布、回滚定位。
+
+**已知历史坑（勿再犯）**：`mergeStaleEstimate` 曾只在 Chrome SW 实现，Tauri Rust 缺这段兜底 → 自算偶发失败时 Tauri 把 pnl 永久置 0、Chrome 用旧缓存救回 → 两端当日收益差。修复见 `apps/tauri/src-tauri/src/refresh.rs`（`merge_stale_estimate` + `last_quote_source` 同源判断），与 `ARCHITECTURE.md §4.1` 互参。
+
 ## 三个 Port 接口
 
 定义在 `packages/core/src/port.ts`：
