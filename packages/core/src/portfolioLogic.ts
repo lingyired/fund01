@@ -240,7 +240,10 @@ export function normalizeMenubarHiddenGroups(
   const next: string[] = []
   for (const g of v) {
     const key = String(g ?? '').trim()
-    if ((key === '' || valid.has(key)) && !next.includes(key)) next.push(key)
+    // 允许 ''(未分组)、__overview__(总览被 ⌘-拖出) 与有效分组
+    if ((key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) && !next.includes(key)) {
+      next.push(key)
+    }
   }
   return next
 }

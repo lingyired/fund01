@@ -240,13 +240,17 @@ fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<Ins
 
     let mut out: Vec<InstanceSpec> = Vec::new();
     let overview = quote.and_then(|q| q.holdings.as_ref()).map(|h| h.summary.clone());
-    // 总览恒在、恒显示（不可隐藏）
+    // 总览恒在（实例不销毁）；默认恒显示，但被用户 ⌘-拖出（写入 __overview__ 隐藏标记）后
+    // visible=false——设置界面据此解锁总览为可重新开启，开启后恢复恒显。
+    let overview_hidden = hidden
+        .iter()
+        .any(|h| h == crate::portfolio::MENUBAR_OVERVIEW_KEY);
     out.push(InstanceSpec {
         id: INSTANCE_OVERVIEW.to_string(),
         top: "总览".to_string(),
         pct: overview.as_ref().map(|s| s.total_pnl_percent).unwrap_or(0.0),
         amount: overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0),
-        visible: true,
+        visible: !overview_hidden,
     });
 
     // 每个分组一个实例：隐藏的分组**照样进列表**，只是 visible=false。
@@ -508,11 +512,12 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
         eprintln!("[fund01] menubar remove 事件：id={instance_id}（⌘-拖出，视作取消勾选）");
         // ⌘-拖出 = 用户不想在菜单栏显示该实例 → 同步隐藏到设置（menubarHiddenGroups），
         // 设置页对应分组的「显示」开关随之置灰。实例保留，重新勾选即原位复活。
-        // 总览恒显不可隐藏；未分组 id 对应隐藏列表中的 ''。
+        // 总览默认恒显不可隐藏，但 macOS 允许 ⌘-拖出 → 写入 __overview__ 标记，设置页解锁为可重新开启；
+        // 未分组 id 对应隐藏列表中的 ''。
         let group = if instance_id == "menubar-ungrouped" {
             Some(String::new())
         } else if instance_id == INSTANCE_OVERVIEW {
-            None
+            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
         } else {
             instance_id
                 .strip_prefix("menubar-group-")

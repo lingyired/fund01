@@ -283,12 +283,14 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     }
 
     let settings_raw = payload.get("settings");
-    // menubarHiddenGroups：保留 ''(未分组)，去重保序，只留有效分组
+    // menubarHiddenGroups：保留 ''(未分组)、__overview__(总览被 ⌘-拖出)，去重保序，只留有效分组
     let mut menubar_hidden_groups: Vec<String> = Vec::new();
     if let Some(h) = settings_raw.and_then(|s| s.get("menubarHiddenGroups")).and_then(|v| v.as_array()) {
         for g in h {
             let key = g.as_str().unwrap_or("").trim().to_string();
-            if (key.is_empty() || holding_groups.contains(&key)) && !menubar_hidden_groups.contains(&key) {
+            if (key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key))
+                && !menubar_hidden_groups.contains(&key)
+            {
                 menubar_hidden_groups.push(key);
             }
         }
