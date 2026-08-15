@@ -80,8 +80,9 @@ pub fn run() {
             let config = state.config.read().unwrap().clone();
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
-            // 启动后延迟重踢布局：修复 release 构建菜单栏下行被裁（详见 menubar::kick_menubar_layout）
-            menubar::kick_menubar_layout(&handle);
+
+            // 启动时默认打开设置界面（menubar 常驻，打开 app 即见主界面窗口）
+            window::open_settings_window(&handle, None, None);
 
             // 启动两个定时刷新循环（日盘 A 股 / 夜盘 美股）+ 立即刷新一次
             refresh::start_refresh_loops(handle.clone());
