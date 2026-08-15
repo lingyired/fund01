@@ -9,7 +9,7 @@ export const DEFAULT_REFRESH_INTERVAL: RefreshInterval = {trading: 60, nonTradin
 export const MIN_REFRESH_INTERVAL: RefreshInterval = {trading: 30, nonTrading: 300}
 
 /** 菜单栏展示自定义项默认值（core 导出，UI 与 normalize 共用）：
- * 上行 Hiragino Sans GB（分组名/总览，默认白色、不加粗），下行 Menlo（数值，默认加粗），
+ * 上行/下行默认系统字体（留空=系统字体）；上行默认白色不加粗，下行默认加粗，
  * 下行涨色 #FF4F44 / 跌色 #34C759 / 平色 #8e8e93。 */
 export const MENUBAR_DEFAULTS: {
   topFont: string
@@ -24,8 +24,8 @@ export const MENUBAR_DEFAULTS: {
   topAlign: MenubarAlign
   bottomAlign: MenubarAlign
 } = {
-  topFont: 'Hiragino Sans GB',
-  bottomFont: 'Menlo',
+  topFont: '',
+  bottomFont: '',
   topBold: false,
   bottomBold: true,
   topColor: '#ffffff',

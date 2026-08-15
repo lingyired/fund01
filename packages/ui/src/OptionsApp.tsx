@@ -2880,8 +2880,8 @@ function MenubarSection() {
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     setShowAmount(s.menubarShowAmount === true)
-    setTopFont(s.menubarTopFont ?? MENUBAR_DEFAULTS.topFont)
-    setBottomFont(s.menubarBottomFont ?? MENUBAR_DEFAULTS.bottomFont)
+    setTopFont(s.menubarTopFont ?? '')
+    setBottomFont(s.menubarBottomFont ?? '')
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
     setBottomBold(s.menubarBottomBold ?? MENUBAR_DEFAULTS.bottomBold)
     setTopAlign(s.menubarTopAlign ?? MENUBAR_DEFAULTS.topAlign)
@@ -3327,7 +3327,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">字体</div>
         <p className="text-xs text-muted">
-          上行默认 Hiragino Sans GB（分组名/总览），下行默认 Menlo（数值）。填 macOS 字体族名，留空=系统字体；失焦或回车保存。
+          默认系统字体。填 macOS 字体族名（如 Menlo），留空=系统字体；失焦或回车保存。
         </p>
         <div className="grid grid-cols-2 gap-3 pt-1">
           <label className="space-y-1">

@@ -93,10 +93,10 @@ pub struct AppSettings {
     /// 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_show_amount: Option<bool>,
-    /// 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串=系统字体
+    /// 菜单栏上行字体族名（macOS font family，默认空=系统字体）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_font: Option<String>,
-    /// 菜单栏下行字体族名（macOS font family，如 Menlo）。空串=系统字体
+    /// 菜单栏下行字体族名（macOS font family，默认空=系统字体）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_font: Option<String>,
     /// 菜单栏上行是否加粗（默认 false）

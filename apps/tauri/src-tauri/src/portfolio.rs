@@ -33,8 +33,8 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_font_size: Some(11.0),
             menubar_equal_font_size: Some(9.0),
             menubar_show_amount: Some(false),
-            menubar_top_font: Some("Hiragino Sans GB".to_string()),
-            menubar_bottom_font: Some("Menlo".to_string()),
+            menubar_top_font: Some(String::new()),
+            menubar_bottom_font: Some(String::new()),
             menubar_top_bold: Some(false),
             menubar_bottom_bold: Some(true),
             menubar_top_align: Some(0),
@@ -350,8 +350,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             _ => 0,
         }
     };
-    let menubar_top_font = font_of("menubarTopFont", "Hiragino Sans GB");
-    let menubar_bottom_font = font_of("menubarBottomFont", "Menlo");
+    let menubar_top_font = font_of("menubarTopFont", "");
+    let menubar_bottom_font = font_of("menubarBottomFont", "");
     let menubar_top_bold = bool_of("menubarTopBold", false);
     let menubar_bottom_bold = bool_of("menubarBottomBold", true);
     let menubar_top_align = align_of("menubarTopAlign");
