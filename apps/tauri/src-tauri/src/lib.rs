@@ -98,12 +98,21 @@ pub fn run() {
 
     // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，menubar 实例不随浮窗销毁。
     // 显式退出（右键菜单「退出 fund01」→ 插件 app.exit(0)）code.is_some() → 放行。
-    app.run(|_app, event| {
-        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
-            if code.is_none() {
-                eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
-                api.prevent_exit();
+    app.run(|app, event| {
+        match event {
+            // macOS：进程常驻时用户再次点击 Dock / 启动台 / Finder 双击 app，
+            // 系统把「重新打开」发给现有进程（不走 setup）→ 打开当前进程的设置界面。
+            tauri::RunEvent::Reopen { .. } => {
+                eprintln!("[fund01] 重新打开 app → 打开设置界面");
+                window::open_settings_window(app, None, None);
             }
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                if code.is_none() {
+                    eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
+                    api.prevent_exit();
+                }
+            }
+            _ => {}
         }
     });
 }
