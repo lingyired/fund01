@@ -80,8 +80,9 @@ pub fn run() {
             let config = state.config.read().unwrap().clone();
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
-            // 启动后延迟重踢布局：修复 release 构建菜单栏下行被裁（详见 menubar::kick_menubar_layout）
-            menubar::kick_menubar_layout(&handle);
+
+            // 启动时默认打开设置界面（menubar 常驻，打开 app 即见主界面窗口）
+            window::open_settings_window(&handle, None, None);
 
             // 启动两个定时刷新循环（日盘 A 股 / 夜盘 美股）+ 立即刷新一次
             refresh::start_refresh_loops(handle.clone());
@@ -97,12 +98,21 @@ pub fn run() {
 
     // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，menubar 实例不随浮窗销毁。
     // 显式退出（右键菜单「退出 fund01」→ 插件 app.exit(0)）code.is_some() → 放行。
-    app.run(|_app, event| {
-        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
-            if code.is_none() {
-                eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
-                api.prevent_exit();
+    app.run(|app, event| {
+        match event {
+            // macOS：进程常驻时用户再次点击 Dock / 启动台 / Finder 双击 app，
+            // 系统把「重新打开」发给现有进程（不走 setup）→ 打开当前进程的设置界面。
+            tauri::RunEvent::Reopen { .. } => {
+                eprintln!("[fund01] 重新打开 app → 打开设置界面");
+                window::open_settings_window(app, None, None);
             }
+            tauri::RunEvent::ExitRequested { code, api, .. } => {
+                if code.is_none() {
+                    eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
+                    api.prevent_exit();
+                }
+            }
+            _ => {}
         }
     });
 }

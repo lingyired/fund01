@@ -33,8 +33,8 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_font_size: Some(11.0),
             menubar_equal_font_size: Some(9.0),
             menubar_show_amount: Some(false),
-            menubar_top_font: Some("Hiragino Sans GB".to_string()),
-            menubar_bottom_font: Some("Menlo".to_string()),
+            menubar_top_font: Some(String::new()),
+            menubar_bottom_font: Some(String::new()),
             menubar_top_bold: Some(false),
             menubar_bottom_bold: Some(true),
             menubar_top_align: Some(0),
@@ -283,12 +283,14 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     }
 
     let settings_raw = payload.get("settings");
-    // menubarHiddenGroups：保留 ''(未分组)，去重保序，只留有效分组
+    // menubarHiddenGroups：保留 ''(未分组)、__overview__(总览被 ⌘-拖出)，去重保序，只留有效分组
     let mut menubar_hidden_groups: Vec<String> = Vec::new();
     if let Some(h) = settings_raw.and_then(|s| s.get("menubarHiddenGroups")).and_then(|v| v.as_array()) {
         for g in h {
             let key = g.as_str().unwrap_or("").trim().to_string();
-            if (key.is_empty() || holding_groups.contains(&key)) && !menubar_hidden_groups.contains(&key) {
+            if (key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key))
+                && !menubar_hidden_groups.contains(&key)
+            {
                 menubar_hidden_groups.push(key);
             }
         }
@@ -350,8 +352,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             _ => 0,
         }
     };
-    let menubar_top_font = font_of("menubarTopFont", "Hiragino Sans GB");
-    let menubar_bottom_font = font_of("menubarBottomFont", "Menlo");
+    let menubar_top_font = font_of("menubarTopFont", "");
+    let menubar_bottom_font = font_of("menubarBottomFont", "");
     let menubar_top_bold = bool_of("menubarTopBold", false);
     let menubar_bottom_bold = bool_of("menubarBottomBold", true);
     let menubar_top_align = align_of("menubarTopAlign");

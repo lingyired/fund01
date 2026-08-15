@@ -2880,8 +2880,8 @@ function MenubarSection() {
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     setShowAmount(s.menubarShowAmount === true)
-    setTopFont(s.menubarTopFont ?? MENUBAR_DEFAULTS.topFont)
-    setBottomFont(s.menubarBottomFont ?? MENUBAR_DEFAULTS.bottomFont)
+    setTopFont(s.menubarTopFont ?? '')
+    setBottomFont(s.menubarBottomFont ?? '')
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
     setBottomBold(s.menubarBottomBold ?? MENUBAR_DEFAULTS.bottomBold)
     setTopAlign(s.menubarTopAlign ?? MENUBAR_DEFAULTS.topAlign)
@@ -3127,7 +3127,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
-          菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」始终显示。
+          菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」默认始终显示、不可在本页关闭；若在菜单栏被按住 ⌘ 拖出，可在此重新开启（开启后恢复始终显示）。
         </p>
         <table className="w-full pt-1 text-sm">
           <thead>
@@ -3161,7 +3161,13 @@ function MenubarSection() {
               </td>
               <td className="py-2 pl-3">
                 <div className="flex justify-end">
-                  <Switch radius="full" checked disabled aria-label="总览固定显示" />
+                  {/* 总览默认恒显、禁止关闭；被 ⌘-拖出后解锁为可重新开启（开启后恢复恒显） */}
+                  <Switch radius="full"
+                    checked={!hidden.includes(MENUBAR_OVERVIEW_KEY)}
+                    disabled={saving || !hidden.includes(MENUBAR_OVERVIEW_KEY)}
+                    onCheckedChange={(c) => void toggleGroup(MENUBAR_OVERVIEW_KEY, c)}
+                    aria-label="显示/隐藏总览"
+                  />
                 </div>
               </td>
             </tr>
@@ -3327,7 +3333,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">字体</div>
         <p className="text-xs text-muted">
-          上行默认 Hiragino Sans GB（分组名/总览），下行默认 Menlo（数值）。填 macOS 字体族名，留空=系统字体；失焦或回车保存。
+          默认系统字体。填 macOS 字体族名（如 Menlo），留空=系统字体；失焦或回车保存。
         </p>
         <div className="grid grid-cols-2 gap-3 pt-1">
           <label className="space-y-1">
@@ -3335,7 +3341,6 @@ function MenubarSection() {
             <TextField.Root
               type="text"
               value={topFont}
-              placeholder={MENUBAR_DEFAULTS.topFont}
               onChange={(e) => setTopFont(e.target.value)}
               onBlur={(e) => void commitFontFamily('top', e.target.value)}
               onKeyDown={(e) => {
@@ -3350,7 +3355,6 @@ function MenubarSection() {
             <TextField.Root
               type="text"
               value={bottomFont}
-              placeholder={MENUBAR_DEFAULTS.bottomFont}
               onChange={(e) => setBottomFont(e.target.value)}
               onBlur={(e) => void commitFontFamily('bottom', e.target.value)}
               onKeyDown={(e) => {

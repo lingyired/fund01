@@ -32,7 +32,6 @@ use tauri::Manager;
 use tauri_plugin_multiline_menubar::{ColorStyle, MenuItemDescriptor, MultilineMenubarExt};
 
 use crate::model::{AppConfig, FundQuoteRow, QuoteUpdate};
-use crate::state::AppState;
 use crate::window::{open_settings_window, show_popup};
 
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
@@ -241,13 +240,17 @@ fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<Ins
 
     let mut out: Vec<InstanceSpec> = Vec::new();
     let overview = quote.and_then(|q| q.holdings.as_ref()).map(|h| h.summary.clone());
-    // 总览恒在、恒显示（不可隐藏）
+    // 总览恒在（实例不销毁）；默认恒显示，但被用户 ⌘-拖出（写入 __overview__ 隐藏标记）后
+    // visible=false——设置界面据此解锁总览为可重新开启，开启后恢复恒显。
+    let overview_hidden = hidden
+        .iter()
+        .any(|h| h == crate::portfolio::MENUBAR_OVERVIEW_KEY);
     out.push(InstanceSpec {
         id: INSTANCE_OVERVIEW.to_string(),
         top: "总览".to_string(),
         pct: overview.as_ref().map(|s| s.total_pnl_percent).unwrap_or(0.0),
         amount: overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0),
-        visible: true,
+        visible: !overview_hidden,
     });
 
     // 每个分组一个实例：隐藏的分组**照样进列表**，只是 visible=false。
@@ -327,10 +330,9 @@ fn ensure_click_listener(app: &AppHandle, id: &str) {
 /// rebuild（布局/字号/隐藏变更）与 update（刷新兜底）路径都会调用，幂等。
 /// 每种布局的字号独立存储：布局 0（下大上小）用 top/bottom（7-10 / 10-14），
 /// 布局 2（等大）用 equal（8-11，上限受插件原生 clamp 限制）并两行对称。
-/// 字体/加粗/对齐与布局无关，上下行独立（默认上行 Hiragino Sans GB 不加粗 / 下行 Menlo 加粗；
+/// 字体/加粗/对齐与布局无关，上下行独立（默认上下行系统字体：上行不加粗 / 下行加粗；
 /// 对齐默认左对齐 0，0=左 1=中 2=右，非法值插件原生按左处理）。
 fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[InstanceSpec]) {
-    let mb = app.multiline_menubar();
     let layout = i32::from(config.settings.menubar_layout.unwrap_or(0).min(2));
     let (top, bottom) = if layout == 2 {
         let eq = config
@@ -375,12 +377,44 @@ fn apply_menubar_style(app: &AppHandle, config: &AppConfig, desired: &[InstanceS
     let bottom_align = align_of(config.settings.menubar_bottom_align);
     // 隐藏的实例也一并设置：再次显示时样式已经是最新的，无需额外同步
     for spec in desired {
-        let _ = mb.set_layout(spec.id.clone(), layout);
-        let _ = mb.set_font_sizes(spec.id.clone(), top, bottom);
-        let _ = mb.set_font_family(spec.id.clone(), top_font.clone(), bottom_font.clone());
-        let _ = mb.set_bold(spec.id.clone(), top_bold, bottom_bold);
-        let _ = mb.set_alignment(spec.id.clone(), top_align, bottom_align);
+        apply_menubar_style_one(
+            app,
+            spec,
+            layout,
+            top,
+            bottom,
+            &top_font,
+            &bottom_font,
+            top_bold,
+            bottom_bold,
+            top_align,
+            bottom_align,
+        );
     }
+}
+
+/// 对单个实例下发布局/字号/字体族/加粗/对齐。ready 事件 handler 也调用本函数，
+/// 让 plugin 用已挂载的真实 view 重测文字高度（修复 release 下 view 首帧未就绪时被
+/// setFontSizes 算成偏矮 view height 的稳态裁切）。
+fn apply_menubar_style_one(
+    app: &AppHandle,
+    spec: &InstanceSpec,
+    layout: i32,
+    top_size: f64,
+    bottom_size: f64,
+    top_font: &Option<String>,
+    bottom_font: &Option<String>,
+    top_bold: bool,
+    bottom_bold: bool,
+    top_align: i32,
+    bottom_align: i32,
+) {
+    let mb = app.multiline_menubar();
+    let _ = mb.set_layout(spec.id.clone(), layout);
+    let _ = mb.set_font_sizes(spec.id.clone(), top_size, bottom_size);
+    let _ = mb.set_font_family(spec.id.clone(), top_font.clone(), bottom_font.clone());
+    let _ = mb.set_bold(spec.id.clone(), top_bold, bottom_bold);
+    let _ = mb.set_alignment(spec.id.clone(), top_align, bottom_align);
 }
 
 /// 收敛实例集合：创建缺失实例（+点击监听）、销毁多余实例（+移除监听）。
@@ -478,11 +512,12 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
         eprintln!("[fund01] menubar remove 事件：id={instance_id}（⌘-拖出，视作取消勾选）");
         // ⌘-拖出 = 用户不想在菜单栏显示该实例 → 同步隐藏到设置（menubarHiddenGroups），
         // 设置页对应分组的「显示」开关随之置灰。实例保留，重新勾选即原位复活。
-        // 总览恒显不可隐藏；未分组 id 对应隐藏列表中的 ''。
+        // 总览默认恒显不可隐藏，但 macOS 允许 ⌘-拖出 → 写入 __overview__ 标记，设置页解锁为可重新开启；
+        // 未分组 id 对应隐藏列表中的 ''。
         let group = if instance_id == "menubar-ungrouped" {
             Some(String::new())
         } else if instance_id == INSTANCE_OVERVIEW {
-            None
+            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
         } else {
             instance_id
                 .strip_prefix("menubar-group-")
@@ -579,44 +614,90 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // 不销毁重建——原生 setter 异步入队、getter 同步执行，回读会在 create 后的同一个 runloop turn 内
     // 误判「不可见」进而触发 churn，正是重启后分组实例被定位到屏幕外的根因。
     sync_instances(app, &desired);
-    apply_menubar_style(app, &config, &desired);
-    let mb = app.multiline_menubar();
-    for spec in desired {
-        let (bottom, color) = if show_amount {
-            (format_amount(spec.amount), color_for(spec.amount, &rise_color, &fall_color, &flat_color))
-        } else {
-            (format_pct(spec.pct), color_for(spec.pct, &rise_color, &fall_color, &flat_color))
-        };
-        // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
-        // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''
-        let group_key = if spec.id == INSTANCE_OVERVIEW {
-            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
-        } else if spec.id == "menubar-ungrouped" {
-            Some(String::new())
-        } else {
-            spec.id
-                .strip_prefix("menubar-group-")
-                .map(decode_group_id)
-                .filter(|n| !n.is_empty())
-        };
-        let instance_top_color = group_key
-            .and_then(|k| {
-                config
-                    .settings
-                    .menubar_group_colors
-                    .as_ref()
-                    .and_then(|m| m.get(&k))
-            })
-            .cloned()
-            .unwrap_or_else(|| top_color.clone());
-        let _ = mb.set_text(spec.id.clone(), spec.top.clone(), bottom.clone());
-        let _ = mb.set_colors(
-            spec.id.clone(),
-            ColorStyle::Solid { value: instance_top_color },
-            ColorStyle::Solid { value: color },
-        );
-        let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
+    // ⚠️ 顺序约定：**先 set_text 再 apply_menubar_style**。
+    // 插件文档明确：只有 setBold/setFontFamily/setAlignment/setMonospaced/setFontSizes 会在
+    // **每次调用时** re-measure（按当前文本重新量宽度/布局）；**setText 不触发 re-measure**。
+    // 先 set_text 填真实文本、再调 re-measure 的样式 setter，保证测量基于最新文本。
+    // （2026-08-13 排查结论：菜单栏下行被裁的根因在插件 drawRect 的高度计算
+    // `bottomH = bottomFontSize + 1` 未按字体真实 ascender/descender 留白，见插件仓库 issue；
+    // 本顺序约定不解决该问题，仅作为合理的调用顺序保留。）
+    for spec in &desired {
+        let _ = app
+            .multiline_menubar()
+            .set_text(spec.id.clone(), spec.top.clone(), bottom_text_of(spec, show_amount));
     }
+    apply_menubar_style(app, &config, &desired);
+    for spec in &desired {
+        apply_colors_tooltip_one(
+            &config,
+            spec,
+            show_amount,
+            &top_color,
+            &rise_color,
+            &fall_color,
+            &flat_color,
+            app,
+        );
+    }
+}
+
+/// 计算实例下行文本（收益率百分比或收益额，与颜色判定共用同一数值）。
+fn bottom_text_of(spec: &InstanceSpec, show_amount: bool) -> String {
+    if show_amount {
+        format_amount(spec.amount)
+    } else {
+        format_pct(spec.pct)
+    }
+}
+
+/// 对单个实例下发颜色与 tooltip（不影响 view 高度测量，可与文本分离）。
+fn apply_colors_tooltip_one(
+    config: &AppConfig,
+    spec: &InstanceSpec,
+    show_amount: bool,
+    top_color_default: &str,
+    rise: &str,
+    fall: &str,
+    flat: &str,
+    app: &AppHandle,
+) {
+    let mb = app.multiline_menubar();
+    let bottom = bottom_text_of(spec, show_amount);
+    let color = if show_amount {
+        color_for(spec.amount, rise, fall, flat)
+    } else {
+        color_for(spec.pct, rise, fall, flat)
+    };
+    // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
+    // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''
+    let group_key = if spec.id == INSTANCE_OVERVIEW {
+        Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+    } else if spec.id == "menubar-ungrouped" {
+        Some(String::new())
+    } else {
+        spec.id
+            .strip_prefix("menubar-group-")
+            .map(decode_group_id)
+            .filter(|n| !n.is_empty())
+    };
+    let instance_top_color = group_key
+        .and_then(|k| {
+            config
+                .settings
+                .menubar_group_colors
+                .as_ref()
+                .and_then(|m| m.get(&k))
+        })
+        .cloned()
+        .unwrap_or_else(|| top_color_default.to_string());
+    let _ = mb.set_colors(
+        spec.id.clone(),
+        ColorStyle::Solid {
+            value: instance_top_color,
+        },
+        ColorStyle::Solid { value: color },
+    );
+    let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
 }
 
 /// 菜单事件分发（open-settings / quit 等）
@@ -630,22 +711,6 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
 /// 供 refresh 后调用（避免与 config 锁死）
 pub fn update_menubar_with(app: &AppHandle, quote: &Option<QuoteUpdate>) {
     update_menubar(app, quote.as_ref());
-}
-
-/// 启动后「布局重踢」：release 构建下状态项 view 首帧尚未挂载完就可能已下发字号/文字，
-/// 插件据此量出的状态项高度偏矮，下行加粗数字的 descender 被裁切。延迟 ~250ms（此时 view 已挂载）
-/// 重发 set_font_sizes + set_text（带实时 quote，避免把数字刷成 0），强制插件用真实 view bounds
-/// 重测高度。debug 因启动慢天然不触发此竞态，但统一补踢无害。
-///
-/// 注意：必须带实时 quote（从 AppState 读），否则 update_menubar 会以 pct/amount=0 重画，
-/// 把菜单栏数字瞬间刷成 +0.00% / +0，直到下次行情刷新才恢复。
-pub fn kick_menubar_layout(app: &AppHandle) {
-    let app = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        let quote = app.state::<AppState>().quote.read().unwrap().clone();
-        update_menubar(&app, quote.as_ref());
-    });
 }
 
 #[allow(dead_code)]
