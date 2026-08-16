@@ -48,6 +48,6 @@ export default defineConfig({
         ? './src/options.html'
         : './src/index.html',
     title: ({ entryName }) =>
-      entryName === 'options' ? 'fund01 · 设置' : 'fund01 · 基金盯盘',
+      entryName === 'options' ? 'Fund01 · 设置' : 'Fund01 · 基金盯盘',
   },
 })

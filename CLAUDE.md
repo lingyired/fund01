@@ -45,6 +45,22 @@ pnpm typecheck        # 全仓库递归 TypeScript 类型检查
 - 增量改动不改动 MINOR / MAJOR，除非有破坏性变更或重大功能
 - 构建后可在 `chrome://extensions` 看到新版本号，用于确认是否加载了最新构建
 
+## Tauri macOS dev/release 隔离规则（bundle id / name 区分，铁律）
+
+> **背景坑（2026-08 实测 + 参考 [macOS 26 Control Center trackedApplications ghost 分析](https://b-log.to/tech-analysis/macos-26-controlcenter-trackedapplications-ghost/)）**：macOS 26 之后，System Settings > Menu Bar 的「Allow in the Menu Bar」状态**不是 app 自己控制的**，而是由 Control Center 维护（`~/Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist` 的 `trackedApplications`，按 **bundle id** 记忆每个第三方 menubar app 的可见性）。已知 bug：**旧 app 的 blocked 记录可能残留并覆盖当前 app 自己的 allowed 记录**（表现：`NSStatusItem VisibleCC Item-0 = 0`），导致 app 明明启动了、代码也建了 status item，右上角就是不出现，从代码里查不出任何错。
+
+**规则**：
+1. **dev debug 与 release 必须用不同的 bundle id 和 app name**（后缀 `dev`），使 dev 与 release 的 Control Center 记忆 / `~/Library/Application Support/<identifier>` 数据目录 / defaults 域彻底隔离、互不污染：
+   - **dev**：`pnpm --filter @fund01/tauri tauri:dev`（读 `apps/tauri/src-tauri/tauri.conf.dev.json`）→ `productName: Fund01-dev`、`identifier: com.lingyi.fund01.dev`
+   - **release**：`pnpm --filter @fund01/tauri tauri:build`（读 `tauri.conf.json`）→ `productName: Fund01`、`identifier: com.lingyi.fund01`
+   - 禁止把 dev 配置的 bundle id 改回与 release 相同。
+2. **打开 app 后 menubar 没出现时，按此顺序排查（先别改代码）**：
+   - 确认代码确实创建了 status item（启动日志正常）；
+   - 去 **系统设置 → 菜单栏**（Menu Bar / Control Center 相关设置）里找到该 app，**关闭再重新开启「允许在菜单栏」**，让 Control Center 重新认一次这个 bundle id；
+   - 检查 app 自己的 defaults 域有无异常：`defaults read com.lingyi.fund01 | rg 'NSStatusItem|VisibleCC'`（dev 换 `com.lingyi.fund01.dev`）；
+   - 严重时可备份后清除 Control Center 的 `trackedApplications` 重建 allow-list（需完整磁盘访问权限，**必须先备份** `group.com.apple.controlcenter.plist`，勿整文件乱删）；
+   - **以上都不行**：换一个新的 bundle id 重新打包排查（如 dev 换 `com.lingyi.fund01.dev2`，或 release 换 `com.lingyi.fund01b`）——新 id 让 Control Center 彻底重新认这个 app，绕过旧的 blocked 记忆。
+
 ## 架构总览
 
 详见 `ARCHITECTURE.md`。要点：
