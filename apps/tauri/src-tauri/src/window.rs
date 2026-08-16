@@ -17,16 +17,18 @@ use tauri::{
 use tauri::{LogicalPosition, Position};
 
 #[cfg(target_os = "macos")]
-use std::sync::Mutex;
+use std::ptr::NonNull;
+#[cfg(target_os = "macos")]
+use std::sync::{Mutex, OnceLock};
 
 #[cfg(target_os = "macos")]
 use objc2::msg_send;
 #[cfg(target_os = "macos")]
 use objc2::runtime::{AnyObject, Sel};
 #[cfg(target_os = "macos")]
-use objc2_app_kit::{NSApplicationTerminateReply, NSEvent, NSStatusBar};
+use objc2_app_kit::{NSApplicationTerminateReply, NSEvent, NSEventMask, NSStatusBar};
 #[cfg(target_os = "macos")]
-use objc2_foundation::NSPoint;
+use objc2_foundation::{NSPoint, NSRect};
 
 use crate::state::AppState;
 
@@ -60,15 +62,23 @@ fn ensure_popup_window(app: &AppHandle, tab: Option<&str>) -> (Option<WebviewWin
         .ok();
     if let Some(w) = &win {
         attach_popup_handlers(app, w);
+        #[cfg(target_os = "macos")]
+        set_popup_native_flags(w);
     }
     (win, false)
 }
 
-/// 失焦 → hide + 启动延迟销毁计时器
+/// 失焦 → hide + 启动延迟销毁计时器。
+///
+/// ⚠️ 这只是三层兜底之一（覆盖「同 app 内点击另一个窗口 → key 转移」）。
+/// macOS 上点击桌面/其他 app/菜单栏空白时，floating level（always_on_top）窗口 + Accessory
+/// app 的 `windowDidResignKey` 经常**不触发**（见 set_popup_native_flags / install_global_click_monitor），
+/// 只靠这里会漏 → popup 赖着不消失。三层各自独立兜底，缺一不可。
 fn attach_popup_handlers(app: &AppHandle, win: &WebviewWindow) {
     let app = app.clone();
     win.on_window_event(move |event| {
         if let WindowEvent::Focused(false) = event {
+            crate::dbglog::log_write("[popup失焦] Focused(false)（同 app key 转移）→ hide", false);
             if let Some(w) = app.get_webview_window(POPUP_LABEL) {
                 if w.is_visible().unwrap_or(false) {
                     let _ = w.hide();
@@ -77,6 +87,89 @@ fn attach_popup_handlers(app: &AppHandle, win: &WebviewWindow) {
             let state = app.state::<AppState>();
             schedule_destroy(app.clone(), &state);
         }
+    });
+}
+
+/// macOS：popup 窗口的原生兜底设置（每次创建窗口时调用，幂等）。
+///
+/// `hidesOnDeactivate = true`：app 失活（点击其他 app / 桌面 / Cmd+Tab 切换走）时
+/// popup 自动从屏幕移除。这是 AppKit 为「失活即隐藏」设计的原生属性（NSPanel 默认开启），
+/// 不依赖 windowDidResignKey，因此不受 floating level / Accessory 策略影响。
+#[cfg(target_os = "macos")]
+fn set_popup_native_flags(win: &WebviewWindow) {
+    let win2 = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        unsafe {
+            if let Ok(ptr) = win2.ns_window() {
+                let ns_win: *mut AnyObject = ptr.cast();
+                let _: () = msg_send![ns_win, setHidesOnDeactivate: true];
+            }
+        }
+    });
+}
+
+/// 全局鼠标点击 monitor 的安装守卫（进程级只装一次；popup 销毁重建后 monitor 仍在，
+/// 回调里按 label 每次现查窗口，窗口不存在时自然跳过）。
+#[cfg(target_os = "macos")]
+static GLOBAL_CLICK_MONITOR: OnceLock<()> = OnceLock::new();
+
+/// 安装全局 mouseDown monitor：点击坐标不在 popup frame 内 → 隐藏 popup。
+///
+/// 为什么需要：macOS 上 floating level 窗口（always_on_top）+ Accessory app 的
+/// `windowDidResignKey` 在点击桌面/其他 app/菜单栏空白时**不触发**，`Focused(false)` 兜不住。
+/// `addGlobalMonitorForEventsMatchingMask:` 只接收**其他 app** 的事件：
+/// - popup 内部点击（本 app）→ monitor 不接收，交互不受影响；
+/// - 点击设置窗口（本 app）→ monitor 不接收，但 key 转移触发 Focused(false)（上面兜底）；
+/// - 点击桌面 / 其他 app / 菜单栏空白 → monitor 收到 → 坐标不在 popup frame 内 → hide。
+/// 坐标系：`[NSWindow frame]` 与 `NSEvent.mouseLocation` 同为 AppKit 全局 points（主屏左下原点、y 向上），
+/// 直接比较即可，与多屏排列无关。社区实测（Accessory menubar app 场景）此方案最可靠。
+#[cfg(target_os = "macos")]
+fn install_global_click_monitor(app: &AppHandle) {
+    GLOBAL_CLICK_MONITOR.get_or_init(|| {
+        let app = app.clone();
+        // global monitor 的 handler 在主线程事件分发中同步调用 → 可直接访问 AppKit；
+        // tauri 的 hide() 内部仍会 dispatch 到主线程消息队列，安全。
+        let block: block2::RcBlock<dyn Fn(NonNull<NSEvent>)> = block2::RcBlock::new(
+            move |_event: NonNull<NSEvent>| {
+                if let Some(win) = app.get_webview_window(POPUP_LABEL) {
+                    if !win.is_visible().unwrap_or(false) {
+                        return;
+                    }
+                    unsafe {
+                        if let Ok(ptr) = win.ns_window() {
+                            let ns_win: *mut AnyObject = ptr.cast();
+                            let frame: NSRect = msg_send![ns_win, frame];
+                            let mouse = NSEvent::mouseLocation();
+                            let inside = mouse.x >= frame.origin.x
+                                && mouse.x < frame.origin.x + frame.size.width
+                                && mouse.y >= frame.origin.y
+                                && mouse.y < frame.origin.y + frame.size.height;
+                            if !inside {
+                                crate::dbglog::log_write(
+                                    &format!(
+                                        "[popup失焦] 全局点击外部 mouse=({:.1},{:.1}) frame=({:.1},{:.1},{:.1},{:.1}) → hide",
+                                        mouse.x,
+                                        mouse.y,
+                                        frame.origin.x,
+                                        frame.origin.y,
+                                        frame.size.width,
+                                        frame.size.height
+                                    ),
+                                    false,
+                                );
+                                let _ = win.hide();
+                            }
+                        }
+                    }
+                }
+            },
+        );
+        // 左键 + 右键点击外部都收起；popup 内部点击是本 app 事件，monitor 收不到，不受影响
+        NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+            NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown,
+            &block,
+        );
+        eprintln!("[fund01] 已安装全局点击 monitor（popup 点击外部自动隐藏）");
     });
 }
 
@@ -194,6 +287,8 @@ fn position_below(app: &AppHandle, win: &WebviewWindow, _rect: (f64, f64, f64, f
 /// tab = 该实例对应的 popup 分组 tab id（'all' / 分组名 / '__ungrouped__'）：
 /// 窗口已存在（webview 已加载）→ emit 事件直达；新建 → 前端读 ?tab= 初始化。
 pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>, tab: Option<&str>) {
+    #[cfg(target_os = "macos")]
+    install_global_click_monitor(app);
     let state = app.state::<AppState>();
     cancel_destroy(&state);
     let (win, existed) = ensure_popup_window(app, tab);
