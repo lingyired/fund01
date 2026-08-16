@@ -163,7 +163,11 @@ export function App() {
         style={{background: 'var(--app-bg)'}}
       >
       {menubarEmpty ? (
-        <MenubarEmptyBanner onRestore={() => void restoreMenubar()} />
+        <MenubarEmptyBanner
+          onRestore={() => void restoreMenubar()}
+          onRefresh={() => void doRefresh()}
+          onOpenSettings={() => void windowPort.openSettings()}
+        />
       ) : (
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 bg-panel/85 px-3 py-1.5 backdrop-blur-md">
         <div className="flex min-w-0 items-baseline gap-2">
