@@ -18,7 +18,7 @@ export function MenubarEmptyBanner({
     <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 bg-panel/85 px-3 py-1.5 backdrop-blur-md">
       <div className="flex min-w-0 flex-col justify-center">
         <span className="truncate text-[12px] font-semibold text-ink">菜单栏已全部关闭</span>
-        <span className="truncate text-[11px] text-muted">关闭窗口后 app 将退出</span>
+        <span className="truncate text-[11px] text-muted">当所有窗口都关闭后，app 将退出</span>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {onRefresh ? (
