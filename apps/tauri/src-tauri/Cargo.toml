@@ -1,6 +1,6 @@
 [package]
 name = "fund01-tauri"
-version = "1.0.28"
+version = "1.0.29"
 description = "fund01 基金盯盘桌面版（macOS menubar）"
 authors = ["lingyired"]
 edition = "2021"
@@ -33,6 +33,7 @@ tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plu
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = "0.3"
+objc2-foundation = "0.3"
 
 [profile.release]
 strip = true

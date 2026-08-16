@@ -9,17 +9,24 @@
 use std::time::Duration;
 
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, Manager, Position, State, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowEvent,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
 };
+
+#[cfg(not(target_os = "macos"))]
+use tauri::{LogicalPosition, Position};
 
 #[cfg(target_os = "macos")]
 use std::sync::Mutex;
 
 #[cfg(target_os = "macos")]
+use objc2::msg_send;
+#[cfg(target_os = "macos")]
 use objc2::runtime::{AnyObject, Sel};
 #[cfg(target_os = "macos")]
-use objc2_app_kit::NSApplicationTerminateReply;
+use objc2_app_kit::{NSApplicationTerminateReply, NSEvent, NSStatusBar};
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSPoint;
 
 use crate::state::AppState;
 
@@ -93,23 +100,94 @@ pub fn schedule_destroy(app: AppHandle, state: &State<AppState>) {
     *state.popup_destroy_timer.lock().unwrap() = Some(handle);
 }
 
-/// 把窗口定位到状态项正下方（macOS y 向上，Tauri y 向下，需翻转）
-fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f64)) {
-    let (rx, ry, rw, _rh) = rect;
-    if let Ok(Some(monitor)) = app.primary_monitor() {
-        let scale = win.scale_factor().unwrap_or(1.0);
-        let outer = win.outer_size().unwrap_or_default();
-        let win_w = outer.width as f64 / scale;
-        let win_h = outer.height as f64 / scale;
-        let msize = monitor.size();
-        let mscale = monitor.scale_factor();
-        let screen_w = msize.width as f64 / mscale;
-        let screen_h = msize.height as f64 / mscale;
-        let mut x = rx + rw / 2.0 - win_w / 2.0;
-        x = x.clamp(0.0, (screen_w - win_w).max(0.0));
-        let y = screen_h - ry - win_h;
-        let _ = win.set_position(Position::Logical(LogicalPosition::new(x, y)));
+/// 由鼠标位置（AppKit 全局 points，y 向上）算出 popup 左上角（AppKit points）。
+///
+/// 参考 macOS 右键菜单（NSMenu）的定位方式：系统右键菜单直接用鼠标点击的屏幕坐标
+/// （NSEvent.mouseLocation）弹出，多屏任意排列都天然正确（用户实测右键菜单所有屏都准）。
+/// 这里同样用鼠标坐标，但比右键菜单更精确：
+/// - y = 鼠标所在屏的**顶边** − 菜单栏厚度(thickness) − 1pt → popup 顶边精确贴在菜单栏底边下方 1pt，
+///   与鼠标点在状态项的具体位置无关（右键菜单是左上角=鼠标点，会有缝隙/偏移）。
+/// - x = 鼠标 x 居中 − 窗口半宽，clamp 到鼠标所在屏幕区间。
+/// screens_ak = (左x, 底y, 顶y, 宽)：各屏的 AppKit 全局 points 区间（y 向上，底y < 顶y）。
+fn popup_from_mouse(
+    mouse: (f64, f64),
+    thickness: f64,
+    win_w: f64,
+    screens_ak: &[(f64, f64, f64, f64)],
+) -> (f64, f64) {
+    let mut x = mouse.0 - win_w / 2.0;
+    let mut y = 0.0;
+    if let Some(&(sx, _yb, yt, sw)) = screens_ak
+        .iter()
+        .find(|&&(sx, yb, yt, sw)| mouse.0 >= sx && mouse.0 < sx + sw && mouse.1 >= yb && mouse.1 <= yt)
+    {
+        x = x.clamp(sx, (sx + sw - win_w).max(sx));
+        y = yt - thickness - 1.0;
     }
+    (x, y)
+}
+
+/// 把窗口定位到状态项正下方（macOS）。
+///
+/// **定位方式参考右键菜单（NSMenu）**：系统右键菜单用鼠标点击的屏幕坐标
+/// （`NSEvent.mouseLocation`，AppKit 全局 points、主屏左下原点、y 向上）弹出，
+/// 多屏任意排列都天然正确。这里同样用鼠标坐标 + 菜单栏厚度定位，**完全绕开插件
+/// click rect 的单位歧义**（此前反复出错的根源）。rect 仅用于日志对比验证单位。
+#[cfg(target_os = "macos")]
+fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f64)) {
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let outer = win.outer_size().unwrap_or_default();
+    let win_w = outer.width as f64 / scale; // 窗口逻辑宽（pt）
+    let main_h = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.size().height as f64 / m.scale_factor())
+        .unwrap_or(0.0); // 主屏逻辑高（pt）
+    // 各屏 → AppKit 全局 points 区间 (左x, 底y, 顶y, 宽)：
+    // tauri Monitor::position() = CGDisplayBounds×scale（top-left 原点、y 向下，副屏在上方 y 负），
+    // size() = 物理×scale；÷scale 还原 points 后翻转 y 为屏底向上（底y = main_h - (sy+sh)，顶y = main_h - sy）。
+    let screens_ak: Vec<(f64, f64, f64, f64)> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let s = m.scale_factor();
+            let pos = m.position();
+            let size = m.size();
+            let sx = pos.x as f64 / s;
+            let sy = pos.y as f64 / s; // top-left 逻辑 y（y 向下）
+            let sw = size.width as f64 / s;
+            let sh = size.height as f64 / s;
+            (sx, main_h - (sy + sh), main_h - sy, sw)
+        })
+        .collect();
+    let win2 = win.clone();
+    let _ = win.run_on_main_thread(move || {
+        let mouse = NSEvent::mouseLocation();
+        let thickness = NSStatusBar::systemStatusBar().thickness();
+        let (x, y) = popup_from_mouse((mouse.x, mouse.y), thickness, win_w, &screens_ak);
+        crate::dbglog::log_write(
+            &format!(
+                "[popup定位] mouse=({:.1},{:.1}) thickness={thickness:.1} rect={rect:?} → AppKit top-left=({x:.1},{y:.1}) screens_ak={screens_ak:?}",
+                mouse.x, mouse.y
+            ),
+            false,
+        );
+        unsafe {
+            if let Ok(ptr) = win2.ns_window() {
+                let ns_win: *mut AnyObject = ptr.cast();
+                let point = NSPoint::new(x, y);
+                let _: () = msg_send![ns_win, setFrameTopLeftPoint: point];
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn position_below(app: &AppHandle, win: &WebviewWindow, _rect: (f64, f64, f64, f64)) {
+    let _ = win.set_position(Position::Logical(LogicalPosition::new(0.0, 0.0)));
+    let _ = app;
 }
 
 /// 显示浮窗（点击 menubar 实例时调用；rect 为该实例屏幕位置）。
@@ -299,4 +377,66 @@ unsafe extern "C-unwind" fn application_should_terminate(
     eprintln!("[fund01] Dock/Cmd+Q 退出被拦截：仅关闭主界面窗口，menubar 保持常驻");
     let _ = app.set_dock_visibility(false);
     NSApplicationTerminateReply::TerminateCancel
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::popup_from_mouse;
+
+    // 用户环境实测分辨率：主屏 1728×1117 物理 / scale=2 → 864×558.5 逻辑；
+    // 副屏 2048×1152 物理（在主屏上方，CGDisplayBounds y=-576）→ 1024×576 逻辑。
+    const THICKNESS: f64 = 28.0; // macOS 菜单栏厚度（pt，含刘海屏系统菜单栏）
+    const WIN_W: f64 = 680.0; // popup 窗口逻辑宽（pt）
+
+    /// 两屏：主屏 (0,0,864,558.5)；副屏在上方，AppKit 区间 y∈[558.5, 1134.5]
+    fn screens_ak() -> Vec<(f64, f64, f64, f64)> {
+        vec![(0.0, 0.0, 558.5, 864.0), (0.0, 558.5, 1134.5, 1024.0)]
+    }
+
+    #[test]
+    fn primary_click_top_edge_1pt_below_menubar() {
+        // 主屏状态项内点击（鼠标在状态项中间偏下）
+        let (x, y) = popup_from_mouse((400.0, 544.5), THICKNESS, WIN_W, &screens_ak());
+        // 顶边 = 屏顶 558.5 − 28 − 1 = 529.5（菜单栏底边下方 1pt）
+        assert!((y - 529.5).abs() < 1e-6, "y={y}");
+        // x 居中：400−340=60，主屏可容纳 [0,184]，不 clamp
+        assert!((x - 60.0).abs() < 1e-6, "x={x}");
+    }
+
+    #[test]
+    fn secondary_above_click_top_edge_1pt_below_its_menubar() {
+        // 副屏（在主屏上方）状态项内点击，AppKit y≈1120
+        let (x, y) = popup_from_mouse((400.0, 1120.0), THICKNESS, WIN_W, &screens_ak());
+        // 顶边 = 副屏顶 1134.5 − 28 − 1 = 1105.5（副屏菜单栏底边下方 1pt）
+        assert!((y - 1105.5).abs() < 1e-6, "y={y}");
+        // x 居中：400−340=60，副屏 [0,344] 可容纳
+        assert!((x - 60.0).abs() < 1e-6, "x={x}");
+    }
+
+    #[test]
+    fn y_independent_of_click_position_within_status_item() {
+        // 同一屏内，鼠标在状态项底部/中间/顶部 → y 恒为菜单栏底边下方 1pt
+        for my in [558.5 - 2.0, 558.5 - 14.0, 558.5 - 27.0] {
+            let (_x, y) = popup_from_mouse((400.0, my), THICKNESS, WIN_W, &screens_ak());
+            assert!((y - 529.5).abs() < 1e-6, "my={my} y={y}");
+        }
+    }
+
+    #[test]
+    fn narrow_primary_clamps_x_both_edges() {
+        // 鼠标在屏最右（x=860）→ x_left=520 超右缘 → clamp 到 864−680=184
+        let (x, _) = popup_from_mouse((860.0, 544.5), THICKNESS, WIN_W, &screens_ak());
+        assert!((x - 184.0).abs() < 1e-6, "x={x}");
+        // 鼠标在屏最左（x=0）→ x_left=−340 超左缘 → clamp 到 0
+        let (x, _) = popup_from_mouse((0.0, 544.5), THICKNESS, WIN_W, &screens_ak());
+        assert!((x - 0.0).abs() < 1e-6, "x={x}");
+    }
+
+    #[test]
+    fn secondary_click_clamps_x_to_secondary_screen() {
+        // 副屏鼠标靠右（x=1020，副屏宽 1024）→ clamp 到 1024−680=344
+        let (x, y) = popup_from_mouse((1020.0, 1120.0), THICKNESS, WIN_W, &screens_ak());
+        assert!((x - 344.0).abs() < 1e-6, "x={x}");
+        assert!((y - 1105.5).abs() < 1e-6, "y={y}");
+    }
 }
