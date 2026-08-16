@@ -77,7 +77,15 @@ pub fn run() {
             // 重建 menubar 实例 + 监听点击
             let handle = app.handle().clone();
             let state = app.state::<AppState>();
-            let config = state.config.read().unwrap().clone();
+            let mut config = state.config.read().unwrap().clone();
+            // 上次退出时 menubar 全空（用户移除了全部实例，关掉最后一个窗口退出）→
+            // 用户主动重新打开 app = 想用，自动恢复默认菜单栏（清空隐藏列表，rebuild 全量复活）。
+            if menubar::menubar_all_hidden(&config) {
+                eprintln!("[fund01] 启动检测 menubar 全空 → 恢复默认菜单栏");
+                config.settings.menubar_hidden_groups = Some(vec![]);
+                *state.config.write().unwrap() = config.clone();
+                crate::commands::persist_config(&handle, &config);
+            }
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
 

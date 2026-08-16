@@ -309,7 +309,8 @@ pub fn show_popup(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>, tab: Opti
 
 /// macOS：是否存在「主界面形态」窗口（设置窗口 / popup-tab 独立页面）。
 /// Dock 可见性跟随主界面形态窗口：任一存在 → Dock 可见；全部销毁 → 恢复 Accessory。
-fn has_main_window(app: &AppHandle) -> bool {
+/// 也供 menubar.rs 判断「全静默」状态（无窗口时 ⌘-拖出最后一个实例 → 自动弹 popup-tab）。
+pub fn has_main_window(app: &AppHandle) -> bool {
     app.get_webview_window(SETTINGS_LABEL).is_some()
         || app.get_webview_window(POPUP_TAB_LABEL).is_some()
 }
@@ -343,6 +344,17 @@ pub fn open_popup_tab_window(app: &AppHandle) {
                 if let WindowEvent::Destroyed = event {
                     if !has_main_window(&app2) {
                         let _ = app2.set_dock_visibility(false);
+                        // menubar 全空且最后一个主界面窗口已关 → 用户眼里 app 已无任何可见存在，
+                        // 干净退出（不保留后台进程）。只有 ⌘-拖出/设置页关闭全部实例才会走到这里。
+                        let empty = {
+                            let state = app2.state::<crate::state::AppState>();
+                            let cfg = state.config.read().unwrap().clone();
+                            crate::menubar::menubar_all_hidden(&cfg)
+                        };
+                        if empty {
+                            eprintln!("[fund01] menubar 全空且无窗口 → 退出 app");
+                            app2.exit(0);
+                        }
                     }
                 }
             });
@@ -387,6 +399,16 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
                 if let WindowEvent::Destroyed = event {
                     if !has_main_window(&app2) {
                         let _ = app2.set_dock_visibility(false);
+                        // menubar 全空且最后一个主界面窗口已关 → 干净退出（与 popup-tab 分支同规则）
+                        let empty = {
+                            let state = app2.state::<crate::state::AppState>();
+                            let cfg = state.config.read().unwrap().clone();
+                            crate::menubar::menubar_all_hidden(&cfg)
+                        };
+                        if empty {
+                            eprintln!("[fund01] menubar 全空且无窗口 → 退出 app");
+                            app2.exit(0);
+                        }
                     }
                 }
             });

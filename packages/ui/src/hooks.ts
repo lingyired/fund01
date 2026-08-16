@@ -7,6 +7,7 @@ import type {
   RefreshSchedule,
 } from '@fund01/core'
 import {DEFAULT_REFRESH_INTERVAL} from '@fund01/core'
+import {isMenubarEmpty} from './lib/fundOps'
 
 /** 订阅后端行情更新 + 首次主动拉取 */
 export function useMarketData() {
@@ -79,4 +80,19 @@ export function useMarketData() {
   }, [data])
 
   return {holdings, indices, lastUpdate, loading, refresh, refreshSchedule}
+}
+
+/** menubar 是否全空（仅 Tauri；Chrome 无 menubar，supportsMenubar 未实现 → 恒 false）。
+ *  订阅 ConfigPort.onChanged：⌘-拖出（Rust 写入 menubarHiddenGroups 并广播）或设置页关闭分组后实时刷新。
+ *  全空时 App.tsx / OptionsApp.tsx 的 header 替换为「菜单栏已全部关闭」banner。 */
+export function useMenubarEmpty(): boolean {
+  const {config, window: windowPort} = usePorts()
+  const [empty, setEmpty] = useState(() =>
+    windowPort.supportsMenubar?.() ? isMenubarEmpty(config.getConfig()) : false,
+  )
+  useEffect(() => {
+    if (!windowPort.supportsMenubar?.()) return
+    return config.onChanged(() => setEmpty(isMenubarEmpty(config.getConfig())))
+  }, [config, windowPort])
+  return empty
 }

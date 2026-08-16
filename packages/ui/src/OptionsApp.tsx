@@ -57,6 +57,8 @@ import {
 } from '@fund01/core'
 import {cn} from '@fund01/core'
 import {ConfirmDialog, type ConfirmAction} from './components/ConfirmDialog'
+import {MenubarEmptyBanner} from './components/MenubarEmptyBanner'
+import {useMenubarEmpty} from './hooks'
 import {
   addHoldingGroup,
   createFund,
@@ -128,6 +130,16 @@ export function OptionsApp({
   version?: string
 }) {
   const ports = usePorts()
+  // menubar 全空（用户移除了所有菜单栏状态项）→ 顶部 header 替换为恢复 banner
+  const menubarEmpty = useMenubarEmpty()
+  const restoreMenubar = async () => {
+    try {
+      // 清空隐藏列表（含 __overview__）→ Rust 侧 rebuild 全部实例原位复活
+      await updateSettings(ports, {menubarHiddenGroups: []})
+    } catch {
+      /* 恢复失败不阻塞；下次打开 app 也会自动恢复默认菜单栏 */
+    }
+  }
   const [tab, setTab] = useState<TabId>(() => {
     const t = initialTab ?? 'general'
     // 平台能力防御：不支持菜单栏的端（chrome）即使被 ?tab=menubar 直达也回落通用页
@@ -183,7 +195,11 @@ export function OptionsApp({
         onValueChange={(v) => setTab(v as TabId)}
         className="flex min-h-screen flex-col bg-app text-ink"
       >
-        {/* 顶部：品牌 + 一级 Tab 导航（激活态颜色由 Radix 主题变量驱动，暗色模式自动正确） */}
+        {/* 顶部：品牌 + 一级 Tab 导航（激活态颜色由 Radix 主题变量驱动，暗色模式自动正确）。
+            menubar 全空时整条 header 替换为「恢复菜单栏」banner（不额外占行）。 */}
+        {menubarEmpty ? (
+          <MenubarEmptyBanner onRestore={() => void restoreMenubar()} />
+        ) : (
         <header className="shrink-0 border-b border-line/70 bg-panel/85">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
             <div className="flex items-center gap-2">
@@ -213,6 +229,7 @@ export function OptionsApp({
             </Tabs.List>
           </div>
         </header>
+        )}
 
         {/* 内容区：每个 tab 只渲染自己的内容 */}
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">

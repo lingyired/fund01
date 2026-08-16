@@ -175,6 +175,35 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
     })
 }
 
+/// menubar 是否全空（所有菜单栏实例都被隐藏，用户把每个状态项都移出了菜单栏）。
+///
+/// 判定（只依赖 config，与行情无关）：
+/// 1. 总览（`__overview__`）被隐藏——设置页无法关闭总览，只有 macOS ⌘-拖出会写入该标记；
+/// 2. 每个持仓分组都在 `menubar_hidden_groups`；
+/// 3. 存在未分组持仓时，未分组实例（`""`）也在隐藏列表。
+///
+/// ⚠️ 判定口径与前端 `isMenubarEmpty`（packages/ui/src/lib/fundOps.ts）保持一致（两端 1:1 铁律）。
+/// 调用场景：⌘-拖出最后一个实例后自动弹 popup-tab；窗口 Destroyed 后全空即退出；启动时全空恢复默认。
+pub fn menubar_all_hidden(config: &AppConfig) -> bool {
+    let groups = config.settings.holding_groups.clone().unwrap_or_default();
+    let hidden = config.settings.menubar_hidden_groups.clone().unwrap_or_default();
+    // 1. 总览必须被隐藏
+    if !hidden.iter().any(|h| h == crate::portfolio::MENUBAR_OVERVIEW_KEY) {
+        return false;
+    }
+    // 2. 每个持仓分组必须被隐藏
+    for g in &groups {
+        if !hidden.iter().any(|h| h == g) {
+            return false;
+        }
+    }
+    // 3. 存在未分组持仓时，未分组实例（''）必须也在隐藏列表
+    if has_ungrouped(config, &groups) && !hidden.iter().any(|h| h.is_empty()) {
+        return false;
+    }
+    true
+}
+
 /// 分组名 → menubar 实例 id 后缀：按字节 hex 编码（每字节两位小写 hex）。
 /// 实例 id 只依赖分组名（与 holding_groups 下标无关）→ 分组排序变化不重建实例，
 /// macOS 原生「按住 ⌘ 拖拽」调整的菜单栏顺序得以保留。
@@ -542,6 +571,13 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
             crate::commands::persist_config(&app_listener, &snapshot);
             rebuild_menubar(&app_listener, &snapshot, quote.as_ref());
             eprintln!("[fund01] ⌘-拖出 → 分组「{g}」已隐藏（menubarHiddenGroups 已同步）");
+            // 最后一个实例也被拖出（menubar 全空）且当前无任何窗口（全静默）→ 自动打开
+            // popup-tab 独立页，让用户看到 banner（「恢复菜单栏」/ 关窗即退出）。
+            // 有窗口（设置页开着）时不弹——banner 已在窗口内，等用户关掉最后一个窗口即退出。
+            if menubar_all_hidden(&snapshot) && !crate::window::has_main_window(&app_listener) {
+                eprintln!("[fund01] menubar 全空且无窗口 → 自动打开 popup-tab");
+                crate::window::open_popup_tab_window(&app_listener);
+            }
         }
     });
     map.insert(id.to_string(), event_id);

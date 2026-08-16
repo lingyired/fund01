@@ -635,6 +635,29 @@ export function listHoldingGroups(ports: Ports): string[] {
   return ports.config.getConfig().settings.holdingGroups || []
 }
 
+/** 是否存在未分组持仓：allocations 里有份额 >0 且分组名不在 holdingGroups 中。
+ *  口径与 Rust `has_ungrouped`（apps/tauri/src-tauri/src/menubar.rs）保持一致。 */
+export function hasUngroupedHoldings(cfg: AppConfig): boolean {
+  const groups = new Set(cfg.settings.holdingGroups || [])
+  return Object.values(cfg.holdings || {}).some((fund) =>
+    Object.entries(fund.allocations || {}).some(([g, sh]) => sh > 0 && !groups.has(g)),
+  )
+}
+
+/** menubar 是否全空（所有菜单栏实例都被隐藏，用户把每个状态项都移出了菜单栏）：
+ *  总览 __overview__ 被拖出 ∧ 全部分组在 menubarHiddenGroups ∧（存在未分组持仓时 '' 也在其中）。
+ *  ⚠️ 判定口径与 Rust `menubar_all_hidden`（apps/tauri/src-tauri/src/menubar.rs）保持一致（两端 1:1 铁律）。
+ *  仅 Tauri 有意义；Chrome 端由 useMenubarEmpty 在 supportsMenubar 为假时短路，不走到这里。 */
+export function isMenubarEmpty(cfg: AppConfig): boolean {
+  const hidden = new Set(cfg.settings.menubarHiddenGroups || [])
+  if (!hidden.has(MENUBAR_OVERVIEW_KEY)) return false
+  for (const g of cfg.settings.holdingGroups || []) {
+    if (!hidden.has(g)) return false
+  }
+  if (hasUngroupedHoldings(cfg) && !hidden.has('')) return false
+  return true
+}
+
 /** 返回持仓基金记录列表 */
 export function listFunds(ports: Ports, _type?: 'hold'): FundRecord[] {
   return Object.values(ports.config.getConfig().holdings)

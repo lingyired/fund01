@@ -9,11 +9,13 @@ import {
   onSystemThemeChange,
   resolveTheme,
 } from './theme'
-import {useMarketData} from './hooks'
+import {useMarketData, useMenubarEmpty} from './hooks'
 import {usePorts} from './context'
 import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
 import {AutoRefreshButton} from './components/AutoRefreshButton'
+import {MenubarEmptyBanner} from './components/MenubarEmptyBanner'
+import {updateSettings} from './lib/fundOps'
 import {IconButton, Theme, Tooltip} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
@@ -26,6 +28,16 @@ export function App() {
   const {holdings, indices, lastUpdate, loading, refresh, refreshSchedule} = useMarketData()
   const [refreshing, setRefreshing] = useState(false)
   const [cfgTick, setCfgTick] = useState(0)
+  // menubar 全空（Tauri 端用户移除了所有菜单栏状态项）→ header 替换为恢复 banner
+  const menubarEmpty = useMenubarEmpty()
+  const restoreMenubar = useCallback(async () => {
+    try {
+      // 清空隐藏列表（含 __overview__）→ Rust 侧 rebuild 全部实例原位复活
+      await updateSettings(ports, {menubarHiddenGroups: []})
+    } catch {
+      /* 恢复失败不阻塞；下次打开 app 也会自动恢复默认菜单栏 */
+    }
+  }, [ports])
 
   // 手动刷新入口：拉数据期间图标持续旋转，结束后复原。
   // resetTimer=true 会重置后台定时器与进度环，并广播新计划让其他已打开的标签页 / Tauri 独立窗口同步。
@@ -150,6 +162,9 @@ export function App() {
         className="flex h-full min-h-0 flex-col overflow-hidden"
         style={{background: 'var(--app-bg)'}}
       >
+      {menubarEmpty ? (
+        <MenubarEmptyBanner onRestore={() => void restoreMenubar()} />
+      ) : (
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-line/70 bg-panel/85 px-3 py-1.5 backdrop-blur-md">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="font-display text-base font-extrabold tracking-tight text-ink">
@@ -215,6 +230,7 @@ export function App() {
           </Tooltip>
         </div>
       </header>
+      )}
 
       <IndexBar indices={indices} selected={selectedIndices} loading={loading} />
 
