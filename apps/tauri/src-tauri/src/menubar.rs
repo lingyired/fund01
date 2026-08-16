@@ -452,6 +452,9 @@ fn sync_instances(app: &AppHandle, desired: &[InstanceSpec]) {
         let is_new = tracked().lock().unwrap().insert(spec.id.clone());
         if is_new {
             let _ = mb.create(spec.id.clone());
+            // 实例创建即挂标准右键菜单（版本/打开设置/退出）——覆盖 update_menubar 路径新建的实例，
+            // 保证任何实例都可不依赖「总览」在场右键退出 app（总览可被 ⌘-拖出）。
+            set_standard_menu(app, &spec.id);
             eprintln!(
                 "[fund01] create 实例 {}（{}）",
                 spec.id,
@@ -547,20 +550,31 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
 /// 应用启动 / 配置变更：收敛实例集合与显隐（+ 右键菜单 + 文字/样式）
 pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&QuoteUpdate>) {
     // 1. 收敛实例集合与显隐（创建缺失 + set_visible + 销毁已删除分组）
-    sync_instances(app, &desired_instances(config, quote));
+    let desired = desired_instances(config, quote);
+    sync_instances(app, &desired);
 
-    // 2. 设置右键菜单（版本 + 打开设置 + 退出）
-    let version = env!("CARGO_PKG_VERSION").to_string();
+    // 2. 设置右键菜单（打开设置 + 退出）——**每个实例一份**，不只总览。
+    //    插件 set_menu 是按实例的 API（payload 带 id），原生层对任意实例 NSStatusItem 挂 NSMenu，
+    //    右键即弹出；菜单事件经 muda 全局 handler → Tauri on_menu_event（lib.rs 注册一次，与实例无关），
+    //    "quit" 由插件在 Rust 侧直接 app.exit(0)。总览被 ⌘-拖出（隐藏）后，任一其他实例仍可右键退出 app。
+    //    ⚠️ 总览本身不可销毁（create 后终生保留，拖出只翻 visible），退出入口不依赖总览在场。
+    for spec in &desired {
+        set_standard_menu(app, &spec.id);
+    }
+
+    // 3. 更新文字与颜色（内部会再次收敛实例集合与显隐 + 应用样式，幂等）
+    update_menubar(app, quote);
+}
+
+/// 标准右键菜单（每个实例一份）：打开设置 + 退出。
+/// 幂等；由 sync_instances 创建实例时挂载 + rebuild_menubar 对全集重挂，
+/// 两条路径共用，保证任何创建途径的实例都带右键菜单。
+/// ⚠️ 不放版本号行：① 版本在设置窗口/浮窗头部都有显示（v{version}），菜单里重复且无用；
+/// ② disabled 置灰首行在部分 macOS 版本下会渲染成带展开箭头的怪异样子（用户反馈 2026-08-16）。
+fn set_standard_menu(app: &AppHandle, id: &str) {
     let _ = app.multiline_menubar().set_menu(
-        INSTANCE_OVERVIEW.to_string(),
+        id.to_string(),
         vec![
-            MenuItemDescriptor::Item {
-                id: "version".to_string(),
-                text: format!("fund01 v{version}"),
-                accelerator: None,
-                disabled: Some(true),
-            },
-            MenuItemDescriptor::Separator,
             MenuItemDescriptor::Item {
                 id: "open-settings".to_string(),
                 text: "打开设置…".to_string(),
@@ -576,9 +590,6 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
             },
         ],
     );
-
-    // 3. 更新文字与颜色（内部会再次收敛实例集合与显隐 + 应用样式，幂等）
-    update_menubar(app, quote);
 }
 
 /// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
@@ -700,12 +711,14 @@ fn apply_colors_tooltip_one(
     let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
 }
 
-/// 菜单事件分发（open-settings / quit 等）
+/// 菜单事件分发（open-settings / quit 等）。
+/// lib.rs 注册的 `on_menu_event` 是 Tauri 全局菜单事件：所有实例的右键菜单项都汇聚到这里，
+/// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」/「退出 fund01」行为完全等价。
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
     }
-    // "quit" 由插件在 Rust 侧直接 app.exit(0)
+    // "quit" 由插件在 Rust 侧直接 app.exit(0)，不经过这里
 }
 
 /// 供 refresh 后调用（避免与 config 锁死）
