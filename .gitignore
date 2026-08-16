@@ -12,3 +12,14 @@ coverage/
 # AI 助手工作记忆（本地日志，交接文档 RADIX_MIGRATION_PLAN.md 仍入库）
 .workbuddy/memory/
 .worktrees/
+
+# AI 助手工具数据目录（artifacts 产物 / iconset 图标集 / screenshots 截图，不入库）
+.workbuddy/artifacts/
+.workbuddy/fund01.iconset/
+.workbuddy/screenshots/
+
+# 临时文件（截图等工具偶发生成）
+_tmp_*
+
+# Tauri 打包产物副本（本地测试用，不入库）
+release-macos/
