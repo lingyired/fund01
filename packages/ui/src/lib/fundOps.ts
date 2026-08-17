@@ -781,34 +781,15 @@ export async function removeHoldingGroup(ports: Ports, name: string): Promise<st
 }
 
 /**
- * 删除一个持仓分组及其内所有基金（彻底删除，含多分组基金）。
+ * 删除一个持仓分组及其内基金：仅移除该分组的份额/成本，
+ * 同时属于其他分组的基金保留在其他分组（不再整删多分组基金）；
+ * 仅属于该分组的基金（删除后 allocation 为空）才会被彻底删除。
  * 用于批量编辑弹窗的"删除分组"按钮。
  */
 export async function removeHoldingGroupWithFunds(ports: Ports, name: string): Promise<string[]> {
-  const trimmed = String(name || '').trim()
-  const config = ports.config.getConfig()
-  config.settings.holdingGroups = (config.settings.holdingGroups || []).filter(
-    (g) => g !== trimmed,
-  )
-  if (config.settings.holdingGroupOrders) {
-    delete config.settings.holdingGroupOrders[trimmed]
-    if (Object.keys(config.settings.holdingGroupOrders).length === 0) {
-      config.settings.holdingGroupOrders = undefined
-    }
-  }
-  // 删除分组时同步从「不纳入总览」列表移除（分组已不存在，保留无意义）
-  config.settings.overviewExcludedGroups = (config.settings.overviewExcludedGroups || []).filter(
-    (g) => g !== trimmed,
-  )
-  // 删除所有在该分组有 allocation 的基金（含多分组基金）
-  for (const key of Object.keys(config.holdings)) {
-    const f = config.holdings[key]
-    if (f.allocations && trimmed in f.allocations) {
-      delete config.holdings[key]
-    }
-  }
-  await ports.config.saveConfig(config)
-  return config.settings.holdingGroups
+  // 与 removeHoldingGroup 同语义（删除分组引用 + 清空该分组份额 + 清理空基金），
+  // 修复：删除一个分组不得影响其他分组中的同名基金。
+  return removeHoldingGroup(ports, name)
 }
 
 /** 重命名一个持仓分组，并同步更新引用它的持仓的 allocations/costs key 与排序 key */

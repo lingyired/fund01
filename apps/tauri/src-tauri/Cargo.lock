@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "fund01-tauri"
-version = "1.0.38"
+version = "1.0.41"
 dependencies = [
  "block2",
  "chrono",

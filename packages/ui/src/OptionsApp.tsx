@@ -11,6 +11,7 @@ import {
   GripVertical,
   Heart,
   Info,
+  Loader2,
   Menu,
   Plus,
   RefreshCw,
@@ -1321,7 +1322,7 @@ function HoldingGroupsSection({
                       onClick={() =>
                         setConfirmAction({
                           title: `删除分组「${g}」？`,
-                          description: '该分组下的持仓将变成未分组。',
+                          description: '仅属于该分组的持仓将被删除，同时属于其他分组的持仓不受影响。',
                           confirmText: '确认删除',
                           onConfirm: () => {
                             void handleRemoveGroup(g)
@@ -1443,6 +1444,8 @@ function EditHoldingsSection({
   const [groups, setGroups] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<string>(ALL_TAB)
   const [saving, setSaving] = useState(false)
+  // 保存/删除分组等耗时操作期间的遮罩提示文案（非空时显示 loading mask，阻止误操作）
+  const [busyText, setBusyText] = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -1680,7 +1683,10 @@ function EditHoldingsSection({
 
   async function deleteGroup(group: string) {
     const label = group || '未分组'
+    // 先关闭确认弹窗（Radix modal overlay 层级高于 loading mask，不关会被它挡住）
+    setConfirmAction(null)
     setSaving(true)
+    setBusyText('正在删除分组，请稍候…')
     setError('')
     try {
       await removeHoldingGroupWithFunds(ports, group)
@@ -1691,17 +1697,19 @@ function EditHoldingsSection({
       setActiveTab(ALL_TAB)
       setMessage(`已删除分组「${label}」`)
       onGroupsChanged()
-      // 删除分组连带删除基金，popup 缓存需强制重算
+      // 删除分组会清掉引用它的份额（仅属该分组的基金一并删除），popup 缓存需强制重算
       await refreshHoldingsCache(ports)
     } catch (e) {
       setError((e as Error)?.message || '删除分组失败')
     } finally {
       setSaving(false)
+      setBusyText('')
     }
   }
 
   async function handleSave() {
     setSaving(true)
+    setBusyText('正在保存，请稍候…')
     setError('')
     setMessage('')
     try {
@@ -1787,6 +1795,7 @@ function EditHoldingsSection({
       setError((e as Error)?.message || '保存失败')
     } finally {
       setSaving(false)
+      setBusyText('')
     }
   }
 
@@ -1849,7 +1858,8 @@ function EditHoldingsSection({
   }, [rows, cacheMeta])
 
   return (
-    <SectionCard id="edit-holdings" title="编辑持仓">
+    <div className="relative">
+      <SectionCard id="edit-holdings" title="编辑持仓">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-xs text-muted">
           <Clock className="h-3.5 w-3.5 shrink-0" />
@@ -1883,7 +1893,7 @@ function EditHoldingsSection({
         )
       ) : null}
       <p className="text-xs text-muted">
-        可编辑「持有金额」与「持有收益」（当前市值 − 成本本金）；「持有份额 / 成本单价 / 持有成本」由金额与收益自动派生、只读展示，无需手填。删除分组会连带删除组内所有基金。记得点保存。
+        可编辑「持有金额」与「持有收益」（当前市值 − 成本本金）；「持有份额 / 成本单价 / 持有成本」由金额与收益自动派生、只读展示，无需手填。删除分组会删除仅属于该分组的基金，同时属于其他分组的基金不受影响。记得点保存。
       </p>
       {error ? <p className="text-sm text-rise">{error}</p> : null}
       {message ? <p className="text-sm text-fall">{message}</p> : null}
@@ -1934,8 +1944,9 @@ function EditHoldingsSection({
                     disabled={saving || refreshing}
                     onClick={() =>
                       setConfirmAction({
-                        title: `删除分组「${groupKey || '未分组'}」及其内所有基金？`,
-                        description: '此操作不可撤销。',
+                        title: `删除分组「${groupKey || '未分组'}」？`,
+                        description:
+                          '仅属于该分组的基金将被删除；同时属于其他分组的基金保留在其他分组。此操作不可撤销。',
                         confirmText: '确认删除',
                         onConfirm: () => {
                           void deleteGroup(groupKey ?? '')
@@ -2133,7 +2144,21 @@ function EditHoldingsSection({
       </div>
       <ConfirmDialog action={confirmAction} onOpenChange={() => setConfirmAction(null)} />
     </SectionCard>
-  )
+
+    {saving ? (
+      <div
+        role="status"
+        aria-live="polite"
+        className="absolute inset-0 z-10 flex items-center justify-center bg-paper/50 backdrop-blur"
+      >
+        <div className="flex items-center gap-2 rounded-lg border border-line/50 bg-paper px-4 py-2.5 shadow-card">
+          <Loader2 className="h-4 w-4 animate-spin text-accent" />
+          <span className="text-sm text-ink">{busyText || '处理中，请稍候…'}</span>
+        </div>
+      </div>
+    ) : null}
+  </div>
+)
 }
 
 /* ── 导入持仓 ─────────────────────────────────────────────── */
