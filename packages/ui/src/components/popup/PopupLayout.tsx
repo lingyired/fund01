@@ -4,6 +4,7 @@ import {usePorts} from '../../context'
 import {fetchSettings, listHoldingGroups} from '../../lib/fundOps'
 import {
   buildDisplayRows,
+  buildOverviewRows,
   buildTabs,
   getGroupKeys,
   summarizeGroup,
@@ -52,7 +53,12 @@ export function PopupLayout({
     () => getGroupKeys(list, holdingGroups),
     [list, holdingGroups],
   )
-  const tabs = useMemo(() => buildTabs(list, groupKeys), [list, groupKeys])
+  // 不纳入总览的分组：popup「全部」Tab（总览视图）与汇总统计同步剔除（设置页「持仓分组」开关）
+  const overviewExcludedGroups = groupTabSettings.overviewExcludedGroups || []
+  const tabs = useMemo(
+    () => buildTabs(list, groupKeys, overviewExcludedGroups),
+    [list, groupKeys, overviewExcludedGroups],
+  )
 
   // 外部请求（点击 menubar 分组）：挂起到 pending
   useEffect(() => {
@@ -73,15 +79,19 @@ export function PopupLayout({
     () => groupKeys.map((k) => summarizeGroup(list, k)),
     [list, groupKeys],
   )
-  const displayRows = useMemo(
-    () => buildDisplayRows(list, activeTab, groupKeys),
-    [list, groupKeys, activeTab],
-  )
-
   const validTab = tabs.some((t) => t.id === activeTab) ? activeTab : 'all'
   const isAll = validTab === 'all'
   const activeGroupKey =
     validTab === 'all' ? '' : validTab === '__ungrouped__' ? '' : validTab
+
+  const displayRows = useMemo(
+    () =>
+      // 「全部」Tab = 总览视图：剔除不纳入总览的分组（与 summary 口径一致）
+      isAll
+        ? buildOverviewRows(list, overviewExcludedGroups)
+        : buildDisplayRows(list, validTab, groupKeys),
+    [list, groupKeys, validTab, isAll, overviewExcludedGroups],
+  )
 
   const allSummary = data?.summary ?? null
   const tabTotalAmount = isAll

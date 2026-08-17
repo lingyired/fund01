@@ -79,15 +79,24 @@ export function resolveNavPair(quote: QuoteLike): {
   return result
 }
 
+/**
+ * 持仓合并计算。
+ *
+ * `opts.excludedGroups`：不纳入总览的分组名列表（'' 表示未分组）。这些分组的持仓份额
+ * 从总览汇总（summary）中剔除，但行（list）保持全量 —— 分组 Tab / 全部 Tab 仍可浏览。
+ * 无该参数或空数组 = 全部分组纳入总览（默认）。与 Rust `calc_holdings` 1:1 对齐。
+ */
 export function calcHoldings(
   localFunds: FundRecord[],
   quotes: QuoteLike[],
+  opts?: {excludedGroups?: string[]},
 ): HoldingsPayload & {
   persistPatches: Array<{
     code: string
     sectors?: string[]
   }>
 } {
+  const excluded = new Set(opts?.excludedGroups ?? [])
   const quoteMap = new Map(quotes.map((q) => [q.code, q]))
   const rows: FundQuoteRow[] = []
   const persistPatches: Array<{
@@ -98,6 +107,7 @@ export function calcHoldings(
   let totalPnl = 0
   let totalCost = 0
   let totalCumPnl = 0
+  let bodTotal = 0
   let hasAnyCost = false
 
   for (const raw of localFunds) {
@@ -128,6 +138,26 @@ export function calcHoldings(
     totalCostRow = round2(totalCostRow)
     const hasCost = totalCostRow > 0
 
+    // 总览口径：仅统计非排除分组的份额/成本（被排除分组不纳入总览汇总，但行数据保持全量）
+    const overviewShares = excluded.size
+      ? Object.entries(allocations)
+          .filter(([g]) => !excluded.has(g))
+          .reduce((a, [, s]) => a + (Number(s) || 0), 0)
+      : shares
+    const overviewRatio = shares > 0 ? overviewShares / shares : 0
+    let overviewCostRow = totalCostRow
+    if (excluded.size) {
+      overviewCostRow = 0
+      for (const g of Object.keys(costs)) {
+        if (excluded.has(g)) continue
+        const price = Number(costs[g]) || 0
+        const sh = Number(allocations[g]) || 0
+        if (price > 0 && sh > 0) overviewCostRow += price * sh
+      }
+      overviewCostRow = round2(overviewCostRow)
+    }
+    const overviewHasCost = overviewCostRow > 0
+
     const usingEstimate =
       q.percentSource === 'estimate' ||
       (q.percentSource !== 'confirmed' && latestEstimateNav(q) != null)
@@ -156,13 +186,25 @@ export function calcHoldings(
     const liveAmount =
       shares > 0 && currNav != null ? round2(shares * currNav) : displayAmount
 
-    totalAmount += displayAmount
-    totalPnl += pnl ?? 0
-    if (hasCost) {
+    // 总览口径的金额/收益（按份额比例拆分，与 groupStats 分组拆分同口径，保证
+    // 总览 = Σ 各纳入分组的汇总一致；pnl 为空时保持空，不按 0 计入）
+    const ovAmount = round2(displayAmount * overviewRatio)
+    const ovLive = round2(liveAmount * overviewRatio)
+    const ovPnl = pnl == null ? null : round2(pnl * overviewRatio)
+
+    totalAmount += ovAmount
+    totalPnl += ovPnl ?? 0
+    if (overviewHasCost) {
       hasAnyCost = true
-      totalCost += totalCostRow
-      // 累计收益用 liveAmount（最新市值）减成本
-      totalCumPnl += round2(liveAmount - totalCostRow)
+      totalCost += overviewCostRow
+      // 累计收益用总览口径最新市值减成本
+      totalCumPnl += round2(ovLive - overviewCostRow)
+    }
+    // 开盘前基数（总览口径）：总览份额 × 昨净值（与涨幅无关）
+    if (overviewShares > 0 && prevNav != null && prevNav > 0) {
+      bodTotal += round2(overviewShares * prevNav)
+    } else {
+      bodTotal += ovAmount - (ovPnl ?? 0)
     }
 
     const sectors = raw.sectors?.length
@@ -222,17 +264,6 @@ export function calcHoldings(
 
   for (const row of rows) {
     row.weight = totalAmount > 0 ? round2((row.amount / totalAmount) * 100) : 0
-  }
-
-  let bodTotal = 0
-  for (const row of rows) {
-    // 开盘前基数 = 份额 × 昨净值（与涨幅无关）
-    const sh = row.shares ?? 0
-    if (sh > 0 && row.prevNetValue != null && row.prevNetValue > 0) {
-      bodTotal += round2(sh * row.prevNetValue)
-    } else {
-      bodTotal += (row.amount || 0) - (row.pnl || 0)
-    }
   }
   bodTotal = round2(bodTotal)
 

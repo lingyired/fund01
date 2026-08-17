@@ -65,7 +65,10 @@ import {
   exportConfig,
   fetchSettings,
   importConfig,
+  isGroupOverviewExcluded,
   listHoldingGroups,
+  listOverviewExcludedGroups,
+  NameMismatchError,
   pickBasisNav,
   refreshHoldingsCache,
   removeHoldingGroup,
@@ -74,6 +77,7 @@ import {
   resetConfig,
   setFundAllocation,
   setHoldingGroupOrder,
+  toggleGroupOverviewExcluded,
   updateSettings,
 } from './lib/fundOps'
 import {
@@ -955,6 +959,8 @@ function HoldingGroupsSection({
 }) {
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
+  // 不纳入总览的分组（设置页开关：默认全部纳入）
+  const [excludedGroups, setExcludedGroups] = useState<string[]>([])
   const [newGroupName, setNewGroupName] = useState('')
   const [addingGroup, setAddingGroup] = useState(false)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
@@ -964,11 +970,25 @@ function HoldingGroupsSection({
 
   useEffect(() => {
     setGroups(listHoldingGroups(ports))
+    setExcludedGroups(listOverviewExcludedGroups(ports))
     setNewGroupName('')
     setAddingGroup(false)
     setEditingIdx(null)
     setGroupError('')
   }, [ports, groupsReload])
+
+  async function handleToggleOverviewGroup(group: string, excluded: boolean) {
+    setGroupError('')
+    try {
+      await toggleGroupOverviewExcluded(ports, group, excluded)
+      setExcludedGroups(listOverviewExcludedGroups(ports))
+      onGroupsChanged()
+      // 总览口径变化，popup 缓存需强制重算（summary 剔除/恢复该分组）
+      await refreshHoldingsCache(ports)
+    } catch (e: unknown) {
+      setGroupError((e as Error)?.message || '保存失败')
+    }
+  }
 
   async function handleAddGroup() {
     const name = newGroupName.trim()
@@ -1198,6 +1218,7 @@ function HoldingGroupsSection({
     <SectionCard id="holdings-groups" title="持仓分组">
       <p className="text-xs text-muted">
         管理持仓的分组。按住每行左侧的拖拽手柄（⠿）上下拖动可调整分组顺序，该顺序影响 popup 内分组 Tab 的排列；菜单栏分组实例的顺序由 macOS 原生管理（按住 ⌘ 拖拽菜单栏图标排序），不随持仓分组顺序变化。删除分组后，该分组下的持仓会变成未分组（不会被删除）。
+        每行的「总览」开关控制该分组是否纳入总览统计（默认开启）：关闭后，该分组的持仓不计入菜单栏「总览」、popup 汇总与扩展角标，但分组 Tab 中仍可正常查看——适合用来关注他人（如大 V、伴侣）的持仓而不污染自己的总览。
       </p>
       <div className="space-y-1 pt-1">
         {groups.length === 0 ? (
@@ -1262,6 +1283,21 @@ function HoldingGroupsSection({
                   <>
                     <GripVertical className="h-4 w-4 shrink-0 text-muted" />
                     <span className="flex-1 truncate text-sm text-ink">{g}</span>
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1"
+                      title="关闭后该分组不纳入总览：菜单栏「总览」、popup 汇总与扩展角标均不计入该分组持仓，但分组 Tab 中仍可正常查看"
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <Switch
+                        radius="full"
+                        size="1"
+                        checked={!excludedGroups.includes(g)}
+                        onCheckedChange={(c) => void handleToggleOverviewGroup(g, !c)}
+                        aria-label={`${g} 纳入总览`}
+                      />
+                      <span className="text-[11px] text-muted">总览</span>
+                    </label>
+                    <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line/70" />
                     <IconButton
                       type="button"
                       variant="ghost"
@@ -1275,6 +1311,7 @@ function HoldingGroupsSection({
                       <Plus className="hidden" />
                       <span className="text-xs">重命名</span>
                     </IconButton>
+                    <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-line/70" />
                     <IconButton
                       type="button"
                       variant="ghost"
@@ -2101,6 +2138,14 @@ function EditHoldingsSection({
 /* ── 导入持仓 ─────────────────────────────────────────────── */
 const UNGROUPED_VALUE = '__ungrouped__'
 
+/** 一条导入失败的记录（结构化，支持按类型提供「确认并导入」入口） */
+type FailedImport = {
+  entry: ImportEntry
+  message: string
+  /** nameMismatch = 代码↔名称对不上（用户核实代码后可确认导入）；other = 其他失败 */
+  kind: 'nameMismatch' | 'other'
+}
+
 function ImportSection({
   onImported,
   onGroupsChanged,
@@ -2116,12 +2161,15 @@ function ImportSection({
   const [entries, setEntries] = useState<ImportEntry[]>([])
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
-  const [progress, setProgress] = useState<{done: number; total: number; failed: string[]}>({
-    done: 0,
-    total: 0,
-    failed: [],
-  })
+  const [progress, setProgress] = useState<{done: number; total: number; failed: FailedImport[]}>(
+    {
+      done: 0,
+      total: 0,
+      failed: [],
+    },
+  )
   const [warnings, setWarnings] = useState<string[]>([])
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [defaultGroup, setDefaultGroup] = useState('')
   const [groups, setGroups] = useState<string[]>([])
   const [copied, setCopied] = useState(false)
@@ -2214,7 +2262,7 @@ function ImportSection({
       }
     }
 
-    const failed: string[] = []
+    const failed: FailedImport[] = []
     const warns: string[] = []
     for (let i = 0; i < valid.length; i++) {
       const e = valid[i]
@@ -2236,7 +2284,11 @@ function ImportSection({
           onWarn: (msg) => warns.push(msg),
         })
       } catch (err) {
-        failed.push(`${e.code}：${(err as Error)?.message || '失败'}`)
+        failed.push({
+          entry: e,
+          message: (err as Error)?.message || '失败',
+          kind: err instanceof NameMismatchError ? 'nameMismatch' : 'other',
+        })
       }
       setProgress({done: i + 1, total: valid.length, failed: [...failed]})
       setWarnings([...warns])
@@ -2266,8 +2318,53 @@ function ImportSection({
     }
   }
 
+  /**
+   * 「确认并导入」：用户核实代码无误（仅平台命名差异）后，
+   * 带 forceImport 重新导入该条失败数据；名称以数据源官方名为准。
+   */
+  async function retryImport(f: FailedImport) {
+    setRunning(true)
+    try {
+      const e = f.entry
+      const group = e.group || defaultGroup
+      await createFund(ports, {
+        code: e.code,
+        amount: e.amount,
+        amountBasis: e.amountBasis,
+        navDate: e.navDate,
+        name: e.name,
+        type: 'hold',
+        group,
+        cost: e.cost,
+        holdProfit: e.holdProfit,
+        shares: e.shares,
+        dailyProfit: e.dailyProfit,
+        holdProfitRate: e.holdProfitRate,
+        forceImport: true,
+        onWarn: (msg) => setWarnings((w) => [...w, msg]),
+      })
+      setProgress((p) => ({...p, failed: p.failed.filter((x) => x !== f)}))
+      setError('')
+      setMessage(`已确认导入 ${e.code}（名称以数据源为准）`)
+      // 与 runImport 尾部一致：清缓存强制刷新，让 popup 等端立即重算
+      onGroupsChanged()
+      onImported()
+      await refreshHoldingsCache(ports)
+    } catch (err) {
+      setProgress((p) => ({
+        ...p,
+        failed: p.failed.map((x) =>
+          x === f ? {...x, message: (err as Error)?.message || '失败'} : x,
+        ),
+      }))
+    } finally {
+      setRunning(false)
+    }
+  }
+
   return (
-    <SectionCard id="import-holdings" title="导入持仓">
+    <>
+      <SectionCard id="import-holdings" title="导入持仓">
       {/* 用 AI 助手生成 JSON（教程） */}
       <div className="rounded-lg border border-line/70 bg-paper-deep/40 text-xs text-muted">
         <div className="flex items-center gap-1.5 border-b border-line/30 px-3 py-2">
@@ -2477,9 +2574,45 @@ function ImportSection({
       {progress.failed.length > 0 ? (
         <div className="rounded-lg border border-rise/30 bg-rise/5 p-2 text-xs text-rise">
           <div className="mb-1 font-medium">导入失败 {progress.failed.length} 条</div>
+          <div className="mb-1.5 text-[11px] leading-relaxed text-rise/75">
+            AI 识图偶尔会认错基金代码或名称，请逐条核对下面的异常：
+            名称对不上的（多为同一基金在不同平台命名不同，或代码识别有误），确认代码无误后可直接在下方「确认并导入」（将以数据源官方名称导入）；
+            其余情况请在上方「添加持仓」中手动添加。
+          </div>
           {progress.failed.map((f, i) => (
-            <div key={i} className="mt-0.5 break-words">
-              {f}
+            <div key={i} className="mt-1 rounded border border-rise/20 bg-rise/5 p-1.5">
+              <div className="break-words whitespace-pre-wrap">
+                {f.entry.code}：{f.message}
+              </div>
+              {f.kind === 'nameMismatch' ? (
+                <Button
+                  size="1"
+                  variant="soft"
+                  color="blue"
+                  className="mt-1.5"
+                  disabled={running}
+                  onClick={() =>
+                    setConfirmAction({
+                      title: `确认导入 ${f.entry.code}？`,
+                      description: (
+                        <>
+                          代码 {f.entry.code} 与数据源名称不一致（可能只是不同平台命名不同）。
+                          请确认 <b>{f.entry.code}</b> 确实是你要导入的基金；确认后将按数据源
+                          官方名称导入，你提供的名称「{f.entry.name || '（未提供）'}」不会被采用。
+                        </>
+                      ),
+                      confirmText: '确认导入',
+                      confirmColor: 'blue',
+                      onConfirm: () => {
+                        setConfirmAction(null)
+                        void retryImport(f)
+                      },
+                    })
+                  }
+                >
+                  确认并导入
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>
@@ -2506,6 +2639,8 @@ function ImportSection({
         </Button>
       </div>
     </SectionCard>
+      <ConfirmDialog action={confirmAction} onOpenChange={() => setConfirmAction(null)} />
+    </>
   )
 }
 

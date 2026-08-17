@@ -435,7 +435,12 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                     }
                 }
             }
-            let (payload, p) = calc_holdings(&holdings_funds, &quotes);
+            let excluded_groups = config
+                .settings
+                .overview_excluded_groups
+                .clone()
+                .unwrap_or_default();
+            let (payload, p) = calc_holdings(&holdings_funds, &quotes, &excluded_groups);
             holdings_payload = Some(payload);
             patches.extend(p);
         } else if force {

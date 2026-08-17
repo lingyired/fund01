@@ -58,6 +58,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     badgeMode: 'percent',
     holdingsNavPosition: 'top',
     holdingGroups: [],
+    holdingGroupOrders: {},
+    // 默认全部分组纳入总览（空数组 = 无排除）
+    overviewExcludedGroups: [],
     theme: 'system',
     // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
     silentStart: false,
@@ -250,6 +253,24 @@ export function normalizeMenubarHiddenGroups(
   return next
 }
 
+/** 归一化不纳入总览的分组：去重保序，仅保留 ''(未分组) 或存在于 holdingGroups 的名字。
+ *  默认空数组 = 全部分组纳入总览。 */
+export function normalizeOverviewExcludedGroups(
+  v: unknown,
+  groups: string[],
+): string[] {
+  if (!Array.isArray(v)) return []
+  const valid = new Set(groups)
+  const next: string[] = []
+  for (const g of v) {
+    const key = String(g ?? '').trim()
+    if ((key === '' || valid.has(key)) && !next.includes(key)) {
+      next.push(key)
+    }
+  }
+  return next
+}
+
 /** 归一化各分组自定义上行颜色：仅保留 ''(未分组)、总览或存在于 holdingGroups 的 key，value 校验 hex */
 export function normalizeMenubarGroupColors(
   v: unknown,
@@ -332,6 +353,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
           : DEFAULT_CONFIG.settings.holdingsNavPosition,
       holdingGroups,
       holdingGroupOrders,
+      overviewExcludedGroups: normalizeOverviewExcludedGroups(
+        payload?.settings?.overviewExcludedGroups,
+        holdingGroups,
+      ),
       theme:
         payload?.settings?.theme === 'light' ||
         payload?.settings?.theme === 'dark' ||

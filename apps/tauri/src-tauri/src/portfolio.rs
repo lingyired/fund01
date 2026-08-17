@@ -25,6 +25,7 @@ pub fn default_config() -> AppConfig {
             holdings_nav_position: Some("top".to_string()),
             holding_groups: Some(vec![]),
             holding_group_orders: Some(HashMap::new()),
+            overview_excluded_groups: Some(vec![]),
             theme: Some("system".to_string()),
             silent_start: Some(false),
             selected_indices: Some(DEFAULT_SELECTED_INDICES.iter().map(|s| s.to_string()).collect()),
@@ -284,6 +285,21 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     }
 
     let settings_raw = payload.get("settings");
+    // overviewExcludedGroups：不纳入总览的分组，去重保序，仅保留 ''(未分组) 或有效分组
+    let mut overview_excluded_groups: Vec<String> = Vec::new();
+    if let Some(h) = settings_raw
+        .and_then(|s| s.get("overviewExcludedGroups"))
+        .and_then(|v| v.as_array())
+    {
+        for g in h {
+            let key = g.as_str().unwrap_or("").trim().to_string();
+            if (key.is_empty() || holding_groups.contains(&key))
+                && !overview_excluded_groups.contains(&key)
+            {
+                overview_excluded_groups.push(key);
+            }
+        }
+    }
     // menubarHiddenGroups：保留 ''(未分组)、__overview__(总览被 ⌘-拖出)，去重保序，只留有效分组
     let mut menubar_hidden_groups: Vec<String> = Vec::new();
     if let Some(h) = settings_raw.and_then(|s| s.get("menubarHiddenGroups")).and_then(|v| v.as_array()) {
@@ -450,6 +466,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             holdings_nav_position: Some(holdings_nav_position),
             holding_groups: Some(holding_groups),
             holding_group_orders: Some(holding_group_orders),
+            overview_excluded_groups: Some(overview_excluded_groups),
             theme: Some(theme),
             silent_start: Some(silent_start),
             selected_indices: Some(selected_indices),

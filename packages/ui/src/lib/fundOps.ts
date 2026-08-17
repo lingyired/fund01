@@ -207,6 +207,22 @@ function runImportChecks(opts: {
   }
 }
 
+/**
+ * 代码↔名称校验不通过（nameMismatch）时抛出的专用错误。
+ * UI 层据此识别「名称对不上」类失败，可提供「确认并导入」入口
+ * （用户核实代码正确、仅平台命名差异时，带 forceImport 重新导入）。
+ */
+export class NameMismatchError extends Error {
+  readonly input: string
+  readonly officials: string[]
+  constructor(message: string, input: string, officials: string[]) {
+    super(message)
+    this.name = 'NameMismatchError'
+    this.input = input
+    this.officials = officials
+  }
+}
+
 /** 内部：upsert 一条持仓记录（归一化后写回配置） */
 async function upsertFund(
   ports: Ports,
@@ -261,6 +277,11 @@ export async function createFund(
     navDate?: string
     /** 校验告警回调（不阻断导入） */
     onWarn?: (msg: string) => void
+    /**
+     * 强制导入：跳过「代码↔名称对不上」的拒绝（用户已人工确认代码正确，
+     * 仅不同平台命名差异）。导入后的名称仍以数据源官方名为准。
+     */
+    forceImport?: boolean
   },
 ): Promise<FundRecord> {
   const meta = await ports.data.resolveFund({
@@ -274,15 +295,18 @@ export async function createFund(
   // AI 识别截图时基金代码常错一两位，而错误代码往往也是一只真实基金，
   // 不核对就会静默导入完全不相干的标的。
   // 约定：codeCorrected（已按名称反查出正确代码）→ 告警后照常导入；
-  //      nameMismatch（对不上且无法反查）→ 直接拒绝导入，交由用户核对代码。
-  if (meta.nameMismatch) {
+  //      nameMismatch（对不上且无法反查）→ 默认拒绝导入；forceImport（用户
+  //      已确认代码正确，仅平台命名差异）时放行，名称仍用数据源官方名。
+  if (meta.nameMismatch && !payload.forceImport) {
     // 与任一平台官方名都不符，且无唯一可纠正的代码 → 视为代码错误，拒绝导入。
     const m = meta.nameMismatch
     const officials = m.officials.length ? m.officials.join(' / ') : '（数据源未返回名称）'
-    throw new Error(
+    throw new NameMismatchError(
       `代码 ${meta.code} 与名称对不上，已拒绝导入：` +
         `代码 ${meta.code} 实际是「${officials}」，而你给的名称是「${m.input}」，按该名称也没搜到能唯一确定的基金。` +
         `请核对代码是否识别错误（AI 识图常错一两位数字）后重新导入。`,
+      m.input,
+      m.officials,
     )
   }
   if (meta.codeCorrected && payload.onWarn) {
@@ -554,6 +578,16 @@ export async function updateSettings(
     }
     config.settings.menubarHiddenGroups = next
   }
+  if (Array.isArray(patch.overviewExcludedGroups)) {
+    // 整体替换 overviewExcludedGroups：去重保序，仅保留 ''(未分组) 或现有分组名
+    const valid = new Set(config.settings.holdingGroups || [])
+    const next: string[] = []
+    for (const g of patch.overviewExcludedGroups) {
+      const key = String(g ?? '').trim()
+      if ((key === '' || valid.has(key)) && !next.includes(key)) next.push(key)
+    }
+    config.settings.overviewExcludedGroups = next
+  }
   if (patch.menubarLayout === 0 || patch.menubarLayout === 2) {
     config.settings.menubarLayout = patch.menubarLayout
   }
@@ -639,6 +673,33 @@ export function listHoldingGroups(ports: Ports): string[] {
   return ports.config.getConfig().settings.holdingGroups || []
 }
 
+/** 不纳入总览的持仓分组名列表（'' 表示未分组） */
+export function listOverviewExcludedGroups(ports: Ports): string[] {
+  return ports.config.getConfig().settings.overviewExcludedGroups || []
+}
+
+/** 某分组是否不纳入总览（默认全部纳入） */
+export function isGroupOverviewExcluded(ports: Ports, group: string): boolean {
+  return listOverviewExcludedGroups(ports).includes(group)
+}
+
+/** 设置某分组是否纳入总览（true = 不纳入）。默认全部分组纳入总览。 */
+export async function toggleGroupOverviewExcluded(
+  ports: Ports,
+  group: string,
+  excluded: boolean,
+): Promise<void> {
+  const config = ports.config.getConfig()
+  const list = config.settings.overviewExcludedGroups || []
+  const next = excluded
+    ? list.includes(group)
+      ? list
+      : [...list, group]
+    : list.filter((g) => g !== group)
+  config.settings.overviewExcludedGroups = next
+  await ports.config.saveConfig(config)
+}
+
 /** 是否存在未分组持仓：allocations 里有份额 >0 且分组名不在 holdingGroups 中。
  *  口径与 Rust `has_ungrouped`（apps/tauri/src-tauri/src/menubar.rs）保持一致。 */
 export function hasUngroupedHoldings(cfg: AppConfig): boolean {
@@ -694,6 +755,10 @@ export async function removeHoldingGroup(ports: Ports, name: string): Promise<st
       config.settings.holdingGroupOrders = undefined
     }
   }
+  // 删除分组时同步从「不纳入总览」列表移除（分组已不存在，保留无意义）
+  config.settings.overviewExcludedGroups = (config.settings.overviewExcludedGroups || []).filter(
+    (g) => g !== trimmed,
+  )
   for (const f of Object.values(config.holdings)) {
     if (f.allocations && trimmed in f.allocations) {
       delete f.allocations[trimmed]
@@ -731,6 +796,10 @@ export async function removeHoldingGroupWithFunds(ports: Ports, name: string): P
       config.settings.holdingGroupOrders = undefined
     }
   }
+  // 删除分组时同步从「不纳入总览」列表移除（分组已不存在，保留无意义）
+  config.settings.overviewExcludedGroups = (config.settings.overviewExcludedGroups || []).filter(
+    (g) => g !== trimmed,
+  )
   // 删除所有在该分组有 allocation 的基金（含多分组基金）
   for (const key of Object.keys(config.holdings)) {
     const f = config.holdings[key]
@@ -778,6 +847,12 @@ export async function renameHoldingGroup(
     const existing = config.settings.holdingGroupOrders[n] || []
     const merged = Array.from(new Set([...order, ...existing]))
     config.settings.holdingGroupOrders[n] = merged
+  }
+  // 同步「不纳入总览」列表：旧名替换为新名（去重）
+  if (config.settings.overviewExcludedGroups?.includes(o)) {
+    const list = config.settings.overviewExcludedGroups.filter((g) => g !== o)
+    if (n && !list.includes(n)) list.push(n)
+    config.settings.overviewExcludedGroups = list
   }
   await ports.config.saveConfig(config)
   return config.settings.holdingGroups

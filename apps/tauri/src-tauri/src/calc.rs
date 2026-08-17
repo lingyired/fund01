@@ -58,10 +58,17 @@ pub fn resolve_nav_pair(q: &FundQuote) -> (Option<f64>, Option<f64>) {
 }
 
 /// 持仓合并计算（对应 calcHoldings）
+///
+/// `excluded`：不纳入总览的分组名列表（'' 表示未分组）。这些分组的持仓份额从总览汇总
+/// （summary）中剔除，但行（list）保持全量 —— 分组 Tab / 全部 Tab 仍可浏览。
+/// 空列表 = 全部分组纳入总览（默认）。与 TS `calcHoldings` 1:1 对齐。
 pub fn calc_holdings(
     local_funds: &[FundRecord],
     quotes: &[FundQuote],
+    excluded: &[String],
 ) -> (HoldingsPayload, Vec<PersistPatch>) {
+    let excluded_set: std::collections::HashSet<&str> =
+        excluded.iter().map(|s| s.as_str()).collect();
     let quote_map: std::collections::HashMap<&str, &FundQuote> =
         quotes.iter().map(|q| (q.code.as_str(), q)).collect();
 
@@ -71,6 +78,7 @@ pub fn calc_holdings(
     let mut total_pnl = 0.0f64;
     let mut total_cost = 0.0f64;
     let mut total_cum_pnl = 0.0f64;
+    let mut bod_total = 0.0f64;
     let mut has_any_cost = false;
 
     let now = chrono::Local::now();
@@ -104,6 +112,35 @@ pub fn calc_holdings(
         total_cost_row = round2(total_cost_row);
         let has_cost = total_cost_row > 0.0;
 
+        // 总览口径：仅统计非排除分组的份额/成本（被排除分组不纳入总览汇总，但行数据保持全量）
+        let overview_shares: f64 = if excluded_set.is_empty() {
+            shares
+        } else {
+            raw.allocations
+                .iter()
+                .filter(|(g, _)| !excluded_set.contains(g.as_str()))
+                .map(|(_, s)| s)
+                .sum()
+        };
+        let overview_ratio = if shares > 0.0 { overview_shares / shares } else { 0.0 };
+        let mut overview_cost_row = total_cost_row;
+        if !excluded_set.is_empty() {
+            overview_cost_row = 0.0;
+            if let Some(costs) = &raw.costs {
+                for (g, price) in costs {
+                    if excluded_set.contains(g.as_str()) {
+                        continue;
+                    }
+                    let sh = raw.allocations.get(g).copied().unwrap_or(0.0);
+                    if *price > 0.0 && sh > 0.0 {
+                        overview_cost_row += price * sh;
+                    }
+                }
+            }
+            overview_cost_row = round2(overview_cost_row);
+        }
+        let overview_has_cost = overview_cost_row > 0.0;
+
         let using_estimate = q.percent_source.as_deref() == Some("estimate")
             || (q.percent_source.as_deref() != Some("confirmed") && latest_estimate_nav(q).is_some());
 
@@ -134,12 +171,25 @@ pub fn calc_holdings(
             display_amount
         };
 
-        total_amount += display_amount;
-        total_pnl += pnl.unwrap_or(0.0);
-        if has_cost {
+        // 总览口径的金额/收益（按份额比例拆分，与前端 groupStats 分组拆分同口径；
+        // pnl 为空时保持空，不按 0 计入）
+        let ov_amount = round2(display_amount * overview_ratio);
+        let ov_live = round2(live_amount * overview_ratio);
+        let ov_pnl = pnl.map(|p| round2(p * overview_ratio));
+
+        total_amount += ov_amount;
+        total_pnl += ov_pnl.unwrap_or(0.0);
+        if overview_has_cost {
             has_any_cost = true;
-            total_cost += total_cost_row;
-            total_cum_pnl += round2(live_amount - total_cost_row);
+            total_cost += overview_cost_row;
+            // 累计收益用总览口径最新市值减成本
+            total_cum_pnl += round2(ov_live - overview_cost_row);
+        }
+        // 开盘前基数（总览口径）：总览份额 × 昨净值（与涨幅无关）
+        if overview_shares > 0.0 && prev_nav.is_some_and(|p| p > 0.0) {
+            bod_total += round2(overview_shares * prev_nav.unwrap());
+        } else {
+            bod_total += ov_amount - ov_pnl.unwrap_or(0.0);
         }
 
         let sectors = if !raw.sectors.is_empty() {
@@ -211,16 +261,6 @@ pub fn calc_holdings(
         };
     }
 
-    // bodTotal：开盘前基数 = 份额 × 昨净值
-    let mut bod_total = 0.0f64;
-    for row in &rows {
-        let sh = row.fund.shares.unwrap_or(0.0);
-        if sh > 0.0 && row.prev_net_value.is_some_and(|p| p > 0.0) {
-            bod_total += round2(sh * row.prev_net_value.unwrap());
-        } else {
-            bod_total += (row.amount) - (row.pnl.unwrap_or(0.0));
-        }
-    }
     bod_total = round2(bod_total);
 
     rows.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));

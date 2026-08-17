@@ -175,6 +175,13 @@ export type AppSettings = {
    * 批量编辑弹窗中可调整。
    */
   holdingGroupOrders?: Record<string, string[]>
+  /**
+   * 不纳入总览统计的持仓分组名列表（'' 表示未分组）。
+   * 总览 = 菜单栏「总览」实例、popup 顶部/底部汇总、扩展角标等所有汇总统计；
+   * 不在列表中的分组默认纳入（含未分组）。被排除的分组仍可在分组 Tab 中查看，
+   * 只是其持仓不计入总览汇总。
+   */
+  overviewExcludedGroups?: string[]
   /** 主题偏好，默认 system（跟随系统） */
   theme?: AppThemePref
   /**

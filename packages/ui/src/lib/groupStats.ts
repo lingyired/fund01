@@ -177,28 +177,37 @@ export interface TabInfo {
   down: number
 }
 
-/** 构建分组 Tab 列表（全部 + 各分组） */
-export function buildTabs(list: FundQuoteRow[], groupKeys: GroupKey[]): TabInfo[] {
-  const allRows = list
+/**
+ * 构建分组 Tab 列表（全部 + 各分组）。
+ * `excludedGroups`：不纳入总览的分组名列表（'' 表示未分组，默认空 = 全部纳入）。
+ * 「全部」Tab 即总览视图：剔除被排除分组的持仓（份额/金额/收益按未排除部分拆分），
+ * 与后端 calcHoldings summary 的排除口径 1:1 一致；各分组 Tab 不受影响。
+ */
+export function buildTabs(
+  list: FundQuoteRow[],
+  groupKeys: GroupKey[],
+  excludedGroups: string[] = [],
+): TabInfo[] {
+  const ovRows = buildOverviewRows(list, excludedGroups)
   let allUp = 0
   let allDown = 0
   let allPnl = 0
   let allAmount = 0
-  for (const r of allRows) {
-    const p = r.pnl ?? 0
+  for (const d of ovRows) {
+    const p = d.pnl ?? 0
     if (p > 0) allUp++
     else if (p < 0) allDown++
     // 当日收益额聚合：跳过空值（QDII 盘中 pnl=null），不按 0 计入（§六）；
     // 与 summarizeGroup 的 groupPnl 口径一致（null 跳过，等价于 ??0 的求和）
-    if (r.pnl != null) allPnl += r.pnl
-    allAmount += r.amount || 0
+    if (d.pnl != null) allPnl += d.pnl
+    allAmount += d.amount || 0
   }
   const tabs: TabInfo[] = [
     {
       id: 'all',
       key: '',
       label: '全部',
-      count: allRows.length,
+      count: ovRows.length,
       amount: Math.round(allAmount * 100) / 100,
       pnl: Math.round(allPnl * 100) / 100,
       pnlPercent: allAmount > 0 ? (allPnl / allAmount) * 100 : null,
@@ -221,6 +230,64 @@ export function buildTabs(list: FundQuoteRow[], groupKeys: GroupKey[]): TabInfo[
     })
   }
   return tabs
+}
+
+/**
+ * 总览视图行：剔除「不纳入总览」分组后的持仓列表（popup「全部」Tab 与总览一致）。
+ * - 基金在未排除分组有 allocation 键（含 0 份额的关注/待加仓）→ 保留，份额/金额/收益
+ *   按未排除部分占全部份额的比例拆分（与 groupAmount/groupPnl 同口径）；
+ * - 基金只在被排除分组有份额（或 0 份额）→ 整行过滤。
+ * 口径与 calcHoldings summary 的排除逻辑 1:1（金额/收益比例拆分、成本按分组精确加总）。
+ */
+export function buildOverviewRows(
+  list: FundQuoteRow[],
+  excludedGroups: string[] = [],
+): DisplayRow[] {
+  if (!excludedGroups.length) {
+    return list.map((row) => ({
+      row,
+      shares: row.shares || 0,
+      amount: row.amount,
+      pnl: row.pnl ?? null,
+      cumPnl: row.totalCumPnl ?? null,
+      cumPnlPercent: row.totalCumPnlPercent ?? null,
+      group: '',
+    }))
+  }
+  const excluded = new Set(excludedGroups)
+  const out: DisplayRow[] = []
+  for (const row of list) {
+    const allocs = row.allocations || {}
+    const keptKeys = Object.keys(allocs).filter((g) => !excluded.has(g))
+    // 在未排除分组无任何键（份额全在被排除分组，或该基金本就只属于被排除分组）→ 过滤
+    if (keptKeys.length === 0) continue
+    const total = row.shares || 0
+    const ovShares = keptKeys.reduce((s, g) => s + (Number(allocs[g]) || 0), 0)
+    const ratio = total > 0 ? ovShares / total : 0
+    // 成本按分组精确加总（不按比例）：仅未排除分组
+    let ovCost = 0
+    const costs = row.costs || {}
+    for (const g of keptKeys) {
+      const price = Number(costs[g]) || 0
+      const sh = Number(allocs[g]) || 0
+      if (price > 0 && sh > 0) ovCost += price * sh
+    }
+    ovCost = Math.round(ovCost * 100) / 100
+    const ovLive = Math.round(((row.liveAmount ?? row.amount) * ratio) * 100) / 100
+    const cumPnl = ovCost > 0 ? Math.round((ovLive - ovCost) * 100) / 100 : null
+    const cumPnlPercent =
+      cumPnl != null && ovCost > 0 ? Math.round((cumPnl / ovCost) * 10000) / 100 : null
+    out.push({
+      row,
+      shares: ovShares,
+      amount: Math.round(row.amount * ratio * 100) / 100,
+      pnl: row.pnl == null ? null : Math.round(row.pnl * ratio * 100) / 100,
+      cumPnl,
+      cumPnlPercent,
+      group: '',
+    })
+  }
+  return out
 }
 
 /** 某分组 tab 下的基金行（用于基金列表渲染） */

@@ -71,6 +71,10 @@ pub struct AppSettings {
     pub holding_groups: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub holding_group_orders: Option<HashMap<String, Vec<String>>>,
+    /// 不纳入总览统计的持仓分组名列表（'' 表示未分组）。默认空 = 全部分组纳入。
+    /// 被排除分组的持仓从总览汇总（菜单栏「总览」/角标/popup 汇总）剔除，但仍可在分组 Tab 查看。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overview_excluded_groups: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
     /// 静默启动（clash-verge-rev enable_silent_start 同款）：启动后不打开设置界面，仅常驻菜单栏
@@ -147,6 +151,7 @@ impl Default for AppSettings {
             holdings_nav_position: None,
             holding_groups: None,
             holding_group_orders: None,
+            overview_excluded_groups: None,
             theme: None,
             silent_start: None,
             selected_indices: None,

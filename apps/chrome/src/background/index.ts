@@ -290,7 +290,10 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
   let holdingsResult: ReturnType<typeof calcHoldings> | null = null
   if (holdingsQuotes) {
     try {
-      holdingsResult = calcHoldings(holdFunds, holdingsQuotes)
+      holdingsResult = calcHoldings(holdFunds, holdingsQuotes, {
+        // 不纳入总览的分组：其持仓从总览汇总剔除（popup 顶部/角标），行数据保持全量
+        excludedGroups: config?.settings?.overviewExcludedGroups,
+      })
     } catch (e) {
       console.warn('[fund01] calcHoldings failed', e)
     }
