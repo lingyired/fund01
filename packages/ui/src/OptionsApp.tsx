@@ -1,6 +1,7 @@
 import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import type * as React from 'react'
 import {
+  AlertTriangle,
   Check,
   Clock,
   Copy,
@@ -2144,6 +2145,8 @@ type FailedImport = {
   message: string
   /** nameMismatch = 代码↔名称对不上（用户核实代码后可确认导入）；other = 其他失败 */
   kind: 'nameMismatch' | 'other'
+  /** 名称不匹配时，数据源返回的官方名列表（确认导入后将采用，展示给用户确认） */
+  officials?: string[]
 }
 
 function ImportSection({
@@ -2284,10 +2287,12 @@ function ImportSection({
           onWarn: (msg) => warns.push(msg),
         })
       } catch (err) {
+        const nm = err instanceof NameMismatchError ? err : null
         failed.push({
           entry: e,
           message: (err as Error)?.message || '失败',
-          kind: err instanceof NameMismatchError ? 'nameMismatch' : 'other',
+          kind: nm ? 'nameMismatch' : 'other',
+          officials: nm?.officials,
         })
       }
       setProgress({done: i + 1, total: valid.length, failed: [...failed]})
@@ -2572,24 +2577,27 @@ function ImportSection({
       ) : null}
 
       {progress.failed.length > 0 ? (
-        <div className="rounded-lg border border-rise/30 bg-rise/5 p-2 text-xs text-rise">
-          <div className="mb-1 font-medium">导入失败 {progress.failed.length} 条</div>
-          <div className="mb-1.5 text-[11px] leading-relaxed text-rise/75">
+        <div className="rounded-lg border border-rise/30 bg-rise/5 p-3 text-xs">
+          <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-rise">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            导入失败 {progress.failed.length} 条
+          </div>
+          <div className="mb-2 text-[12px] leading-relaxed text-muted">
             AI 识图偶尔会认错基金代码或名称，请逐条核对下面的异常：
             名称对不上的（多为同一基金在不同平台命名不同，或代码识别有误），确认代码无误后可直接在下方「确认并导入」（将以数据源官方名称导入）；
             其余情况请在上方「添加持仓」中手动添加。
           </div>
           {progress.failed.map((f, i) => (
-            <div key={i} className="mt-1 rounded border border-rise/20 bg-rise/5 p-1.5">
-              <div className="break-words whitespace-pre-wrap">
-                {f.entry.code}：{f.message}
+            <div key={i} className="mt-1.5 rounded-md border border-rise/20 bg-rise/5 p-2">
+              <div className="break-words whitespace-pre-wrap leading-relaxed text-rise">
+                <span className="font-mono font-medium">{f.entry.code}</span>：{f.message}
               </div>
               {f.kind === 'nameMismatch' ? (
                 <Button
                   size="1"
                   variant="soft"
                   color="blue"
-                  className="mt-1.5"
+                  className="mt-2"
                   disabled={running}
                   onClick={() =>
                     setConfirmAction({
@@ -2597,8 +2605,18 @@ function ImportSection({
                       description: (
                         <>
                           代码 {f.entry.code} 与数据源名称不一致（可能只是不同平台命名不同）。
-                          请确认 <b>{f.entry.code}</b> 确实是你要导入的基金；确认后将按数据源
-                          官方名称导入，你提供的名称「{f.entry.name || '（未提供）'}」不会被采用。
+                          请确认 <b>{f.entry.code}</b> 确实是你要导入的基金；
+                          {f.officials?.length ? (
+                            <>
+                              确认后将采用数据源官方名称：<b>{f.officials.join(' / ')}</b>，
+                              你提供的名称「{f.entry.name || '（未提供）'}」不会被采用。
+                            </>
+                          ) : (
+                            <>
+                              确认后将按数据源官方名称导入，你提供的名称「
+                              {f.entry.name || '（未提供）'}」不会被采用。
+                            </>
+                          )}
                         </>
                       ),
                       confirmText: '确认导入',
