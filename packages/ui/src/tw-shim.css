@@ -133,6 +133,7 @@
 .h-7{height:28px}
 .h-8{height:32px}
 .h-9{height:36px}
+.h-12{height:48px}
 .h-\[52px\]{height:52px}
 .h-\[60px\]{height:60px}
 .h-auto{height:auto}
@@ -151,6 +152,7 @@
 .hover\:from-rise\/15:hover{--tw-gradient-from:color-mix(in oklab, var(--app-rise) 15%, transparent);--tw-gradient-stops:var(--tw-gradient-from) 0%,var(--tw-gradient-to)}
 .hover\:to-fall\/35:hover{--tw-gradient-to:color-mix(in oklab, var(--app-fall) 35%, transparent)}
 .hover\:to-rise\/35:hover{--tw-gradient-to:color-mix(in oklab, var(--app-rise) 35%, transparent)}
+.hover\:border-accent\/40:hover{border-color:color-mix(in oklab, var(--accent-9) 40%, transparent)}
 .hover\:border-accent\/50:hover{border-color:color-mix(in oklab, var(--accent-9) 50%, transparent)}
 .hover\:decoration-accent:hover{text-decoration-color:var(--accent-9)}
 .hover\:opacity-90:hover{opacity:0.9}
@@ -380,6 +382,7 @@
 .w-5{width:20px}
 .w-7{width:28px}
 .w-8{width:32px}
+.w-12{width:48px}
 .w-60{width:15rem}
 .w-\[10\%\]{width:10%}
 .w-\[124px\]{width:124px}
