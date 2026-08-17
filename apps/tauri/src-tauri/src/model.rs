@@ -73,6 +73,9 @@ pub struct AppSettings {
     pub holding_group_orders: Option<HashMap<String, Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// 静默启动（clash-verge-rev enable_silent_start 同款）：启动后不打开设置界面，仅常驻菜单栏
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub silent_start: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_indices: Option<Vec<String>>,
     /// 菜单栏隐藏的持仓分组名列表（'' 表示未分组）；不在列表的分组默认显示
@@ -145,6 +148,7 @@ impl Default for AppSettings {
             holding_groups: None,
             holding_group_orders: None,
             theme: None,
+            silent_start: None,
             selected_indices: None,
             menubar_hidden_groups: None,
             menubar_layout: None,

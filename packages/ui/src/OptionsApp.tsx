@@ -234,7 +234,11 @@ export function OptionsApp({
         {/* 内容区：每个 tab 只渲染自己的内容 */}
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
           <Tabs.Content value="general">
-            <GeneralSection onNavigate={setTab} />
+            {/* App 设置（开机自启动）仅 Tauri 支持；Chrome 无此能力 → 自动隐藏 */}
+            <div className="space-y-8">
+              {ports.window.supportsAutostart?.() ? <AppSettingsSection /> : null}
+              <GeneralSection onNavigate={setTab} />
+            </div>
           </Tabs.Content>
 
           <Tabs.Content value="holdings">
@@ -305,6 +309,99 @@ function SectionCard({
         {children}
       </div>
     </section>
+  )
+}
+
+/* ── App 设置（仅 Tauri：开机自启动） ─────────────────────── */
+function AppSettingsSection() {
+  const ports = usePorts()
+  // 自启动状态来自系统登录项（autostart 插件），不落 AppConfig：
+  // 挂载时实时读取，避免与「系统设置 - 登录项」的手动变更脱节
+  const [autostart, setAutostart] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ports.window
+      .getAutostartEnabled?.()
+      .then((v) => {
+        if (cancelled) return
+        setAutostart(v)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ports])
+
+  async function handleAutostartChange(next: boolean) {
+    if (!ports.window.setAutostartEnabled) return
+    setSaving(true)
+    setError('')
+    try {
+      await ports.window.setAutostartEnabled(next)
+      setAutostart(next)
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '设置开机自启动失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 静默启动（clash-verge-rev enable_silent_start 同款）：启动后不打开设置界面，仅常驻菜单栏
+  const [silentStart, setSilentStart] = useState(
+    () => ports.config.getConfig().settings.silentStart === true,
+  )
+
+  async function handleSilentStartChange(next: boolean) {
+    setSilentStart(next) // 乐观更新
+    setError('')
+    try {
+      await updateSettings(ports, {silentStart: next})
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '设置静默启动失败')
+      setSilentStart(!next)
+    }
+  }
+
+  return (
+    <SectionCard title="App 设置">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">开机自启动</div>
+          <p className="text-xs text-muted">
+            开机登录后自动启动 Fund01，菜单栏图标常驻，无需手动打开。
+          </p>
+        </div>
+        <Switch
+          radius="full"
+          checked={autostart}
+          disabled={loading || saving}
+          onCheckedChange={(c) => void handleAutostartChange(c === true)}
+          aria-label="开机自启动"
+        />
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-line/70 pt-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">静默启动</div>
+          <p className="text-xs text-muted">
+            启动时只常驻菜单栏，不打开设置界面。配合开机自启动使用：登录后静默运行，不弹窗口。
+          </p>
+        </div>
+        <Switch
+          radius="full"
+          checked={silentStart}
+          onCheckedChange={(c) => void handleSilentStartChange(c === true)}
+          aria-label="静默启动"
+        />
+      </div>
+      {error ? <p className="text-sm text-rise">{error}</p> : null}
+    </SectionCard>
   )
 }
 

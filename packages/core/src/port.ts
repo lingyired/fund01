@@ -118,6 +118,12 @@ export interface WindowPort {
   supportsMenubar?(): boolean
   /** 是否支持扩展角标（Chrome 实现返回 true；Tauri 实现返回 false → UI 自动隐藏「扩展角标」设置项） */
   supportsBadge?(): boolean
+  /** 是否支持开机自启动（Tauri 实现返回 true；Chrome 不实现 → undefined → UI 自动隐藏「App 设置」card） */
+  supportsAutostart?(): boolean
+  /** 当前是否已注册开机自启动（Tauri 实现走 autostart 插件；Chrome 不实现） */
+  getAutostartEnabled?(): Promise<boolean>
+  /** 设置开机自启动开关（Tauri 实现走 autostart 插件；Chrome 不实现） */
+  setAutostartEnabled?(enabled: boolean): Promise<void>
   /** 应用版本号（Chrome: getManifest().version；Tauri: invoke 或构建注入） */
   getVersion(): string
   /**

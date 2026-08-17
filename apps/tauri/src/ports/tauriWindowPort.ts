@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 import type { SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
@@ -33,6 +34,25 @@ export class TauriWindowPort implements WindowPort {
     return false
   }
 
+  /** 桌面版支持开机自启动（macOS 登录项）→ 设置页显示「App 设置」card */
+  supportsAutostart(): boolean {
+    return true
+  }
+
+  /** 当前是否已注册开机自启动（autostart 插件读系统登录项状态） */
+  async getAutostartEnabled(): Promise<boolean> {
+    return isEnabled()
+  }
+
+  /** 设置开机自启动开关 */
+  async setAutostartEnabled(enabled: boolean): Promise<void> {
+    if (enabled) {
+      await enable()
+    } else {
+      await disable()
+    }
+  }
+
   /** 外部链接：Rust 侧用系统默认浏览器打开（macOS `open`） */
   async openExternal(url: string): Promise<void> {
     await invoke('open_external', {url})
@@ -45,5 +65,16 @@ export class TauriWindowPort implements WindowPort {
       })
     }
     return versionCache || '1.0.0'
+  }
+
+  /**
+   * 预热版本号缓存并返回真实版本。
+   * getVersion() 是同步接口，首次调用时 invoke 未返回会回落 '1.0.0'（设置页版本号
+   * 显示 bug 的根源）；options 入口 bootstrap 先 await 这里再渲染即可拿到真实版本。
+   */
+  async preloadVersion(): Promise<string> {
+    const v = await invoke<string>('get_version')
+    versionCache = v
+    return v
   }
 }

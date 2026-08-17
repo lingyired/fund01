@@ -29,6 +29,15 @@ use state::AppState;
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
+        // 开机自启动（macOS LaunchAgent 登录项；与 Clash Verge Rev 同款 tauri-plugin-autostart）。
+        // 注意：LaunchAgent 只写 ~/Library/LaunchAgents/*.plist，不立即 launchctl load ——
+        // 勾选后需重启登录，launchd 才加载并登记到系统设置「登录项」列表（clash 亦如此）。
+        // 第二个参数（--autostart）写入 plist ProgramArguments：登录项拉起时进程带该参数，
+        // setup 据此静默常驻（不弹设置窗口），手动打开则无此参数。
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .plugin(tauri_plugin_multiline_menubar::init())
         .manage(AppState::new(portfolio::default_config()))
         .invoke_handler(tauri::generate_handler![
@@ -89,8 +98,19 @@ pub fn run() {
             let quote = state.quote.read().unwrap().clone();
             menubar::rebuild_menubar(&handle, &config, quote.as_ref());
 
-            // 启动时默认打开设置界面（menubar 常驻，打开 app 即见主界面窗口）
-            window::open_settings_window(&handle, None, None);
+            // 静默启动判断（决定是否打开设置界面）：
+            // - 登录项拉起（带 --autostart）→ 静默（开机自启动场景，不弹设置窗口）
+            // - 用户勾选「静默启动」（clash-verge-rev enable_silent_start 同款）→ 任何方式启动都静默
+            // - 其余（手动打开）→ 打开设置界面（menubar 常驻，打开 app 即见主界面窗口）
+            let is_autostart_launch = std::env::args().any(|a| a == "--autostart");
+            let is_silent_start = config.settings.silent_start.unwrap_or(false);
+            if is_autostart_launch || is_silent_start {
+                eprintln!(
+                    "[fund01] 静默启动（autostart={is_autostart_launch}, silent_start={is_silent_start}）→ 仅常驻 menubar，不打开设置界面"
+                );
+            } else {
+                window::open_settings_window(&handle, None, None);
+            }
 
             // 启动两个定时刷新循环（日盘 A 股 / 夜盘 美股）+ 立即刷新一次
             refresh::start_refresh_loops(handle.clone());

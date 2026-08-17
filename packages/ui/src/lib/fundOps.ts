@@ -578,6 +578,10 @@ export async function updateSettings(
   if (typeof patch.menubarShowAmount === 'boolean') {
     config.settings.menubarShowAmount = patch.menubarShowAmount
   }
+  // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
+  if (typeof patch.silentStart === 'boolean') {
+    config.settings.silentStart = patch.silentStart
+  }
   if (typeof patch.menubarTopFont === 'string') {
     config.settings.menubarTopFont = patch.menubarTopFont.trim()
   }

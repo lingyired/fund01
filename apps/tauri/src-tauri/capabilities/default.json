@@ -5,6 +5,7 @@
   "windows": ["menubar", "settings", "popup-tab"],
   "permissions": [
     "core:default",
-    "store:default"
+    "store:default",
+    "autostart:default"
   ]
 }

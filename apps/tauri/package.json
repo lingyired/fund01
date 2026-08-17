@@ -15,6 +15,7 @@
     "@fund01/core": "workspace:*",
     "@fund01/ui": "workspace:*",
     "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

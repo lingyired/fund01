@@ -59,6 +59,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     holdingsNavPosition: 'top',
     holdingGroups: [],
     theme: 'system',
+    // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
+    silentStart: false,
     selectedIndices: [...DEFAULT_SELECTED_INDICES],
     menubarHiddenGroups: [],
     menubarLayout: 0,
@@ -336,6 +338,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.theme === 'system'
           ? payload.settings.theme
           : DEFAULT_CONFIG.settings.theme,
+      silentStart:
+        typeof payload?.settings?.silentStart === 'boolean'
+          ? payload.settings.silentStart
+          : DEFAULT_CONFIG.settings.silentStart,
       selectedIndices:
         Array.isArray(payload?.settings?.selectedIndices) &&
         payload!.settings!.selectedIndices!.length > 0

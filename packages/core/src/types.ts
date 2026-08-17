@@ -177,6 +177,12 @@ export type AppSettings = {
   holdingGroupOrders?: Record<string, string[]>
   /** 主题偏好，默认 system（跟随系统） */
   theme?: AppThemePref
+  /**
+   * 静默启动（仅 tauri 生效）：启动后不打开设置界面，仅常驻菜单栏。
+   * 参考 clash-verge-rev 的 enable_silent_start。默认 false（启动打开设置界面）。
+   * 与「开机自启动」配合使用：勾选后登录自启动即静默，不弹窗口。
+   */
+  silentStart?: boolean
   /** 指数看板显示的指数 code 列表（最多 5 个），默认见 DEFAULT_SELECTED_INDICES */
   selectedIndices?: string[]
   /**

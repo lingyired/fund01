@@ -1,6 +1,6 @@
 [package]
 name = "fund01-tauri"
-version = "1.0.32"
+version = "1.0.37"
 description = "fund01 基金盯盘桌面版（macOS menubar）"
 authors = ["lingyired"]
 edition = "2021"
@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-store = "2"
+# 开机自启动：设置界面「App 设置」card 控制（macOS LaunchAgent 登录项，与 Clash Verge Rev 同款）
+tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

@@ -31,11 +31,14 @@ async function bootstrap() {
     event: new TauriEventPort(),
     window: windowPort,
   }
+  // 版本号先 await 再渲染：getVersion() 同步接口首次调用会回落 1.0.0（invoke 未返回），
+  // 必须等 preloadVersion 拿到真实版本，否则设置页版本号永远显示 1.0.0。
+  const version = await windowPort.preloadVersion()
 
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <PortsContext.Provider value={ports}>
-        <OptionsApp initialTab={initialTab} initialAnchor={initialAnchor} version={windowPort.getVersion()} />
+        <OptionsApp initialTab={initialTab} initialAnchor={initialAnchor} version={version} />
       </PortsContext.Provider>
     </React.StrictMode>,
   )
