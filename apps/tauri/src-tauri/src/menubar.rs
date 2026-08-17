@@ -772,9 +772,11 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
     } else if item_id == "quit-fund01" {
+        crate::err_log!("[退出] on_menu_event 收到 quit-fund01 → 延迟 250ms 后 exit");
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_millis(250)).await;
+            crate::err_log!("[退出] 250ms 到，调用 app.exit(0)");
             app.exit(0);
         });
     }

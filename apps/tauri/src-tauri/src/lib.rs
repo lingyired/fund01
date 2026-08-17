@@ -135,10 +135,14 @@ pub fn run() {
                 window::open_settings_window(app, None, None);
             }
             tauri::RunEvent::ExitRequested { code, api, .. } => {
+                crate::err_log!("[退出] ExitRequested code={code:?}");
                 if code.is_none() {
                     eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
                     api.prevent_exit();
                 }
+            }
+            tauri::RunEvent::Exit => {
+                crate::err_log!("[退出] RunEvent::Exit — 即将真正退出进程");
             }
             _ => {}
         }
