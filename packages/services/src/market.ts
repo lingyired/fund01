@@ -50,7 +50,9 @@ const RANGE_FETCH_LIMIT: Record<string, number> = {
   '3y': 900,
 }
 
-const PUSH_HOSTS = [
+/** 东财行情 host 兜底链（push2delay 延迟行情最稳，放第一；push2 主域名对无 cookie 请求常风控秒断）。
+ *   getIndices 与 fetchStockPctChanges 共用，保证行情类请求有三级 host 保险。 */
+export const PUSH_HOSTS = [
   'https://push2delay.eastmoney.com',
   'https://push2.eastmoney.com',
   'https://82.push2.eastmoney.com',

@@ -1,4 +1,5 @@
 import {httpGet, httpPost, MOBILE_UA, fmtDate} from './http'
+import {PUSH_HOSTS} from './market'
 import {
   isAShareTradingTime,
   isConfirmedSessionActive,
@@ -1025,15 +1026,31 @@ async function fetchStockPctChanges(secids: string[]): Promise<Map<string, numbe
   if (cached) return cached
   const out = new Map<string, number>()
   if (!secids.length) return out
-  const data = await httpGet('https://push2.eastmoney.com/api/qt/ulist.np/get', {
-    params: {
-      fields: 'f1,f2,f3,f4,f12,f13,f14,f292',
-      fltt: 2,
-      secids: secids.join(','),
-    },
-    headers: {Referer: 'https://quote.eastmoney.com/'},
-    timeout: 12000,
-  })
+  // host 兜底链与 getIndices 一致（PUSH_HOSTS，push2delay 优先）：东财 push2 主域名对
+  // 无 cookie 的程序化请求常风控秒断（Empty reply from server，2026-08-17 实测），
+  // push2delay（延迟行情）风控最松放第一。全部失败抛错，由 getCalcGszzl 兜底返回 null
+  // （上层 mergeStaleEstimate 恢复缓存估算，界面不感知）。
+  let data: any = null
+  let lastErr: unknown
+  for (const host of PUSH_HOSTS) {
+    try {
+      data = await httpGet(`${host}/api/qt/ulist.np/get`, {
+        params: {
+          fields: 'f2,f3,f4,f12,f13,f14',
+          fltt: 2,
+          secids: secids.join(','),
+        },
+        headers: {Referer: 'https://quote.eastmoney.com/'},
+        timeout: 12000,
+      })
+      break
+    } catch (e) {
+      lastErr = e
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`[fund01] fetchStockPctChanges 失败 host=${host}`, msg)
+    }
+  }
+  if (!data) throw lastErr || new Error('fetchStockPctChanges 全部 host 失败')
   const diff = Array.isArray(data?.data?.diff) ? data.data.diff : []
   for (const row of diff) {
     const raw = row?.f3
