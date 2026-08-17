@@ -24,7 +24,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -611,13 +610,12 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 ///
 /// ⚠️ 退出项 id **刻意不用插件保留的 `quit`/`quit2`**（`QUIT_ITEM_IDS`）：
 /// 插件在 `on_menu_event` 里对这两个 id 会**同步** `app.exit(0)`，而该回调发生在
-/// NSMenu 的 modal tracking loop（`popUpMenuPositioningItem:`，NSEventTrackingRunLoopMode）
-/// 内 —— 同步 exit → tauri `ControlFlow::Exit` → tao 在 tracking loop 内调用
-/// `[NSApp stop:]` + post dummy event，与菜单 tracking 冲突，退出挂起：
-/// 菜单关不掉、run loop 卡在 tracking mode，表现为「点了退出要等很久，
-/// 手动点一下 menubar 才关」，期间 100% CPU + 内存持续叠加（2026-08-17 用户报告）。
-/// 故改用自定义 id `quit-fund01`，由本模块 on_menu_event **延迟 ~250ms** 再 exit，
-/// 确保菜单 dismiss、tracking loop 退出后，主 run loop 在 default mode 下干净退出。
+/// NSStatusBarButton 的 `trackMouse:` tracking loop 内（右键弹菜单后 trackMouse 已被
+/// `popUpMenuPositioningItem:` 消费掉 rightMouseUp 而卡住）——同步 app.exit 只会让
+/// tao 的 cleared 每轮 post dummy 加剧忙转，退出依旧挂起（2026-08-17 sample 实证：
+/// 100% CPU + 内存叠加 + 点 menubar 才关）。故改用自定义 id `quit-fund01`，
+/// 由本模块 on_menu_event 用 **`std::process::exit(0)` 直接杀进程**（不依赖 tao run loop），
+/// 秒退。详见 on_menu_event 注释。
 fn set_standard_menu(app: &AppHandle, id: &str) {
     let _ = app.multiline_menubar().set_menu(
         id.to_string(),
@@ -762,23 +760,23 @@ fn apply_colors_tooltip_one(
 /// lib.rs 注册的 `on_menu_event` 是 Tauri 全局菜单事件：所有实例的右键菜单项都汇聚到这里，
 /// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」/「退出 fund01」行为完全等价。
 ///
-/// ⚠️ 退出必须**延迟执行**：on_menu_event 在 NSMenu 的 modal tracking loop
-/// （`popUpMenuPositioningItem:`）内同步回调。若在此时同步 `app.exit(0)`，tauri 会
-/// `ControlFlow::Exit` → tao 在 tracking loop 内 `[NSApp stop:]`，与菜单 tracking 冲突，
-/// 退出挂起（100% CPU + 内存叠加，点一下 menubar 才关）。这里等 250ms 让菜单 dismiss、
-/// tracking loop 退出后，再在主 run loop（default mode）里干净退出。
-/// （插件保留 id `quit`/`quit2` 的同步 exit 路径已由 set_standard_menu 绕开，勿改回。）
+/// ⚠️ 退出**必须用 `std::process::exit(0)` 直接杀进程**，不能用 tauri `app.exit(0)`。
+/// sample 实证（2026-08-17，右键退出 100% CPU + 挂起）：右键弹菜单时
+/// `popUpMenuPositioningItem:` 的 modal loop 会**消费掉 NSStatusBarButton 外层
+/// `trackMouse:untilMouseUp:` 正在等待的 rightMouseUp** → trackMouse 永远等不到 mouseUp，
+/// 卡在 NSEventTrackingRunLoopMode（菜单关了 tracking 还活着）。此时若走 tauri exit →
+/// `ControlFlow::Exit` → tao `cleared()` 每轮重复 `[NSApp stop:]` + post dummy event →
+/// trackMouse 的 nextEventMatchingMask 永不阻塞 → **100% CPU + 事件队列累积（内存叠加）**；
+/// 而 `[NSApp stop:]` 只能结束外层 `[NSApp run]`，**结束不了内层 trackMouse loop** →
+/// 退出挂起，直到手动点 menubar 产生真实 mouseUp 才恢复。`process::exit` 不依赖 run loop，
+/// 直接终止进程，任何 tracking 都拦不住 → 秒退。
+/// （插件保留 id `quit`/`quit2` 的同步 app.exit 路径已由 set_standard_menu 绕开，勿改回。）
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
     } else if item_id == "quit-fund01" {
-        crate::err_log!("[退出] on_menu_event 收到 quit-fund01 → 延迟 250ms 后 exit");
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(250)).await;
-            crate::err_log!("[退出] 250ms 到，调用 app.exit(0)");
-            app.exit(0);
-        });
+        crate::err_log!("[退出] on_menu_event 收到 quit-fund01 → 直接 process::exit(0)");
+        std::process::exit(0);
     }
 }
 
