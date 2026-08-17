@@ -197,4 +197,4 @@ export function parseImport(input: string): ImportEntry[] {
 }
 
 /** 导入 JSON 格式示例（用于占位与说明） */
-export const IMPORT_SAMPLE = `[\n  { "code": "001618", "amount": 10000, "cost": 1.2345 },\n  { "code": "025687", "amount": 27538.49, "amountBasis": "today", "group": "人工智能", "holdProfit": 2401.57, "holdProfitRate": "9.95%", "dailyProfit": 768.29 },\n  { "code": "025687", "amount": 3000, "navDate": "2026-08-01", "group": "核心" }\n]`
+export const IMPORT_SAMPLE = `请将 AI 生成的 JSON 粘贴到此处，格式如下：\n[\n  { "code": "012697", "name": "广发中证白酒指数C", "amount": 12890.12, "amountBasis": "prev", "shares": 12345.67, "cost": 1.0234 },\n  { "code": "025687", "name": "国泰半导体制造精选混合发起C", "amount": 27538.49, "amountBasis": "today", "group": "人工智能", "holdProfit": 2401.57, "holdProfitRate": "9.95%", "dailyProfit": 768.29 },\n  { "code": "025687", "name": "国泰半导体制造精选混合发起C", "amount": 3000, "amountBasis": "prev", "navDate": "2026-08-01", "group": "核心" }\n]`
