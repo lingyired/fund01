@@ -24,6 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use serde_json::Value;
 use tauri::AppHandle;
@@ -607,6 +608,16 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 /// 两条路径共用，保证任何创建途径的实例都带右键菜单。
 /// ⚠️ 不放版本号行：① 版本在设置窗口/浮窗头部都有显示（v{version}），菜单里重复且无用；
 /// ② disabled 置灰首行在部分 macOS 版本下会渲染成带展开箭头的怪异样子（用户反馈 2026-08-16）。
+///
+/// ⚠️ 退出项 id **刻意不用插件保留的 `quit`/`quit2`**（`QUIT_ITEM_IDS`）：
+/// 插件在 `on_menu_event` 里对这两个 id 会**同步** `app.exit(0)`，而该回调发生在
+/// NSMenu 的 modal tracking loop（`popUpMenuPositioningItem:`，NSEventTrackingRunLoopMode）
+/// 内 —— 同步 exit → tauri `ControlFlow::Exit` → tao 在 tracking loop 内调用
+/// `[NSApp stop:]` + post dummy event，与菜单 tracking 冲突，退出挂起：
+/// 菜单关不掉、run loop 卡在 tracking mode，表现为「点了退出要等很久，
+/// 手动点一下 menubar 才关」，期间 100% CPU + 内存持续叠加（2026-08-17 用户报告）。
+/// 故改用自定义 id `quit-fund01`，由本模块 on_menu_event **延迟 ~250ms** 再 exit，
+/// 确保菜单 dismiss、tracking loop 退出后，主 run loop 在 default mode 下干净退出。
 fn set_standard_menu(app: &AppHandle, id: &str) {
     let _ = app.multiline_menubar().set_menu(
         id.to_string(),
@@ -619,7 +630,7 @@ fn set_standard_menu(app: &AppHandle, id: &str) {
             },
             MenuItemDescriptor::Separator,
             MenuItemDescriptor::Item {
-                id: "quit".to_string(),
+                id: "quit-fund01".to_string(),
                 text: "退出 fund01".to_string(),
                 accelerator: None,
                 disabled: None,
@@ -747,14 +758,26 @@ fn apply_colors_tooltip_one(
     let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
 }
 
-/// 菜单事件分发（open-settings / quit 等）。
+/// 菜单事件分发（open-settings / quit-fund01 等）。
 /// lib.rs 注册的 `on_menu_event` 是 Tauri 全局菜单事件：所有实例的右键菜单项都汇聚到这里，
 /// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」/「退出 fund01」行为完全等价。
+///
+/// ⚠️ 退出必须**延迟执行**：on_menu_event 在 NSMenu 的 modal tracking loop
+/// （`popUpMenuPositioningItem:`）内同步回调。若在此时同步 `app.exit(0)`，tauri 会
+/// `ControlFlow::Exit` → tao 在 tracking loop 内 `[NSApp stop:]`，与菜单 tracking 冲突，
+/// 退出挂起（100% CPU + 内存叠加，点一下 menubar 才关）。这里等 250ms 让菜单 dismiss、
+/// tracking loop 退出后，再在主 run loop（default mode）里干净退出。
+/// （插件保留 id `quit`/`quit2` 的同步 exit 路径已由 set_standard_menu 绕开，勿改回。）
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
+    } else if item_id == "quit-fund01" {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            app.exit(0);
+        });
     }
-    // "quit" 由插件在 Rust 侧直接 app.exit(0)，不经过这里
 }
 
 /// 供 refresh 后调用（避免与 config 锁死）
