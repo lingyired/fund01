@@ -219,7 +219,7 @@ export function OptionsApp({
               ) : null}
               <span className="font-mono text-[11px] text-muted">设置</span>
             </div>
-            <span className="text-[11px] text-muted">修改即时保存到本机浏览器。</span>
+            <span className="text-[11px] text-muted">所有数据仅存本机，本 app 不获取你的任何信息；行情数据均来自权威大平台。</span>
           </div>
           <div className="mx-auto max-w-5xl px-6">
             <Tabs.List>
@@ -3134,7 +3134,7 @@ function DataBackupSection() {
   return (
     <SectionCard title="数据备份">
       <p className="text-xs text-muted">
-        持仓与设置保存在本机浏览器（localStorage）。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
+        持仓与设置保存在本机浏览器。导出可备份或换设备导入；导入将覆盖当前本机配置。清浏览器数据会丢失，请定期导出。
       </p>
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" disabled={busy} onClick={handleExport}>
