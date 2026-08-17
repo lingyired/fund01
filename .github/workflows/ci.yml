@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # setup-node@v5 检测到 pnpm-lock.yaml 后默认启用 package-manager-cache，
+      # 需要 pnpm 已在 PATH（否则报 Unable to locate executable file: pnpm）。
+      # pnpm/action-setup@v4 不指定 version 时自动读根 package.json 的 packageManager 字段。
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 22
