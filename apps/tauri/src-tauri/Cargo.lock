@@ -831,7 +831,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "fund01-tauri"
-version = "1.0.46"
+version = "1.0.47"
 dependencies = [
  "block2",
  "chrono",
@@ -2685,7 +2685,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2940,7 +2940,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3737,8 +3737,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-multiline-menubar"
-version = "1.6.0"
-source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.6.0#a4832a17c7d99052af87bb8b990c78c2268587c8"
+version = "1.6.1"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.6.1#9682464a8686b7397e1e1cb25edea6e689e053db"
 dependencies = [
  "cc",
  "muda",
@@ -3875,7 +3875,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4665,7 +4665,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

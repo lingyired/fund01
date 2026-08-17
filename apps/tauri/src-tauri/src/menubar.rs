@@ -608,14 +608,11 @@ pub fn rebuild_menubar(app: &AppHandle, config: &AppConfig, quote: Option<&Quote
 /// ⚠️ 不放版本号行：① 版本在设置窗口/浮窗头部都有显示（v{version}），菜单里重复且无用；
 /// ② disabled 置灰首行在部分 macOS 版本下会渲染成带展开箭头的怪异样子（用户反馈 2026-08-16）。
 ///
-/// ⚠️ 退出项 id **刻意不用插件保留的 `quit`/`quit2`**（`QUIT_ITEM_IDS`）：
-/// 插件在 `on_menu_event` 里对这两个 id 会**同步** `app.exit(0)`，而该回调发生在
-/// NSStatusBarButton 的 `trackMouse:` tracking loop 内（右键弹菜单后 trackMouse 已被
-/// `popUpMenuPositioningItem:` 消费掉 rightMouseUp 而卡住）——同步 app.exit 只会让
-/// tao 的 cleared 每轮 post dummy 加剧忙转，退出依旧挂起（2026-08-17 sample 实证：
-/// 100% CPU + 内存叠加 + 点 menubar 才关）。故改用自定义 id `quit-fund01`，
-/// 由本模块 on_menu_event 用 **`std::process::exit(0)` 直接杀进程**（不依赖 tao run loop），
-/// 秒退。详见 on_menu_event 注释。
+/// ⚠️ 退出项使用插件保留 id `quit`：插件 v1.6.1 起对该 id **延迟 ~200ms 异步** `app.exit(0)`
+/// （native 侧补发 rightMouseUp 让 button 外层 trackMouse 收尾），不再挂起。
+/// 宿主无需、也不要在自己的 on_menu_event 里再处理该 id（见 on_menu_event 注释）。
+/// （v1.6.0 的同步退出缺陷 + fund01 的 quit-fund01/process::exit workaround 已于 1.0.47 撤下，
+/// 回退指南见 docs/插件v1.6.1-右键退出workaround回退指南.md。）
 fn set_standard_menu(app: &AppHandle, id: &str) {
     let _ = app.multiline_menubar().set_menu(
         id.to_string(),
@@ -628,7 +625,7 @@ fn set_standard_menu(app: &AppHandle, id: &str) {
             },
             MenuItemDescriptor::Separator,
             MenuItemDescriptor::Item {
-                id: "quit-fund01".to_string(),
+                id: "quit".to_string(),
                 text: "退出 fund01".to_string(),
                 accelerator: None,
                 disabled: None,
@@ -756,27 +753,18 @@ fn apply_colors_tooltip_one(
     let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
 }
 
-/// 菜单事件分发（open-settings / quit-fund01 等）。
+/// 菜单事件分发（open-settings 等）。
 /// lib.rs 注册的 `on_menu_event` 是 Tauri 全局菜单事件：所有实例的右键菜单项都汇聚到这里，
-/// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」/「退出 fund01」行为完全等价。
+/// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」行为完全等价。
 ///
-/// ⚠️ 退出**必须用 `std::process::exit(0)` 直接杀进程**，不能用 tauri `app.exit(0)`。
-/// sample 实证（2026-08-17，右键退出 100% CPU + 挂起）：右键弹菜单时
-/// `popUpMenuPositioningItem:` 的 modal loop 会**消费掉 NSStatusBarButton 外层
-/// `trackMouse:untilMouseUp:` 正在等待的 rightMouseUp** → trackMouse 永远等不到 mouseUp，
-/// 卡在 NSEventTrackingRunLoopMode（菜单关了 tracking 还活着）。此时若走 tauri exit →
-/// `ControlFlow::Exit` → tao `cleared()` 每轮重复 `[NSApp stop:]` + post dummy event →
-/// trackMouse 的 nextEventMatchingMask 永不阻塞 → **100% CPU + 事件队列累积（内存叠加）**；
-/// 而 `[NSApp stop:]` 只能结束外层 `[NSApp run]`，**结束不了内层 trackMouse loop** →
-/// 退出挂起，直到手动点 menubar 产生真实 mouseUp 才恢复。`process::exit` 不依赖 run loop，
-/// 直接终止进程，任何 tracking 都拦不住 → 秒退。
-/// （插件保留 id `quit`/`quit2` 的同步 app.exit 路径已由 set_standard_menu 绕开，勿改回。）
+/// `quit` 由插件处理（QUIT_ITEM_IDS，v1.6.1 起延迟 ~200ms 异步 app.exit），宿主不监听；
+/// **勿在此处加 quit/quit2 分支**，否则会与插件异步退出竞争（如直接 process::exit 会抢先
+/// 杀进程，跳过 tauri 正常退出清理）。标准 id 就该交给插件。
+/// （v1.6.0 同步退出缺陷 + fund01 的 quit-fund01/process::exit workaround 已于 1.0.47 撤下，
+/// 回退指南见 docs/插件v1.6.1-右键退出workaround回退指南.md。）
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
-    } else if item_id == "quit-fund01" {
-        crate::err_log!("[退出] on_menu_event 收到 quit-fund01 → 直接 process::exit(0)");
-        std::process::exit(0);
     }
 }
 

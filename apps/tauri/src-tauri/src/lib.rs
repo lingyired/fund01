@@ -125,7 +125,7 @@ pub fn run() {
         .expect("error while building fund01 tauri application");
 
     // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，menubar 实例不随浮窗销毁。
-    // 显式退出（右键菜单「退出 fund01」→ 插件 app.exit(0)）code.is_some() → 放行。
+    // 显式退出（右键菜单「退出 fund01」→ 插件 quit 延迟 app.exit(0)）code.is_some() → 放行。
     app.run(|app, event| {
         match event {
             // macOS：进程常驻时用户再次点击 Dock / 启动台 / Finder 双击 app，
