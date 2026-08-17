@@ -33,6 +33,18 @@ if (existsSync(iconsSrc) && !existsSync(iconsDest)) {
   console.log('[copy-manifest] public/icons -> dist/icons (兜底)')
 }
 
+// 2.5 把仓库根 lingyired/ 下的图标复制到 dist/lingyired/，
+//     供 OptionsApp 「关于 - 作者的其他项目」卡片引用（./lingyired/<id>.png）。
+//     rsbuild 不会跨包扫描 monorepo 根目录，必须这里手动复制。
+//     渲染期有 onError 兜底：图标缺失会隐藏，不破坏布局。
+const lingyiredSrc = resolve(root, '..', '..', 'lingyired')
+const lingyiredDest = resolve(dist, 'lingyired')
+if (existsSync(lingyiredSrc)) {
+  mkdirSync(lingyiredDest, {recursive: true})
+  cpSync(lingyiredSrc, lingyiredDest, {recursive: true})
+  console.log('[copy-manifest] ../../lingyired -> dist/lingyired')
+}
+
 // 3. 清理多余的 background.html（MV3 SW 不需要 HTML）
 const bgHtml = resolve(dist, 'background.html')
 if (existsSync(bgHtml)) {

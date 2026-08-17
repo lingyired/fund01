@@ -18,6 +18,15 @@ export default defineConfig({
   output: {
     distPath: { root: 'dist', js: '', css: 'static/css' },
     filename: { js: '[name].js' },
+    // 把仓库根 lingyired/（作者其他项目的图标）复制到 dist/lingyired/，
+    // 供 OptionsApp 「关于 - 作者的其他项目」卡片引用（./lingyired/<id>.png）。
+    // 路径用绝对路径避免依赖 cwd（tauri build 时 cwd 是 apps/tauri/）。
+    copy: [
+      {
+        from: path.resolve(__dirname, '../../lingyired'),
+        to: 'lingyired',
+      },
+    ],
   },
   resolve: {
     alias: {

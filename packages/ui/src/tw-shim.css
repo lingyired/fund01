@@ -172,6 +172,7 @@
 .leading-none{line-height:1}
 .leading-relaxed{line-height:1.625}
 .leading-tight{line-height:1.25}
+.line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis}
 .list-disc{list-style-type:disc}
 .list-inside{list-style-position:inside}
 @media (min-width:1024px){.lg\:gap-5{gap:20px}}

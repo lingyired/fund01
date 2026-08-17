@@ -2851,6 +2851,131 @@ function ExternalLink({
   )
 }
 
+/**
+ * 作者的其他项目清单。
+ * `id` 必须与仓库根 `lingyired/<id>.png` 一一对应（构建时由 rsbuild / copy-manifest
+ * 把 lingyired/ 整个目录复制到 dist/lingyired/，前端用相对路径 `./lingyired/<id>.png`
+ * 引用）。新增项目只需：1) 把图标放到 lingyired/ 2) 在下方数组加一项。
+ * `badge`：平台标识，仅当存在时渲染标题旁徽章（目前只有 'chrome'；未来桌面/其他平台可扩展）。
+ */
+const LINGYIRED_PROJECTS: ReadonlyArray<{
+  id: string
+  name: string
+  description: string
+  url: string
+  badge?: 'chrome'
+}> = [
+  {
+    id: 'newtab01',
+    name: 'newtab01',
+    description: '书签驱动的新标签页。将文件夹作为标签组或分屏打开。12 个内置主题 + 无限自定义主题。',
+    url: 'https://chromewebstore.google.com/detail/newtab01-bookmark-driven/nlecfkdndodablijmfcjbnannkgmpegj',
+    badge: 'chrome',
+  },
+  {
+    id: 'nolazyload',
+    name: 'No lazyload',
+    description: '禁用图片懒加载。强制网页立即加载所有图片。',
+    url: 'https://chromewebstore.google.com/detail/no-lazyload-disable-image/gdaoomgmekonglmdeaoengblkjeopall',
+    badge: 'chrome',
+  },
+]
+
+/** Chrome 官方品牌四色 logo（内联 SVG，避免外链图标依赖） */
+function ChromeLogoIcon({className}: {className?: string}) {
+  return (
+    <svg
+      viewBox="0 0 48 48"
+      aria-hidden="true"
+      focusable="false"
+      className={className}
+    >
+      <path
+        fill="#EA4335"
+        d="M24 4a20 20 0 0 0-17.32 10l10 17.32A10 10 0 0 1 24 14h19.32A20 20 0 0 0 24 4z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M4 24a20 20 0 0 0 5.86 14.14l10-17.32A10 10 0 0 0 6.68 14L4 24z"
+      />
+      <path
+        fill="#34A853"
+        d="M14 38.14A20 20 0 0 0 24 44a20 20 0 0 0 17.32-10H14z"
+      />
+      <circle cx="24" cy="24" r="10" fill="#4285F4" />
+    </svg>
+  )
+}
+
+/** 平台徽章：标题右侧的小 pill，只在存在 badge 字段时渲染 */
+function PlatformBadge({badge}: {badge: NonNullable<(typeof LINGYIRED_PROJECTS)[number]['badge']>}) {
+  if (badge === 'chrome') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-paper-deep/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">
+        <ChromeLogoIcon className="h-3 w-3 shrink-0" />
+        Chrome 扩展
+      </span>
+    )
+  }
+  return null
+}
+
+/**
+ * 「作者的其他项目」卡片：参考 Chrome 商店「作者的其他扩展」样式。
+ * 整张卡片是一个外链 `<a>`（a11y 与中键打开体验最佳），点击走 ports.window.openExternal。
+ * icon 缺失（404）时优雅降级为隐藏，不破坏整页布局。
+ */
+function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[number]}) {
+  const ports = usePorts()
+  return (
+    <a
+      href={project.url}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => {
+        e.preventDefault()
+        if (ports.window.openExternal) {
+          void ports.window.openExternal(project.url)
+        } else {
+          window.open(project.url, '_blank', 'noopener,noreferrer')
+        }
+      }}
+      // 整体应是「容器」外观而非「链接」外观：清掉浏览器/全局样式对 <a> 的下划线、字体颜色继承，
+      // 否则子元素的文字也会被父 <a> 的 text-decoration 串成下划线。
+      style={{textDecoration: 'none', color: 'inherit'}}
+      className="flex items-center gap-3 rounded-xl border border-line/40 bg-paper/40 p-3 transition-colors hover:border-accent/40 hover:bg-paper/70"
+    >
+      <img
+        src={`./lingyired/${project.id}.png`}
+        alt=""
+        width={48}
+        height={48}
+        loading="lazy"
+        className="h-12 w-12 shrink-0 rounded-xl"
+        onError={(e) => {
+          // 图标缺失时优雅降级：隐藏 img，保留卡片其余部分
+          ;(e.currentTarget as HTMLImageElement).style.display = 'none'
+        }}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <div className="truncate text-sm font-semibold text-ink">{project.name}</div>
+          {project.badge ? <PlatformBadge badge={project.badge} /> : null}
+        </div>
+        <div className="mt-0.5 text-xs text-muted leading-relaxed line-clamp-2">
+          {project.description}
+        </div>
+      </div>
+      <span
+        aria-hidden="true"
+        className="shrink-0 text-lg leading-none text-muted/50 transition-colors"
+      >
+        ›
+      </span>
+    </a>
+  )
+}
+
 function AboutSection() {
   return (
     <SectionCard title="关于">
@@ -2898,24 +3023,9 @@ function AboutSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">作者的其他项目</div>
         <div className="space-y-2">
-          <div className="space-y-0.5">
-            <div className="text-xs font-medium text-ink-soft">
-              newtab01 · 由书签驱动的 Chrome 新标签页
-            </div>
-            <p className="text-xs text-muted">支持分组和分屏打开目录。</p>
-            <ExternalLink href="https://chromewebstore.google.com/detail/newtab01-bookmark-driven/nlecfkdndodablijmfcjbnannkgmpegj">
-              chromewebstore.google.com/.../newtab01-bookmark-driven
-            </ExternalLink>
-          </div>
-          <div className="space-y-0.5">
-            <div className="text-xs font-medium text-ink-soft">
-              No lazyload · 禁用图片懒加载
-            </div>
-            <p className="text-xs text-muted">强制网页立即加载所有图片。</p>
-            <ExternalLink href="https://chromewebstore.google.com/detail/no-lazyload-disable-image/gdaoomgmekonglmdeaoengblkjeopall">
-              chromewebstore.google.com/.../no-lazyload-disable-image
-            </ExternalLink>
-          </div>
+          {LINGYIRED_PROJECTS.map((project) => (
+            <LingyiredProjectCard key={project.id} project={project} />
+          ))}
         </div>
       </div>
     </SectionCard>
