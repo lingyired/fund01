@@ -14,10 +14,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          # ① guard job 从不 pnpm install，pnpm store 不存在；package-manager-cache
-          #   （v5 默认 true）会让 post 步骤保存缓存时 Path Validation 报错把 job 标红。
-          # ② 关闭后 setup-node 不再需要 pnpm，因此不引入 pnpm/action-setup@v4
-          #   （它跑 Node 20，会带 deprecation 警告）—— guard 是纯 node 脚本，零依赖。
+          # guard job 从不 pnpm install，pnpm store 不存在；package-manager-cache
+          # （v5 默认 true）会让 post 步骤保存缓存时 Path Validation 报错把 job 标红。
+          # 关闭后 setup-node 不再需要 pnpm，因此不引入 pnpm/action-setup@v4
+          # （它跑 Node 20，会带 deprecation 警告）—— guard 是纯 node 脚本，零依赖。
+          package-manager-cache: false
       # guard-shim.mjs 是纯 Node 脚本，无需安装依赖，直接在仓库根目录运行。
       # 任何「源码用到、但 tw-shim.css 白名单缺失」的原子类都会让此步失败（exit 1），
       # 把手写垫片「静默失败」的隐患变成 CI 红。
