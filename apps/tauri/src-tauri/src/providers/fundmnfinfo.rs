@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::http::{self, DESKTOP_UA, MOBILE_UA};
+use crate::http::{self, MOBILE_UA};
 use crate::model::{FundQuote, TrendPoint};
 use crate::providers::{
     pad6, run_quotes_concurrent, eastmoney_fund_get, FundQuoteInput, QuoteProvider,
@@ -253,20 +253,16 @@ async fn fetch_stock_pct_changes(secids: &[String]) -> HashMap<String, f64> {
     if secids.is_empty() {
         return out;
     }
+    // host 兜底链与 market::PUSH_HOSTS 一致（push2delay 优先，对应 JS fetchStockPctChanges 1:1）：
+    // 东财 push2 主域名对无 cookie 的程序化请求常风控秒断（Empty reply，2026-08-17 实测），
+    // push2delay（延迟行情）风控最松放第一。全部失败返回空 map，由 get_calc_gszzl 兜底
+    // （merge_stale_estimate 恢复缓存估算，界面不感知）。
     let query = http::params(&[
-        ("fields", "f1,f2,f3,f4,f12,f13,f14,f292"),
+        ("fields", "f2,f3,f4,f12,f13,f14"),
         ("fltt", "2"),
         ("secids", &secids.join(",")),
     ]);
-    let data = match http::http_get_json(
-        "https://push2.eastmoney.com/api/qt/ulist.np/get",
-        &query,
-        DESKTOP_UA,
-        Some("https://quote.eastmoney.com/"),
-        Duration::from_secs(12),
-    )
-    .await
-    {
+    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, crate::market::PUSH_HOSTS).await {
         Ok(v) => v,
         Err(e) => {
             crate::err_log!("fetchStockPctChanges 失败: {e}");

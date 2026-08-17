@@ -8,7 +8,9 @@ use serde_json::Value;
 use crate::http::{self, DESKTOP_UA};
 use crate::model::{IndexHistoryPayload, IndexHistoryPoint, IndexItem};
 
-const PUSH_HOSTS: &[&str] = &[
+/// 东财行情 host 兜底链（push2delay 延迟行情最稳，放第一；push2 主域名对无 cookie 请求常风控秒断）。
+/// getIndices 与 fundmnfinfo::fetch_stock_pct_changes 共用，保证行情类请求有三级 host 保险。
+pub(crate) const PUSH_HOSTS: &[&str] = &[
     "https://push2delay.eastmoney.com",
     "https://push2.eastmoney.com",
     "https://82.push2.eastmoney.com",
