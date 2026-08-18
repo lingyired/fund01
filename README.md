@@ -51,12 +51,17 @@ pnpm typecheck        # 全仓库类型检查
 
 ## 🖥️ macOS 桌面版（Tauri）
 
+> **系统要求：macOS 13.0 (Ventura) 及以上**（Intel 与 Apple Silicon 均可）。
+> 原因：桌面版 UI 基于 Radix Themes 3.x，其 CSS 依赖 Safari 15.4+ 的 Cascade Layers / `:has()` 与 Safari 16.2+ 的 `color-mix()`，macOS 12 及更早版本的 WKWebView 无法渲染 → 界面白屏。低于 macOS 13 的系统上安装器会直接提示版本不满足。
+
 ```bash
 cd apps/tauri
 pnpm install
 pnpm tauri dev        # 开发模式
 pnpm tauri build      # 打包 .app / .dmg（输出到 src-tauri/target/release/bundle/）
 ```
+
+双架构打包（Intel + Apple Silicon 两个独立安装包）：`node scripts/build-tauri-all.mjs`（详见 CLAUDE.md「双架构发布产物」）。
 
 ## 📦 目录结构
 
