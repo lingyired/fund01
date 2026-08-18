@@ -72,7 +72,9 @@
 .border-fall\/30{border-color:color-mix(in oklab, var(--app-fall) 30%, transparent)}
 .border-fall\/20{border-color:color-mix(in oklab, var(--app-fall) 20%, transparent)}
 .border-t{border-top-width:1px;border-top-style:solid}
+.border-t-accent{border-top-color:var(--accent-9)}
 .border-y{border-top-width:1px;border-top-style:solid;border-bottom-width:1px;border-bottom-style:solid}
+.border-\[1\.5px\]{border-width:1.5px;border-style:solid}
 .break-all{word-break:break-all}
 .break-words{overflow-wrap:break-word;word-break:break-word}
 .cursor-help{cursor:help}
