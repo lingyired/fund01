@@ -104,7 +104,9 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
   - 从 `tauri.conf.json` 读 version，产物命名 `release-macos/Fund01-{version}-{arch}.app`（arm64 / x86_64 后缀）；
   - 前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）。
 - **DMG 例外**：agent 环境打 DMG 必失败（Finder 权限 -10004），脚本只出 .app；需要 DMG 时手动跑
-  `target/{target}/release/bundle/dmg/bundle_dmg.sh --skip-jenkins`，输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
+  `target/release/bundle/dmg/bundle_dmg.sh`（**注意：`--bundles app` 不生成各架构 target 的 `dmg/` 目录，统一用默认 target 的脚本 + `icon.icns`，脚本支持任意 staging source，两架构通用**），完整命令：
+  `bundle_dmg.sh --volname Fund01 --icon "Fund01.app" 180 170 --app-drop-link 320 170 --window-size 500 350 --hide-extension "Fund01.app" --volicon <repo>/apps/tauri/src-tauri/target/release/bundle/dmg/icon.icns --skip-jenkins <out.dmg> <staging>`
+  其中 `<staging>` 为拷入对应架构 `Fund01.app` 的临时目录；输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
 - **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。

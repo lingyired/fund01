@@ -66,10 +66,11 @@ for (const [arch, { target, label }] of Object.entries(selected)) {
   cpSync(srcApp, dstApp, { recursive: true })
   console.log(`\n✓ 已归档：${dstApp}`)
 
-  const dmgScript = path.join(root, `apps/tauri/src-tauri/target/${target}/release/bundle/dmg/bundle_dmg.sh`)
+  const dmgScript = path.join(root, `apps/tauri/src-tauri/target/release/bundle/dmg/bundle_dmg.sh`)
   console.log(`  需要 DMG 时（agent 环境无法打，需手动）：
-    ${dmgScript} --skip-jenkins
-    输出到 apps/tauri/src-tauri/target/${target}/release/bundle/dmg/Fund01_${version}_${arch}.dmg`)
+    ${dmgScript} --volname Fund01 --icon "Fund01.app" 180 170 --app-drop-link 320 170 --window-size 500 350 --hide-extension "Fund01.app" --volicon apps/tauri/src-tauri/target/release/bundle/dmg/icon.icns --skip-jenkins <out.dmg> <staging>
+    提示：--bundles app 不生成各架构 target 的 dmg/ 目录，统一用默认 target 的脚本 + icon.icns；
+    staging = 拷入 ${arch} 版 Fund01.app 的临时目录；输出命名 Fund01_${version}_${arch}.dmg`)
 }
 
 console.log('\n========== 全部完成 ==========')
