@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
+import { save } from '@tauri-apps/plugin-dialog'
 import type { SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
@@ -51,6 +52,17 @@ export class TauriWindowPort implements WindowPort {
     } else {
       await disable()
     }
+  }
+
+  /**
+   * 导出配置保存：弹系统 NSSavePanel（tauri-plugin-dialog save）让用户选目录 + 文件名，
+   * 再把内容经 Rust command 写盘。取消返回 null（UI 静默返回）。
+   */
+  async saveTextFileDialog(defaultName: string, content: string): Promise<string | null> {
+    const path = await save({ defaultPath: defaultName })
+    if (!path || Array.isArray(path)) return null
+    await invoke('export_config_file', { path, content })
+    return path
   }
 
   /** 外部链接：Rust 侧用系统默认浏览器打开（macOS `open`） */

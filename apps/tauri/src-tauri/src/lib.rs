@@ -38,6 +38,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
+        // 原生保存/打开对话框（导出配置选位置保存 → 前端 save() + export_config_file 落盘）
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_multiline_menubar::init())
         .manage(AppState::new(portfolio::default_config()))
         .invoke_handler(tauri::generate_handler![
@@ -56,6 +58,7 @@ pub fn run() {
             commands::open_popup_tab_window,
             commands::get_version,
             commands::open_external,
+            commands::export_config_file,
             commands::dbg_log,
         ])
         .setup(|app| {

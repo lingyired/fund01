@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "store:default",
-    "autostart:default"
+    "autostart:default",
+    "dialog:default"
   ]
 }

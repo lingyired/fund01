@@ -3084,14 +3084,24 @@ function DataBackupSection() {
     setMessage('')
     try {
       const config = await exportConfig(ports)
-      const blob = new Blob([JSON.stringify(config, null, 2)], {
+      const stamp = new Date().toISOString().slice(0, 10)
+      const filename = `fund01-config-${stamp}.json`
+      const text = JSON.stringify(config, null, 2)
+      // 桌面端（Tauri）：弹系统保存对话框让用户选目录 + 文件名（取消则静默返回）；
+      // Chrome 扩展：回退浏览器下载（落下载目录）。
+      if (ports.window.saveTextFileDialog) {
+        const path = await ports.window.saveTextFileDialog(filename, text)
+        if (!path) return
+        setMessage(`配置已导出：${path}`)
+        return
+      }
+      const blob = new Blob([text], {
         type: 'application/json',
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const stamp = new Date().toISOString().slice(0, 10)
       a.href = url
-      a.download = `fund01-config-${stamp}.json`
+      a.download = filename
       a.click()
       URL.revokeObjectURL(url)
       setMessage('配置已导出')
@@ -3252,9 +3262,6 @@ function DataBackupSection() {
         />
       </div>
       {message ? <p className="text-sm text-fall">{message}</p> : null}
-      {ports.window.supportsMenubar?.() && message === '配置已导出' ? (
-        <p className="text-sm text-muted">导出的文件已经保存在下载目录</p>
-      ) : null}
       {error ? <p className="text-sm text-rise">{error}</p> : null}
     </SectionCard>
   )

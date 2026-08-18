@@ -298,3 +298,15 @@ pub fn open_external(url: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// 导出配置：把 JSON 文本写到用户经保存对话框选定的路径（任意位置，无 scope 限制）。
+/// 由前端 `save({defaultPath})` 先弹 NSSavePanel 拿到 path，再 invoke 本命令落盘。
+/// 走 Rust std::fs 而非前端 fs 插件 —— 免去 fs:scope 授权，与 Clash Verge Rev 的
+/// export_local_backup 同思路。
+#[tauri::command]
+pub fn export_config_file(path: String, content: String) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("保存路径为空".into());
+    }
+    std::fs::write(&path, content).map_err(|e| format!("写入失败：{e}"))
+}

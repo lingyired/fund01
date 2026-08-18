@@ -135,6 +135,14 @@ export interface WindowPort {
    * 不实现时 UI 回退 window.open（Chrome 扩展 CSP 会拦截外部跳转，因此 Chrome 端必须实现）。
    */
   openExternal?(url: string): Promise<void>
+  /**
+   * 弹原生「保存」对话框，把文本内容写入用户选定的路径（Tauri 实现；Chrome 不实现 → undefined → UI 回退 a.download）。
+   * @param defaultName 默认文件名（如 fund01-config-2026-08-18.json），对话框「保存为」输入框预填。
+   * @param content 待写入的完整文本内容。
+   * @returns 实际保存路径；用户取消对话框返回 null（UI 应静默返回，不报错）。
+   * macOS 上即系统 NSSavePanel：可任意导航选目录 + 改文件名，替代 WebView a.download 固定落下载目录。
+   */
+  saveTextFileDialog?(defaultName: string, content: string): Promise<string | null>
 }
 
 /** UI 与具体 app 之间注入的 Port 集合 */
