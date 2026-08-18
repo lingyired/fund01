@@ -30,6 +30,9 @@ pnpm dev:chrome       # 启动 Chrome 扩展开发模式（rsbuild --watch）
 pnpm build:chrome     # 构建生产版本到 apps/chrome/dist/
 pnpm zip:chrome       # 打包 Chrome 扩展为可上传 Web Store 的 zip
 pnpm typecheck        # 全仓库递归 TypeScript 类型检查
+node scripts/build-tauri-all.mjs            # 双架构 Tauri 打包（arm64 + x86_64，见「双架构发布产物」）
+node scripts/build-tauri-all.mjs --arch arm64   # 仅 Apple Silicon 版
+node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 ```
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
@@ -93,6 +96,15 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 - 校验 **Tauri 三处一致**：`tauri.conf.json` == `Cargo.toml` == `Cargo.lock`（fund01-tauri 条目）；不一致非零退出。
 - 校验 **Chrome 来源一致**：`dist/manifest.json`（若已构建）必须与 `apps/chrome/package.json` 的 version 相等（否则重新 build 即可，copy-manifest 会自动同步）。
 - **Agent 在 bump 版本 / commit 前必须运行 `pnpm check:versions`**，拦截「漏改一处版本号 / Cargo.lock 不同步」。
+
+### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包）
+- **产物策略**：Intel 版与 Apple Silicon 版**分开打包、分开下载**，不做 Universal 单包（单包 = 双份二进制 ≈ 体积翻倍，装的时候只用一半，白占磁盘）。
+- **打包含令**：`node scripts/build-tauri-all.mjs`（双架构一次出；`--arch arm64|x86_64` 可单独打）。脚本自动：
+  - 从 `tauri.conf.json` 读 version，产物命名 `release-macos/Fund01-{version}-{arch}.app`（arm64 / x86_64 后缀）；
+  - 前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）。
+- **DMG 例外**：agent 环境打 DMG 必失败（Finder 权限 -10004），脚本只出 .app；需要 DMG 时手动跑
+  `target/{target}/release/bundle/dmg/bundle_dmg.sh --skip-jenkins`，输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
+- **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 
