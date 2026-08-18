@@ -2,12 +2,15 @@ import { defineConfig } from '@rsbuild/core'
 import { pluginReact } from '@rsbuild/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { getBuildDefines } from '../../scripts/build-info.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   plugins: [pluginReact()],
   source: {
+    // 构建戳：注入 git short SHA / 构建时间 / 分支 / dirty（见 scripts/build-info.mjs 与 packages/ui/src/buildInfo.ts）
+    define: getBuildDefines(),
     entry: {
       // menubar 浮窗入口（加载 App.tsx，680x600）
       index: './src/menubar.tsx',

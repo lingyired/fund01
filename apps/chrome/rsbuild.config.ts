@@ -3,6 +3,7 @@ import { pluginReact } from '@rsbuild/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { readFileSync } from 'node:fs'
+import { getBuildDefines } from '../../scripts/build-info.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -13,6 +14,8 @@ const pkg = JSON.parse(
 export default defineConfig({
   plugins: [pluginReact()],
   source: {
+    // 构建戳：注入 git short SHA / 构建时间 / 分支 / dirty（见 scripts/build-info.mjs 与 packages/ui/src/buildInfo.ts）
+    define: getBuildDefines(),
     entry: {
       // MV3 Service Worker：纯 JS 入口（会自动生成一个 background.html，由 copy-manifest 清掉）
       background: './src/background/index.ts',

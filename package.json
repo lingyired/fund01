@@ -7,7 +7,8 @@
     "dev:chrome": "pnpm --filter @fund01/chrome dev",
     "build:chrome": "pnpm --filter @fund01/chrome build",
     "zip:chrome": "pnpm --filter @fund01/chrome zip",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "check:versions": "node scripts/check-versions.mjs"
   },
   "packageManager": "pnpm@9.15.0"
 }

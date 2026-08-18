@@ -34,16 +34,67 @@ pnpm typecheck        # 全仓库递归 TypeScript 类型检查
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
-## 版本号规则
+## 版本号与构建戳规则
 
-每次修改代码（功能、修复、重构）后，必须递增 Chrome 扩展版本号：
+Fund01 是 pnpm monorepo，含两个被分发的产物与若干内部包。**发布版本号**与**构建戳**是两个不同职责，必须分开对待。
 
-- 版本号唯一来源：`apps/chrome/package.json` 的 `"version"` 字段
-- 构建脚本 `scripts/copy-manifest.mjs` 会读取 `package.json` 的 version 并覆盖到 `dist/manifest.json`，**不要只改 manifest.json**（会被覆盖）
-- 采用 `MAJOR.MINOR.PATCH` 三段语义化版本（如 `1.0.20`）
-- 每次改动 PATCH 段 +1（如 `1.0.19` → `1.0.20`）
-- 增量改动不改动 MINOR / MAJOR，除非有破坏性变更或重大功能
-- 构建后可在 `chrome://extensions` 看到新版本号，用于确认是否加载了最新构建
+### 产物与版本归属
+- **Chrome 扩展**（`apps/chrome`）：独立版本号，唯一来源 `apps/chrome/package.json` 的 `version`；构建脚本 `scripts/copy-manifest.mjs` 会把它覆盖到 `dist/manifest.json`（**不要只改 manifest.json**）。UI 经 `chromeWindowPort.getVersion()` 读 `chrome.runtime.getManifest().version`。
+- **Tauri 桌面端**（`apps/tauri`）：独立版本号，来源 `tauri.conf.json` 与 `Cargo.toml` 必须一致（含 `Cargo.lock` 的 `fund01-tauri` 条目，只改该条目）。UI 经 `tauriWindowPort.preloadVersion()` → Rust `get_version` 命令。
+- **内部包**（`packages/core`、`packages/ui`、`packages/services`）：纯 workspace 内部包，不单独发布，`dependencies` 均为 `workspace:*`。其 `package.json` 的 `version` 仅为 pnpm 占位，**发布流程不依赖其值，无需主动 bump**；版本真相是 git commit。
+
+### 双版本独立（非共享）
+Chrome 与 Tauri 各自维护独立版本号。两端改动常不互涉（如仅改 tauri 原生层不影响 chrome）。独立编号配合下方「bump 纪律」满足「只 bump 真正 shipped 的二进制」，避免小改动带动多版本号。
+
+### 语义化版本（SemVer）
+`MAJOR.MINOR.PATCH`：
+- `PATCH`：修复 / 小幅改动，准备 commit/push 时 +1
+- `MINOR`：一个功能或一批相关改动
+- `MAJOR`：保留（预发布阶段暂不使用）
+- 预发布基线已重置为 **1.0.0**（2026-08-18 落地：Chrome 1.2.80→1.0.0、Tauri 1.0.50→1.0.0，无历史包袱，重新计数）
+
+### MINOR / PATCH 判定（怎么决定）
+Fund01 是预发布、自用型 app（使用者即你自己），没有外部 API 消费者，因此**不按「是否向后兼容」分，而按「用户可感知的能力是否新增」分**：
+
+- **PATCH**：改正 / 优化**已有**行为，没有新增用户可感知的能力。
+  - bug 修复（popup 加载态、计算/缓存错误）
+  - 视觉 / 文案微调（涨跌色值、间距、说明文字）
+  - 性能 / 兜底逻辑改进（用户看不见机制变化，行为不变）
+  - 内部重构（无用户可见变化）
+- **MINOR**：新增用户可感知的能力，或一批相关改动收口成一个可命名的功能里程碑。
+  - 新功能 / 新界面（指数 / 市场面板、持仓分组排序、新数据源选项）
+  - 新设置项 / 新用户可控行为
+- **MAJOR**：保留不用。未来若用，仅限破坏性变更（配置格式不兼容且无法自动迁移、数据存储结构重大变更、产品定位大改）。
+
+**决策口诀**：打开后「能不能做一件之前做不到的事？」能 → MINOR；不能（只是之前能做的更对 / 更好 / 不崩）→ PATCH。**拿不准默认 PATCH**（保守），等一个功能分支整体做完、想给它一个里程碑时再 MINOR。
+
+**MINOR / PATCH 由 AI agent 在 commit/push 时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；并据「bump 纪律」决定 bump 哪个产物（chrome-only / tauri-only / 共享包双 bump）。关键：bump 在「改动完成、准备 commit/push」时一次定，不中途纠结。
+
+**本项目实例参照（分类，具体号随基线重置后重新计数）**：popup 加载态修复 / 涨跌色值微调 / 缓存 bug = PATCH；持仓分组排序、指数 / 市场面板、QDII 夜盘刷新 = MINOR。
+
+### Bump 纪律（关键，取代旧「任意改动都自动 chrome+1 且 tauri+1」）
+- **发布版本只在「改动完成、准备 commit/push」时 bump 一次，不在每次中间尝试时 bump。**
+- **只 bump 实际 shipped 的二进制**：仅改 chrome 专属代码 → 只 bump chrome；仅改 tauri 专属代码 → 只 bump tauri；改了共享 `packages/*` → chrome 与 tauri 都 bump（两个二进制都含此改动）。
+- 严禁「任意代码改动都自动 chrome+1 且 tauri+1」的旧约定。
+
+### 构建戳（build stamp，已实现）
+- **发布版本不负责「我测的是不是刚编的最新版」——那由构建戳承担。**
+- **内容字段**：git short SHA（7 位）+ 构建时间（本地 `YYYY-MM-DD HH:mm`）+ 分支名 + 工作区状态（干净 / 有未提交改动）。
+- **实现（无需改 Rust / WindowPort）**：SHA 等由**前端构建脚本**在构建期捕获并注入 bundle——Chrome 与 Tauri 共用同一套：
+  1. `scripts/build-info.mjs`：`getBuildDefines()` 用 git 捕获四个值，返回已 `JSON.stringify` 的 `source.define` 键值对（`__BUILD_SHA__` / `__BUILD_TIME__` / `__BUILD_BRANCH__` / `__BUILD_DIRTY__`）。
+  2. `apps/chrome/rsbuild.config.ts` 与 `apps/tauri/rsbuild.config.ts`：在 `source.define` 接入 `getBuildDefines()`（注意：rsbuild define 直接文本替换 token，字符串值必须先 `JSON.stringify`，否则运行时 ReferenceError）。
+  3. `packages/ui/src/buildInfo.ts`：用 `declare const` 声明四个 token，并以 `typeof` 安全回退（`tsc` 类型检查 / dev 未注入时回退 `'dev'/''/''/false`）；导出 `buildInfo` 供共享 UI 使用。
+- **展示位置（两层，满足「一瞥即知」与「查完整信息」）**：
+  1. **设置页 header（常驻）**：在 `v{version}` 右侧追加 SHA，格式 `v1.0.0 · a1b2c3d`（mono 11px muted，见 `OptionsApp.tsx`）。
+  2. **关于 tab（完整明细）**：`关于` 页新增「版本与构建」块，分行展示 版本 / 构建 / 时间 / 分支 / 工作区（工作区 dirty 时显「有未提交改动」并以 `text-gold` 提示）。
+
+### 版本同步校验（已实现，bump 前必跑）
+- 脚本 `scripts/check-versions.mjs`，根 `package.json` 暴露为 `pnpm check:versions`。
+- 校验 **Tauri 三处一致**：`tauri.conf.json` == `Cargo.toml` == `Cargo.lock`（fund01-tauri 条目）；不一致非零退出。
+- 校验 **Chrome 来源一致**：`dist/manifest.json`（若已构建）必须与 `apps/chrome/package.json` 的 version 相等（否则重新 build 即可，copy-manifest 会自动同步）。
+- **Agent 在 bump 版本 / commit 前必须运行 `pnpm check:versions`**，拦截「漏改一处版本号 / Cargo.lock 不同步」。
+
+**用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 
 ## Tauri macOS dev/release 隔离规则（bundle id / name 区分，铁律）
 

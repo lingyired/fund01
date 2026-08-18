@@ -58,6 +58,7 @@ import {
   normalizeHexColor,
 } from '@fund01/core'
 import {cn} from '@fund01/core'
+import {buildInfo} from './buildInfo'
 import {ConfirmDialog, type ConfirmAction} from './components/ConfirmDialog'
 import {MenubarEmptyBanner} from './components/MenubarEmptyBanner'
 import {useMenubarEmpty} from './hooks'
@@ -215,6 +216,9 @@ export function OptionsApp({
               {version ? (
                 <span className="font-mono text-[11px] text-muted">
                   v{version}
+                  {buildInfo.sha ? (
+                    <span className="ml-1">· {buildInfo.sha}</span>
+                  ) : null}
                 </span>
               ) : null}
               <span className="font-mono text-[11px] text-muted">设置</span>
@@ -281,7 +285,7 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="about">
-            <AboutSection />
+            <AboutSection version={version} />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -2976,9 +2980,42 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
   )
 }
 
-function AboutSection() {
+function AboutSection({version}: {version?: string}) {
   return (
     <SectionCard title="关于">
+      {/* 版本与构建（构建戳：发布版本不负责「是否最新」，由构建戳承担） */}
+      <div className="space-y-1.5 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">版本与构建</div>
+        <div className="flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">版本</span>
+            <span>v{version ?? '—'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">构建</span>
+            <span>{buildInfo.sha}</span>
+          </div>
+          {buildInfo.time ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">时间</span>
+              <span>{buildInfo.time}</span>
+            </div>
+          ) : null}
+          {buildInfo.branch ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">分支</span>
+              <span>{buildInfo.branch}</span>
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">工作区</span>
+            <span className={buildInfo.dirty ? 'text-gold' : ''}>
+              {buildInfo.dirty ? '有未提交改动' : '干净'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* 项目信息 */}
       <div className="space-y-1.5">
         <div className="font-display text-base font-bold tracking-tight text-ink">
