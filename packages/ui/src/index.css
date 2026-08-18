@@ -40,8 +40,8 @@
   --app-paper-deep: var(--gray-3);
   --app-line: var(--gray-a6);
   --app-panel: var(--color-panel-solid);
-  --app-rise: #e5484d;
-  --app-fall: #46a758;
+  --app-rise: #f23645; /* 涨 = 红（色值来自 docs/设计.md Negative） */
+  --app-fall: #00b96b; /* 跌 = 绿（色值来自 docs/设计.md Positive） */
   --app-accent: var(--accent-9);
   --app-gold: #d4a017;
   --app-muted: var(--gray-10);
