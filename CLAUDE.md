@@ -99,6 +99,7 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 ### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包）
 - **产物策略**：Intel 版与 Apple Silicon 版**分开打包、分开下载**，不做 Universal 单包（单包 = 双份二进制 ≈ 体积翻倍，装的时候只用一半，白占磁盘）。
+- **最低系统版本（硬性，勿降）**：`bundle.macOS.minimumSystemVersion = "13.0"`（tauri.conf.json 已配，写入 Info.plist 的 `LSMinimumSystemVersion`）。**背景**：UI 基于 Radix Themes 3.x，其 CSS 需要 Safari 15.4+（`@layer`/`:has()`/`dvh`）与 Safari 16.2+（`color-mix()` 110 处）；macOS 11/12 的 WKWebView 不支持 → 样式整块被跳过 → popup/设置界面白屏（2026-08-18 真机诊断）。低于 13.0 的系统由安装器直接拒绝，不出现白屏。
 - **打包含令**：`node scripts/build-tauri-all.mjs`（双架构一次出；`--arch arm64|x86_64` 可单独打）。脚本自动：
   - 从 `tauri.conf.json` 读 version，产物命名 `release-macos/Fund01-{version}-{arch}.app`（arm64 / x86_64 后缀）；
   - 前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）。
