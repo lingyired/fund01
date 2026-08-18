@@ -56,9 +56,11 @@ export class ChromeDataPort implements DataPort {
     await sendMessage({ type: 'CLEAR_CACHE' })
   }
 
-  async fetchHoldings(): Promise<HoldingsPayload> {
+  async fetchHoldings(): Promise<HoldingsPayload | null> {
     const r = await chrome.storage.local.get('cache-holdings')
-    return r['cache-holdings'] as HoldingsPayload
+    // 缓存未就绪（SW 尚未完成首轮刷新）返回 null，与 Tauri 端「数据在途」语义统一：
+    // 前端保持加载态等事件推送，不把「数据在途」误显示为「暂无持仓」
+    return (r['cache-holdings'] as HoldingsPayload | undefined) ?? null
   }
 
   async fetchIndices(): Promise<IndexItem[]> {

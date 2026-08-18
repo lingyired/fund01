@@ -177,11 +177,22 @@ export function FundList({
     : null
 
   if (loading && !rows.length) {
+    // 加载中（数据在途，非「暂无持仓」）：spinner + 文案 + skeleton 行，
+    // 与下方空状态（暂无基金持仓 + 引导）视觉区分
     return (
-      <div className="space-y-2 px-3 py-3">
-        {Array.from({length: 6}).map((_, i) => (
-          <Skeleton key={i} className="h-[52px] w-full" />
-        ))}
+      <div className="px-3 py-3">
+        <div className="mb-3 flex items-center gap-2 text-xs text-muted">
+          <span
+            aria-hidden
+            className="h-3 w-3 shrink-0 animate-spin rounded-full border-[1.5px] border-line border-t-accent"
+          />
+          正在加载数据…
+        </div>
+        <div className="space-y-2">
+          {Array.from({length: 6}).map((_, i) => (
+            <Skeleton key={i} className="h-[52px] w-full" />
+          ))}
+        </div>
       </div>
     )
   }

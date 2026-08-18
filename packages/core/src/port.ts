@@ -27,8 +27,12 @@ export interface DataPort {
    * 用于「改动代码后缓存不失效」场景）。Tauri 无 SW 缓存概念，可不实现（UI 回退 triggerRefresh）。
    */
   clearCache?(): Promise<void>
-  /** 持仓汇总（后端已合并行情 + 配置） */
-  fetchHoldings(): Promise<HoldingsPayload>
+  /**
+   * 持仓汇总（后端已合并行情 + 配置）。
+   * 返回 null 表示后端「尚未产出数据」（如 app 刚启动、首轮刷新进行中 / 切源后清空待刷）——
+   * 注意这与「确实没有持仓」不同：调用方应保持加载态等待事件推送，而不是直接展示空态。
+   */
+  fetchHoldings(): Promise<HoldingsPayload | null>
   fetchIndices(): Promise<IndexItem[]>
   /**
    * 最近一次后台成功刷新的时间戳（ms），无缓存时返回 0。

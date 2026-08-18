@@ -25,6 +25,11 @@ export function useMarketData() {
   }))
 
   useEffect(() => {
+    // 后端数据未就绪（首轮刷新进行中 / 切源清空待刷）时的超时兜底：
+    // 若迟迟等不到 quote-update 推送（如后端刷新失败），结束加载态，避免永久转圈。
+    const READY_TIMEOUT_MS = 20_000
+    let readyTimer: ReturnType<typeof setTimeout> | undefined
+
     // 1. 首次拉缓存：持仓 + 指数 + 最近一次后台刷新时间（SW 静默刷新也在写 cache-time，
     //    因此打开 popup 无需等待下一次事件推送即可直接显示更新时间）
     //    + 权威刷新计划（避免用交易时段间隔瞎猜 nextRefreshAt，进度环首帧即准确）
@@ -39,7 +44,14 @@ export function useMarketData() {
         setIndices(i)
         if (typeof t === 'number' && t > 0) setLastUpdate(t)
         if (sched && typeof sched.nextRefreshAt === 'number') setRefreshSchedule(sched)
-        setLoading(false)
+        if (h) {
+          // 数据已就绪（含后端显式广播的空快照）：结束加载，正常展示（空态/列表）
+          setLoading(false)
+        } else {
+          // 后端尚未产出数据（首轮刷新进行中）：保持加载态，
+          // 等 quote-update 推来第一份数据再结束；超时兜底防永久转圈
+          readyTimer = setTimeout(() => setLoading(false), READY_TIMEOUT_MS)
+        }
       })
       .catch(() => setLoading(false))
 
@@ -48,9 +60,18 @@ export function useMarketData() {
       if (q.holdings) setHoldings(q.holdings)
       if (q.indices) setIndices(q.indices)
       setLastUpdate(q.time)
+      // 后端广播 = 「本周期快照已产出」（无论空/非空）→ 结束加载态。
+      // 与 fetch 的未就绪语义配套：app 刚启动首轮刷新进行中时 fetch 返回 null，
+      // 靠第一份广播让位给真实内容（数据或空态）。注意空持仓（list 空）也是
+      // 合法快照：Chrome 端 SW 空持仓只写 cache-time 不写 cache-holdings，
+      // 事件 holdings 为 null，此时同样应结束加载，展示「暂无持仓」。
+      setLoading(false)
     })
 
-    return off
+    return () => {
+      off()
+      if (readyTimer) clearTimeout(readyTimer)
+    }
   }, [data, event])
 
   // 订阅后端自动刷新计划

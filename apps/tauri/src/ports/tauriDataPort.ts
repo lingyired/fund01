@@ -20,9 +20,13 @@ export class TauriDataPort implements DataPort {
     await invoke('trigger_refresh', {resetTimer})
   }
 
-  async fetchHoldings(): Promise<HoldingsPayload> {
-    const r = await invoke<HoldingsPayload | null>('fetch_holdings')
-    return r ?? { summary: { totalAmount: 0, totalPnl: 0, totalPnlPercent: 0 }, list: [] }
+  /**
+   * Rust 内存缓存可能尚未就绪（app 启动首轮刷新进行中 / 切源清空待刷）→ 返回 null。
+   * 前端 useMarketData 据此保持加载态（等 quote-update 推来第一份数据），
+   * 避免把「数据在途」误显示为「暂无持仓」。
+   */
+  async fetchHoldings(): Promise<HoldingsPayload | null> {
+    return invoke<HoldingsPayload | null>('fetch_holdings')
   }
 
   async fetchIndices(): Promise<IndexItem[]> {
