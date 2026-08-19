@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// 双架构 Tauri 打包：arm64 (Apple Silicon / M 芯片) + x86_64 (Intel)
-// 分开产出两个独立 .app，命名带架构后缀，归档到 release-macos/。
-// DMG 在 agent 环境必失败（Finder 权限 -10004），本脚本只打 .app；
-// 需要 DMG 时对产物手动跑 bundle_dmg.sh --skip-jenkins（见输出提示）。
+// 双架构 Tauri 打包 + 打 DMG：arm64 (Apple Silicon / M 芯片) + x86_64 (Intel)
+// 分架构产出 .app（中间产物）并自动调用 scripts/build-dmg.mjs 打 DMG。
+// **发布形态 = DMG**（2026-08-19 定）：release-macos/Fund01_{version}_{arch}.dmg，
+// .app 仅作中间产物归档（build-dmg.mjs 也依赖它），不直接对外发布。
+// DMG 用 sindresorhus/create-dmg（纯 hdiutil 路径，无需 Finder 权限）。
 //
 // 用法：
-//   node scripts/build-tauri-all.mjs             # 双架构都打
+//   node scripts/build-tauri-all.mjs             # 双架构都打（.app + DMG）
 //   node scripts/build-tauri-all.mjs --arch arm64    # 仅 M 版
 //   node scripts/build-tauri-all.mjs --arch x86_64   # 仅 Intel 版
 import { execSync } from 'node:child_process'
@@ -60,18 +61,22 @@ for (const [arch, { target, label }] of Object.entries(selected)) {
     process.exit(1)
   }
 
-  // 归档：release-macos/Fund01-{version}-{arch}.app（清掉旧同名目录再复制）
+  // 归档：release-macos/Fund01-{version}-{arch}.app（中间产物，清掉旧同名目录再复制）
   const dstApp = path.join(releaseDir, `Fund01-${version}-${arch}.app`)
   if (existsSync(dstApp)) rmSync(dstApp, { recursive: true, force: true })
   cpSync(srcApp, dstApp, { recursive: true })
-  console.log(`\n✓ 已归档：${dstApp}`)
+  console.log(`\n✓ 已归档（中间产物）：${dstApp}`)
 
-  console.log(`  需要 DMG 时：node scripts/build-dmg.mjs --arch ${arch}
-    （sindresorhus/create-dmg，无需 Finder 权限；产出 release-macos/Fund01_${version}_${arch}.dmg）`)
+  // 自动打 DMG（发布形态），产出 release-macos/Fund01_{version}_{arch}.dmg
+  run(`node scripts/build-dmg.mjs --arch ${arch}`)
 }
 
 console.log('\n========== 全部完成 ==========')
-console.log('产物列表：')
+console.log('发布产物（DMG）：')
 for (const [arch] of Object.entries(selected)) {
-  console.log(`  release-macos/Fund01-${version}-${arch}.app  (${ARCHES[arch].label})`)
+  console.log(`  release-macos/Fund01_${version}_${arch}.dmg  (${ARCHES[arch].label})`)
+}
+console.log('中间产物（.app，调试/复检用）：')
+for (const [arch] of Object.entries(selected)) {
+  console.log(`  release-macos/Fund01-${version}-${arch}.app`)
 }

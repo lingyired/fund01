@@ -58,10 +58,10 @@ pnpm typecheck        # 全仓库类型检查
 cd apps/tauri
 pnpm install
 pnpm tauri dev        # 开发模式
-pnpm tauri build      # 打包 .app / .dmg（输出到 src-tauri/target/release/bundle/）
+pnpm tauri build      # 单架构打包（.app 中间产物 + .dmg）
 ```
 
-双架构打包（Intel + Apple Silicon 两个独立安装包）：`node scripts/build-tauri-all.mjs`（详见 CLAUDE.md「双架构发布产物」）。
+**发布打包（默认形态 = DMG，2026-08-19 定）**：`node scripts/build-tauri-all.mjs` 一条命令出双架构（Intel + Apple Silicon）独立 DMG（`--arch arm64|x86_64` 可单独打）；产物在 `release-macos/Fund01_{version}_{arch}.dmg`，`.app` 仅为中间产物不对外发布。详见 CLAUDE.md「双架构发布产物」。
 
 ## 📦 目录结构
 

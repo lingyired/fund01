@@ -97,18 +97,21 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 - 校验 **Chrome 来源一致**：`dist/manifest.json`（若已构建）必须与 `apps/chrome/package.json` 的 version 相等（否则重新 build 即可，copy-manifest 会自动同步）。
 - **Agent 在 bump 版本 / commit 前必须运行 `pnpm check:versions`**，拦截「漏改一处版本号 / Cargo.lock 不同步」。
 
-### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包）
+### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包；2026-08-19 起发布形态 = DMG）
 - **产物策略**：Intel 版与 Apple Silicon 版**分开打包、分开下载**，不做 Universal 单包（单包 = 双份二进制 ≈ 体积翻倍，装的时候只用一半，白占磁盘）。
-- **最低系统版本**：`bundle.macOS.minimumSystemVersion = "10.15"`（tauri.conf.json 已配，写入 Info.plist 的 `LSMinimumSystemVersion`；tauri-build 会把它传播为 Rust 编译的 `MACOSX_DEPLOYMENT_TARGET`）。**背景**：UI 基于 Radix Themes 3.x，其完整 CSS 需要 Safari 15.4+（`@layer`/`:has()`/`dvh`）与 Safari 16.2+（`color-mix()` 110 处）；旧系统 WKWebView 会白屏（2026-08-18 真机诊断，见 docs/macOS11白屏-兼容性诊断.md）。2026-08-19 起引入**兼容层**：`beforeBuildCommand` 里的 `node ../../scripts/build-compat.mjs` 额外产出 `compat.css`（`@layer` 展开、`color-mix` 降实色、`:where/:is` 展开、`dvh→vh`、`:focus-visible→:focus`）并用 esbuild 把 JS 整包转译到 safari13，dist HTML 注入运行时检测（`CSS.supports('background','color-mix(...)')`）——不支持时自动切兼容样式。**约束**：① 兼容 CSS 允许视觉降级（半透明/`:has`/hover 丢失、10.15 上 flex `gap` 失效），目标是能跑；② 修改 `build-compat.mjs` 或 CSS 构建链后必须重新打包并 grep 校验 compat.css 无 `@layer`/`color-mix(`/`:where(`/`:is(`/`dvh`、JS 无 `#` 私有字段/`static{`；③ 新引入 CSS 特性时留意其 Safari 最低版本，必要时同步兼容脚本。
-- **打包含令**：`node scripts/build-tauri-all.mjs`（双架构一次出；`--arch arm64|x86_64` 可单独打）。脚本自动：
-  - 从 `tauri.conf.json` 读 version，产物命名 `release-macos/Fund01-{version}-{arch}.app`（arm64 / x86_64 后缀）；
-  - 前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）。
-- **DMG 打法（2026-08-18 升级，create-dmg 替代 bundle_dmg.sh）**：`node scripts/build-dmg.mjs`（`--arch arm64|x86_64` 可单独打，默认双架构）。用 sindresorhus/create-dmg（内部 node-appdmg，**纯 hdiutil 路径，不依赖 Finder AppleScript**——agent 环境 `osascript` 调 Finder 必报 -10004，这是旧 `bundle_dmg.sh --skip-jenkins` 只能出朴素版的原因）。脚本自动：
-  - 前置：对应架构 `.app` 已构建（先跑 `build-tauri-all.mjs`）；校验 app 版本 == tauri.conf.json version；
-  - 调 `create-dmg --no-code-sign`（无开发者证书必加此参数，否则因找不到签名身份退出）；内置设计 = 透明背景图 + 合成卷图标 + 160px 图标定位 + Applications 链接，打开即见布局；
-  - 产物：`release-macos/Fund01_{version}_{arch}.dmg`（工具默认文件名 `Fund01 1.1.1.dmg` 双架构会互相覆盖，脚本打完即改名），去 quarantine；
+- **发布形态（硬性规则，2026-08-19 用户定）**：对外提供 **DMG**（`release-macos/Fund01_{version}_{arch}.dmg`），**不对外发布 .app**。`.app` 仅为中间产物/调试复检用（`release-macos/Fund01-{version}-{arch}.app` 归档保留，但不作为发布物交付）。
+- **最低系统版本**：`bundle.macOS.minimumSystemVersion = "10.15"`（tauri.conf.json 已配，写入 Info.plist 的 `LSMinimumSystemVersion`；tauri-build 会把它传播为 Rust 编译的 `MACOSX_DEPLOYMENT_TARGET`）。**背景**：UI 基于 Radix Themes 3.x，其完整 CSS 需要 Safari 15.4+（`@layer`/`:has()`/`dvh`）与 Safari 16.2+（`color-mix()` 110 处）；旧系统 WKWebView 会白屏（2026-08-18 真机诊断，见 docs/macOS11白屏-兼容性诊断.md）。2026-08-19 起引入**兼容层**：`beforeBuildCommand` 里的 `node ../../scripts/build-compat.mjs` 额外产出 `compat.css`（`@layer` 展开、`color-mix` 降实色、`:where/:is` 展开、`dvh→vh`、`:focus-visible→:focus`）并用 esbuild 把 JS 整包转译到 es2020，dist HTML 注入运行时检测（`CSS.supports('background','color-mix(...)')`）——不支持时自动切兼容样式。**约束**：① 兼容 CSS 允许视觉降级（半透明/`:has`/hover 丢失、10.15 上 flex `gap` 失效），目标是能跑；② 修改 `build-compat.mjs` 或 CSS 构建链后必须重新打包并 grep 校验 compat.css 无 `@layer`/`color-mix(`/`:where(`/`:is(`/`dvh`、JS 无 `#` 私有字段/`static{`；③ 新引入 CSS 特性时留意其 Safari 最低版本，必要时同步兼容脚本。
+- **打包（一条命令出 DMG）**：`node scripts/build-tauri-all.mjs`（双架构；`--arch arm64|x86_64` 可单独打）。脚本自动：
+  - 构建各架构 .app（前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`，本机已装，换机需补）；
+  - 归档 .app 到 `release-macos/Fund01-{version}-{arch}.app`（中间产物）；
+  - 自动调 `scripts/build-dmg.mjs --arch xxx` 打 DMG → `release-macos/Fund01_{version}_{arch}.dmg`（发布产物）。
+- **DMG 机制（create-dmg 替代 bundle_dmg.sh）**：`node scripts/build-dmg.mjs`（`--arch arm64|x86_64` 可单独打，默认双架构；由 build-tauri-all.mjs 自动调用，也可单独跑）。用 sindresorhus/create-dmg（内部 node-appdmg，**纯 hdiutil 路径，不依赖 Finder AppleScript**——agent 环境 `osascript` 调 Finder 必报 -10004）。注意：
+  - 前置：对应架构 `.app` 已构建（脚本校验 app 版本 == tauri.conf.json version）；
+  - .app 路径固定取 `target/<triple>/release/bundle/macos/Fund01.app`（**勿改回默认 `target/release/`——那里可能残留旧版本构建产物**，2026-08-19 已踩坑）；
+  - 调 `create-dmg --no-code-sign`（无开发者证书必加此参数，否则因找不到签名身份退出）；内置设计 = 透明背景图 + 合成卷图标 + 160px 图标定位 + Applications 链接；
+  - 产物 `Fund01_{version}_{arch}.dmg`（工具默认文件名双架构会互相覆盖，脚本打完即改名），去 quarantine；
   - 旧 `bundle_dmg.sh` 仍保留（target/release/bundle/dmg/），仅作 fallback。
-- **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`。
+- **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`；DMG 可 `hdiutil verify release-macos/Fund01_{version}_{arch}.dmg` 校验。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 

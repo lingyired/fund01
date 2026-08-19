@@ -20,9 +20,10 @@ const releaseDir = path.join(root, 'release-macos')
 const tauriConfPath = path.join(root, 'apps/tauri/src-tauri/tauri.conf.json')
 const createDmgBin = path.join(root, 'node_modules/.bin/create-dmg')
 
-// arm64 用默认 target（本机直出 target/release/...），x86_64 用交叉 target
+// 两架构 .app 均取 target/<triple>/release/bundle/macos/（与 build-tauri-all.mjs 一致；
+// 注意勿用默认 target/release/... —— 那里可能残留旧版本构建产物）
 const ARCHES = {
-  arm64: { app: 'apps/tauri/src-tauri/target/release/bundle/macos/Fund01.app' },
+  arm64: { app: 'apps/tauri/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Fund01.app' },
   x86_64: { app: 'apps/tauri/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/Fund01.app' },
 }
 
