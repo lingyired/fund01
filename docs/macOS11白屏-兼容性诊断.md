@@ -161,7 +161,7 @@ JS 侧语法安全，白屏**不是 JS 崩溃**导致。
 
 1. **构建期**：`tauri.conf.json` 的 `beforeBuildCommand` 在 `pnpm build` 后执行 `node ../../scripts/build-compat.mjs`：
    - 读取 `dist/static/css/*.css`（主 CSS），产出 `index-<hash>.compat.css`；
-   - 变换 pass（顺序固定）：prepend 规范层序声明 → `:where()`/`:is()` 递归笛卡尔展开（postcss-selector-parser，AST 级）→ `:focus-visible`→`:focus` → `color-mix()` 降级（一方为 `transparent` 取另一方、否则取第一参数，`var()` 保留引用）→ `@supports` 条件内 `color-mix` 改写为 `red` → `dvh`→`vh`（含 `@supports` 条件）→ `@csstools/postcss-cascade-layers` 展开 `@layer`；
+   - 变换 pass（顺序固定）：prepend 规范层序声明 → `:where()`/`:is()` 递归笛卡尔展开（postcss-selector-parser，AST 级）→ `:focus-visible`→`:focus` → `color-mix()` 静态求值（**解析 var 链 + 色板 → rgba，亮/暗双主题**：默认规则用 light 值，另生成 `.dark,.dark-theme` 前缀规则用 dark 值；与 transparent 混合 = 该色带 alpha，恢复半透明层级感与涨跌渐变叠加；token 定义规则走实色 var 降级；解析失败回退实色）→ `@supports` 条件内 `color-mix` 改写为 `red` → `dvh`→`vh`（含 `@supports` 条件）→ `@csstools/postcss-cascade-layers` 展开 `@layer`；
    - 改写 `dist/index.html` / `options.html`：注入内联脚本，`CSS.supports('background','color-mix(in srgb, red, blue)')` 为 false 时把主 CSS link 置 `media="not all"` 并追加 compat.css link；
    - 用 esbuild 把 `dist/index.js` / `options.js` 整包转译到 safari13 目标（回写原文件）：Rsbuild 的 swc 规则默认排除 node_modules，`@radix-ui/react-collection` 等依赖 dist 的 class 私有字段/static block（Safari 13.1 解析不了会整包挂）必须构建后转译。
 2. **运行期**：macOS 13+（Safari 16.2+）检测通过 → 完整样式；macOS 10.15–12 → 自动切 compat.css。
@@ -172,12 +172,12 @@ JS 侧语法安全，白屏**不是 JS 崩溃**导致。
 
 | 特性 | 旧系统表现 |
 |---|---|
-| `color-mix()` 半透明（110 处） | 降级为实色（`var()` 引用保留） |
+| `color-mix()` 半透明（110 处） | **静态求值为 rgba，亮/暗双主题**（如 `.bg-panel/60` light=`rgba(255,255,255,.6)`、dark=`rgba(25,25,25,.6)`），半透明层级感与涨跌渐变叠加恢复；仅 token 无法静态解析时回退实色 |
 | `:has()`（77 处） | 整条规则被解析器丢弃（hover/联动样式丢失） |
 | `:where()`/`:is()`（2821 处） | 展开为普通选择器，特异性与原意近似（`csstools` 用 `:not(#\#)` 链补偿层优先级） |
 | `:focus-visible` | 降级为 `:focus` |
 | `dvh` | 降级为 `vh` |
-| flex `gap`（233 处，仅 10.15 的 Safari 13.1 不支持） | 间距坍缩（10.15 特有；macOS 11+ 正常） |
+| flex `gap`（仅 10.15 的 Safari 13.1 不支持） | 间距坍缩（10.15 特有；macOS 11+ 正常） |
 | `lab()`（2 处） | 已有 hex 兜底声明在前，自动回退 |
 | 渐变/毛玻璃 | `linear-gradient`/`-webkit-backdrop-filter` Safari 13.1 均支持，不受影响 |
 

@@ -125,48 +125,276 @@ const focusVisibleFix = () => ({
 })
 focusVisibleFix.postcss = true
 
-// ─────────────────────────── color-mix 降级为实色 ───────────────────────────
-// Safari 16.2+ 才支持 color-mix；旧版不认识 → 该条声明被丢弃（元素会透明/无色）。
-// 降级策略：一方为 transparent → 取另一方（去百分比，实色替代半透明）；
-// 否则取第一个参数。参数多为 var(--xxx) 引用，保留引用即得到实色。
-const colorMixFallback = () => ({
-  postcssPlugin: 'compat-color-mix-fallback',
-  Declaration(decl) {
-    if (!decl.value.includes('color-mix(')) return
-    const calls = findColorMixCalls(decl.value)
-    if (calls.length === 0) return
+// ─────────────────────────── color-mix 静态降级（解析色板 → rgba，双主题） ───────────────────────────
+// Safari 16.2+ 才支持 color-mix；旧版不认识 → 该条声明被解析器丢弃（元素透明/无色）。
+// 构建期把 var(--xxx) 链解析成具体颜色并计算混合结果：
+//   · 与 transparent 混合（bg-panel/60 等 alpha 工具类、--tw-gradient-from/to）→
+//     rgba(色, pct/100)，恢复半透明层级感（旧版降级观感最大提升点）；
+//   · 两色混合 → sRGB 分量插值（近似，旧系统降级可接受）。
+// 生成两条规则跟随主题：默认规则用 light 值，`.dark,.dark-theme` 前缀规则用 dark 值
+// （项目 applyTheme 在 <html> 上 toggle .dark/.light，见 packages/ui/src/theme.ts；
+//   dark 色板取自 Radix 的 .dark/.dark-theme 与 .radix-themes:not(.light,...) 定义）。
+// 解析失败（token 是 oklch/display-p3/运行时才定）→ 回退旧策略（取非 transparent 实色 var 引用）。
+const colorMixFallback = () => {
+  const baseTokens = new Map() // 非主题特化的基础定义（:root / :where(.radix-themes) / .radix-themes）
+  const lightTokens = new Map() // light 特化（html[data-theme=light] / .light / .light-theme）
+  const darkTokens = new Map() // dark 特化（.dark / .dark-theme / .radix-themes:not(.light,...)）
+  const pendingRules = [] // { rule, props: Map<prop, { light, dark }> }
+
+  // 收集顶层规则（跳过 @media/@supports 等条件 at-rule；@layer/@keyframes 内有效——
+  // 主 CSS 的 Radix token 定义都在 @layer radix-themes 里）的 --* 自定义属性。
+  // light 解析用 [light, base]；dark 解析用 [dark, base]（跳过 light 特化，
+  // 否则 html[data-theme=light] 的值会污染 dark 场景）。
+  const collectTokens = (root) => {
+    const hasConditionalAncestor = (node) => {
+      let p = node.parent
+      while (p) {
+        if (p.type === 'atrule' && !['layer', 'keyframes'].includes(p.name)) return true
+        p = p.parent
+      }
+      return false
+    }
+    root.walkRules((rule) => {
+      if (hasConditionalAncestor(rule)) return
+      const sel = rule.selector || ''
+      let table = baseTokens
+      if (/\.dark(?:-theme)?|:not\(\.light/.test(sel)) table = darkTokens
+      else if (/html\[data-theme=light\]|\.light(?:-theme)?/.test(sel)) table = lightTokens
+      rule.walkDecls((d) => {
+        if (d.prop.startsWith('--')) table.set(d.prop, d.value.trim())
+      })
+    })
+  }
+
+  // token 定义规则（:root / :where / .dark / .radix-themes / html...）：里面的 color-mix
+  // 是"定义值"，交给主题机制自行解析 → 只做简单降级（实色 var），不做 rgba 双主题。
+  const isTokenRule = (sel) =>
+    /^:root|^:where|^\.dark|^\.dark-theme|^\.radix-themes|^html/.test(sel)
+
+  // 解析颜色值（含 var 链），tables = [主表, 回退表...]（dark 解析 = [dark, base]）
+  const parseColorChain = (raw, tables, depth = 0) => {
+    if (depth > 10 || !raw) return null
+    let s = raw.trim()
+    // var(--x, fallback)
+    const vm = s.match(/^var\((--[\w-]+)(?:,\s*([^)]*))?\)$/)
+    if (vm) {
+      const key = vm[1]
+      for (const t of tables) {
+        if (t.has(key)) return parseColorChain(t.get(key), tables, depth + 1)
+      }
+      if (vm[2]) return parseColorChain(vm[2], tables, depth + 1)
+      return null
+    }
+    // hex
+    const hx = s.match(/^#([0-9a-f]{3,8})$/i)
+    if (hx) return parseHex(hx[1])
+    // rgb()/rgba()
+    const rgb = s.match(/^rgba?\((.*)\)$/i)
+    if (rgb) return parseRgbArgs(rgb[1])
+    // 命名色（常用集 + transparent）
+    const named = NAMED_COLORS[s.toLowerCase()]
+    if (named) return named
+    return null
+  }
+
+  // 求值单个 color-mix 调用 → {r,g,b,a} | null（用给定表链）
+  const mixToRgba = (inner, tables) => {
+    const parts = splitTopLevel(inner)
+    const colors = parts.slice(1)
+    if (colors.length < 2) return null
+    const a = parseColorArg(colors[0], tables)
+    const b = parseColorArg(colors[1], tables)
+    if (!a || !b) return null
+    // 与 transparent 混合 → 带 alpha 版本（alpha = 非 transparent 方的占比）
+    if (a.color === null) return { r: b.r, g: b.g, bl: b.bl, a: b.a * b.pct }
+    if (b.color === null) return { r: a.r, g: a.g, bl: a.bl, a: a.a * a.pct }
+    // 两色混合 → sRGB 分量插值
+    const ta = a.pct, tb = b.pct
+    const sum = ta + tb
+    const wa = ta / sum, wb = tb / sum
+    return {
+      r: Math.round(a.r * wa + b.r * wb),
+      g: Math.round(a.g * wa + b.g * wb),
+      bl: Math.round(a.bl * wa + b.bl * wb),
+      a: a.a * wa + b.a * wb,
+    }
+  }
+
+  const parseColorArg = (raw, tables) => {
+    const pctM = raw.match(/\s+(\d+(?:\.\d+)?)%$/)
+    const pct = pctM ? parseFloat(pctM[1]) / 100 : 0.5 // 缺省 50%
+    const colorStr = raw.replace(/\s+\d+(?:\.\d+)?%$/, '').trim()
+    if (colorStr === 'transparent') return { color: null, pct }
+    const c = parseColorChain(colorStr, tables)
+    return c ? { color: c, pct, ...c } : null
+  }
+
+  // 简单降级（token 定义规则用）：取非 transparent 实色 var 引用
+  const simpleFallback = (decl, calls) => {
     let value = decl.value
     for (const c of [...calls].reverse()) {
       const fb = colorMixFallbackValue(c.inner)
-      if (fb === null) {
-        decl.remove()
-        return
-      }
+      if (fb === null) return false
       value = value.slice(0, c.start) + fb + value.slice(c.end)
     }
-    if (value.includes('color-mix(')) {
-      // 嵌套 color-mix 未能完全消解 → 删声明（可接受降级）
-      decl.remove()
-      return
-    }
+    if (value.includes('color-mix(')) return false
     decl.value = value
-  },
-  // @supports (color: color-mix(...)) 条件里的 color-mix 也要改写：
-  // 兼容产物只服务于不支持 color-mix 的浏览器，条件恒假会导致整块被跳过。
-  // 改写为恒真的 "red"，块内的 var()/实色声明即可正常生效。
-  AtRule(at) {
-    if (at.name === 'supports' && at.params.includes('color-mix(')) {
-      const calls = findColorMixCalls(at.params)
+    return true
+  }
+
+  return {
+    postcssPlugin: 'compat-color-mix-fallback',
+    Once(root) {
+      collectTokens(root)
+    },
+    Declaration(decl) {
+      if (!decl.value.includes('color-mix(')) return
+      const calls = findColorMixCalls(decl.value)
       if (calls.length === 0) return
-      let params = at.params
-      for (const c of [...calls].reverse()) {
-        params = params.slice(0, c.start) + 'red' + params.slice(c.end)
+      const rule = decl.parent.type === 'rule' ? decl.parent : null
+
+
+      // token 定义规则 → 简单降级（保留 var 引用）
+      if (rule && isTokenRule(rule.selector || '')) {
+        if (!simpleFallback(decl, calls)) decl.remove()
+        return
       }
-      at.params = params
-    }
-  },
-})
+
+      const lightTables = [lightTokens, baseTokens]
+      const darkTables = [darkTokens, baseTokens]
+      let value = decl.value
+      const lightVals = []
+      const darkVals = []
+      for (const c of calls) {
+        const l = mixToRgba(c.inner, lightTables)
+        const d = mixToRgba(c.inner, darkTables)
+        if (!l && !d) {
+          // 该调用解析失败 → 整条声明回退旧策略（实色）
+          if (!simpleFallback(decl, calls)) decl.remove()
+          return
+        }
+        lightVals.push(l ? toRgbaStr(l) : toRgbaStr(d))
+        darkVals.push(d ? toRgbaStr(d) : null)
+      }
+      // 静态求值成功：先用 light 值替换
+      for (const c of [...calls].reverse()) {
+        const idx = calls.indexOf(c)
+        value = value.slice(0, c.start) + lightVals[idx] + value.slice(c.end)
+      }
+      decl.value = value
+      if (rule) {
+        let rec = pendingRules.find((r) => r.rule === rule)
+        if (!rec) {
+          rec = { rule, props: new Map() }
+          pendingRules.push(rec)
+        }
+        rec.props.set(decl.prop, { light: lightVals, dark: darkVals })
+      }
+    },
+    // @supports (color: color-mix(...)) 条件里的 color-mix 也要改写：
+    // 兼容产物只服务于不支持 color-mix 的浏览器，条件恒假会导致整块被跳过。
+    // 改写为恒真的 "red"，块内的 var()/实色声明即可正常生效。
+    AtRule(at) {
+      if (at.name === 'supports' && at.params.includes('color-mix(')) {
+        const calls = findColorMixCalls(at.params)
+        if (calls.length === 0) return
+        let params = at.params
+        for (const c of [...calls].reverse()) {
+          params = params.slice(0, c.start) + 'red' + params.slice(c.end)
+        }
+        at.params = params
+      }
+    },
+    // 生成 dark 主题规则（html.dark/.dark-theme 后代前缀）；dark 与 light 相同则跳过
+    OnceExit() {
+      for (const { rule, props } of pendingRules) {
+        let hasDark = false
+        for (const [, v] of props) {
+          if (v.dark.some((s, i) => s && s !== v.light[i])) {
+            hasDark = true
+            break
+          }
+        }
+        if (!hasDark) continue
+        const clone = rule.clone()
+        clone.selector = prefixThemeSelector(rule.selector)
+        clone.walkDecls((d) => {
+          const v = props.get(d.prop)
+          if (v) {
+            const idx = v.light.indexOf(d.value)
+            if (idx !== -1 && v.dark[idx]) d.value = v.dark[idx]
+          }
+        })
+        rule.parent.insertAfter(rule, clone)
+      }
+    },
+  }
+}
 colorMixFallback.postcss = true
+
+// 常用命名色（覆盖 Radix 色板与项目常用；缺失的解析失败自动回退实色策略）
+const NAMED_COLORS = {
+  white: { r: 255, g: 255, bl: 255, a: 1 },
+  black: { r: 0, g: 0, bl: 0, a: 1 },
+  transparent: { r: 0, g: 0, bl: 0, a: 0 },
+  red: { r: 255, g: 0, bl: 0, a: 1 },
+  green: { r: 0, g: 128, bl: 0, a: 1 },
+  blue: { r: 0, g: 0, bl: 255, a: 1 },
+  gray: { r: 128, g: 128, bl: 128, a: 1 },
+  grey: { r: 128, g: 128, bl: 128, a: 1 },
+}
+
+function parseHex(hex) {
+  const h = hex.length <= 4 ? hex.split('').map((c) => c + c).join('') : hex
+  if (/^[0-9a-f]{6}$/i.test(h)) {
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      bl: parseInt(h.slice(4, 6), 16),
+      a: 1,
+    }
+  }
+  if (/^[0-9a-f]{8}$/i.test(h)) {
+    return {
+      r: parseInt(h.slice(0, 2), 16),
+      g: parseInt(h.slice(2, 4), 16),
+      bl: parseInt(h.slice(4, 6), 16),
+      a: parseInt(h.slice(6, 8), 16) / 255,
+    }
+  }
+  return null
+}
+
+function parseRgbArgs(args) {
+  const parts = args.split('/')
+  const nums = parts[0].trim().split(/[\s,]+/)
+  if (nums.length < 3) return null
+  const toNum = (s) => {
+    if (s.endsWith('%')) return Math.round((parseFloat(s) / 100) * 255)
+    return parseFloat(s)
+  }
+  const r = toNum(nums[0])
+  const g = toNum(nums[1])
+  const b = toNum(nums[2])
+  if ([r, g, b].some((n) => Number.isNaN(n))) return null
+  let a = 1
+  if (parts[1]) {
+    const av = parts[1].trim()
+    a = av.endsWith('%') ? parseFloat(av) / 100 : parseFloat(av)
+  }
+  return { r: Math.round(r), g: Math.round(g), bl: Math.round(b), a }
+}
+
+function toRgbaStr(c) {
+  const a = Math.round(c.a * 1000) / 1000
+  return `rgba(${c.r},${c.g},${c.bl},${a})`
+}
+
+// 给选择器加 `.dark / .dark-theme` 后代前缀（postcss-selector-parser 保持转义原样）
+function prefixThemeSelector(selector) {
+  const ast = selectorParser().astSync(selector)
+  return ast.nodes.map((s) => `.dark ${s.toString()}, .dark-theme ${s.toString()}`).join(', ')
+}
 
 function findColorMixCalls(value) {
   const out = []
