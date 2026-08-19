@@ -37,9 +37,12 @@ function SummaryCol({
  */
 export function GroupSummaryGrid({
   summaries,
+  privacyMode = false,
   onSelect,
 }: {
   summaries: GroupSummary[]
+  /** 隐私模式：分组资产 / 持有收益额 / 当日收益额显示为 **** */
+  privacyMode?: boolean
   onSelect: (key: string) => void
 }) {
   if (!summaries.length) return null
@@ -74,17 +77,17 @@ export function GroupSummaryGrid({
             </span>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1">
-            <SummaryCol label="资产" value={formatAmount(s.amount)} />
+            <SummaryCol label="资产" value={privacyMode ? '****' : formatAmount(s.amount)} />
             <SummaryCol
               label="持有收益"
-              value={formatMoney(s.cumPnl)}
+              value={privacyMode ? '****' : formatMoney(s.cumPnl)}
               percent={formatPct(s.cumPnlPercent)}
               valueClass={pctClass(s.cumPnl)}
               percentClass={pctClass(s.cumPnlPercent)}
             />
             <SummaryCol
               label="当日收益"
-              value={formatMoney(s.pnl)}
+              value={privacyMode ? '****' : formatMoney(s.pnl)}
               percent={formatPct(s.pnlPercent)}
               valueClass={pctClass(s.pnl)}
               percentClass={pctClass(s.pnlPercent)}

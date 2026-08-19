@@ -334,7 +334,11 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
  * 也可在用户切换显示方式（配置变化）时立即重算，无需等待下次刷新。
  */
 async function applyBadge(config: AppConfig | null): Promise<void> {
-  const mode = config?.settings?.badgeMode
+  // 隐私模式：角标强制显示收益率百分比，不暴露收益额（忽略 badgeMode 设置）
+  const mode =
+    config?.settings?.privacyMode === true
+      ? 'percent'
+      : config?.settings?.badgeMode
   const cached = await chrome.storage.local.get(CACHE_KEYS.holdings)
   const holdings = cached[CACHE_KEYS.holdings] as
     | ReturnType<typeof calcHoldings>

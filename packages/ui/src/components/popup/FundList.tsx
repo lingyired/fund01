@@ -111,6 +111,7 @@ export function FundList({
   activeTab,
   tabTotalAmount,
   loading,
+  privacyMode = false,
   onAddFund,
   onImportHoldings,
 }: {
@@ -118,6 +119,8 @@ export function FundList({
   activeTab: string
   tabTotalAmount: number
   loading?: boolean
+  /** 隐私模式：持仓金额 / 当日收益额 / 持有收益额显示为 **** */
+  privacyMode?: boolean
   /** 空状态「添加持仓」入口：打开设置页持仓 tab 并定位到「添加持仓」区块 */
   onAddFund?: () => void
   /** 空状态「批量导入」入口：打开设置页持仓 tab 并定位到「导入持仓」区块 */
@@ -354,7 +357,7 @@ export function FundList({
                           className="font-mono text-xs text-ink-soft"
                           title="上一确认点市值，不含盘中估算浮动"
                         >
-                          ¥{formatAmount(amount)}
+                          {privacyMode ? '****' : `¥${formatAmount(amount)}`}
                         </span>
                         {row.isQdii && row.netValueDate ? (
                           <span
@@ -397,7 +400,7 @@ export function FundList({
                           pctClass(pnl),
                         )}
                       >
-                        {formatMoney(pnl)}
+                        {privacyMode ? '****' : formatMoney(pnl)}
                       </div>
                       <div
                         className={cn(
@@ -419,7 +422,7 @@ export function FundList({
                       pctClass(cumPnl),
                     )}
                   >
-                    {formatMoney(cumPnl)}
+                    {privacyMode ? '****' : formatMoney(cumPnl)}
                   </div>
                   <div
                     className={cn(
@@ -462,7 +465,7 @@ export function FundList({
                           >
                             <span className="text-muted">{g || '未分组'}</span>
                             <span className="font-mono tabular-nums">
-                              {formatAmount(groupAmount(row, g))}
+                              {privacyMode ? '****' : formatAmount(groupAmount(row, g))}
                             </span>
                             <span
                               className={cn(
@@ -470,7 +473,7 @@ export function FundList({
                                 pctClass(groupPnl(row, g)),
                               )}
                             >
-                              {formatMoney(groupPnl(row, g))}
+                              {privacyMode ? '****' : formatMoney(groupPnl(row, g))}
                             </span>
                           </div>
                         ))}
@@ -489,6 +492,7 @@ export function FundList({
         row={detailRow}
         proportion={detail?.proportion ?? null}
         stats={detail?.stats ?? null}
+        privacyMode={privacyMode}
       />
     </Table.Root>
     </div>

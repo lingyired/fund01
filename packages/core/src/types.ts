@@ -185,6 +185,12 @@ export type AppSettings = {
   /** 主题偏好，默认 system（跟随系统） */
   theme?: AppThemePref
   /**
+   * 隐私模式：仅影响显示，不改动数据与计算。
+   * 开启后 popup 中所有金额类数字（当日收益额、持有收益额、持仓金额、分组金额）显示为 ****；
+   * chrome 角标、tauri 菜单栏、分组收益详情强制显示为百分比。默认 false。
+   */
+  privacyMode?: boolean
+  /**
    * 静默启动（仅 tauri 生效）：启动后不打开设置界面，仅常驻菜单栏。
    * 参考 clash-verge-rev 的 enable_silent_start。默认 false（启动打开设置界面）。
    * 与「开机自启动」配合使用：勾选后登录自启动即静默，不弹窗口。
