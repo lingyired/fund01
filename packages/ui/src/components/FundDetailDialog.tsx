@@ -30,6 +30,7 @@ export function FundDetailDialog({
   row,
   proportion,
   stats,
+  privacyMode = false,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -38,6 +39,8 @@ export function FundDetailDialog({
   proportion: number | null
   /** 收益数据，由调用方按当前 tab 口径计算后传入 */
   stats: FundDetailStats | null
+  /** 隐私模式：持仓金额 / 当日收益额 / 持有收益额显示为 **** */
+  privacyMode?: boolean
 }) {
   if (!row) return null
   const trendPoints = (row.trend || [])
@@ -77,12 +80,12 @@ export function FundDetailDialog({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <DetailStat label="持仓金额">
             <span className="font-mono tabular-nums text-ink-soft">
-              {s ? formatAmount(s.amount) : '--'}
+              {privacyMode ? '****' : s ? formatAmount(s.amount) : '--'}
             </span>
           </DetailStat>
           <DetailStat label="当日收益">
             <span className={`font-mono tabular-nums ${pctClass(s?.dayPnl)}`}>
-              {s ? formatMoney(s.dayPnl) : '--'}
+              {privacyMode ? '****' : s ? formatMoney(s.dayPnl) : '--'}
             </span>
             <span className={`font-mono text-xs tabular-nums ${pctClass(dayPnlPercent)}`}>
               {formatPct(dayPnlPercent)}
@@ -90,7 +93,7 @@ export function FundDetailDialog({
           </DetailStat>
           <DetailStat label="持有收益" hint="当前市值 − 持仓成本；未录入成本单价显示 --">
             <span className={`font-mono tabular-nums ${pctClass(s?.cumPnl)}`}>
-              {s ? formatMoney(s.cumPnl) : '--'}
+              {privacyMode ? '****' : s ? formatMoney(s.cumPnl) : '--'}
             </span>
             <span className={`font-mono text-xs tabular-nums ${pctClass(s?.cumPnlPercent)}`}>
               {s ? formatPct(s.cumPnlPercent) : '--'}

@@ -39,8 +39,13 @@ export function PopupLayout({
   // 分组 Tab 收益详情设置（设置页「分组 Tab 收益详情」控制；默认开启，popup 每次打开/刷新读取最新值）
   const groupTabSettings = fetchSettings(ports)
   const showTabDetail = groupTabSettings.groupTabShowDetail !== false
-  const tabDetailMode: GroupTabDetailMode =
-    groupTabSettings.groupTabDetailMode === 'amount' ? 'amount' : 'percent'
+  // 隐私模式：popup 金额打码为 ****；分组 Tab 收益详情强制百分比（不暴露收益额）
+  const privacyMode = groupTabSettings.privacyMode === true
+  const tabDetailMode: GroupTabDetailMode = privacyMode
+    ? 'percent'
+    : groupTabSettings.groupTabDetailMode === 'amount'
+      ? 'amount'
+      : 'percent'
   // 空状态直达设置页「持仓」tab 的对应区块（单独添加 / 批量导入）
   const openSettingsAnchor = (anchor: SettingsAnchorId) => {
     void ports.window.openSettings('holdings', anchor)
@@ -134,6 +139,7 @@ export function PopupLayout({
           activeTab={validTab}
           tabTotalAmount={tabTotalAmount}
           loading={loading}
+          privacyMode={privacyMode}
           onAddFund={() => openSettingsAnchor('add-fund')}
           onImportHoldings={() => openSettingsAnchor('import-holdings')}
         />
@@ -144,6 +150,7 @@ export function PopupLayout({
         pnlPercent={footer.pnlPercent}
         up={footer.up}
         down={footer.down}
+        privacyMode={privacyMode}
         onEditHoldings={onEditHoldings}
       />
     </div>

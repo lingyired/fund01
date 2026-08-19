@@ -428,6 +428,8 @@ function GeneralSection({
   const [groupTabDetailMode, setGroupTabDetailMode] = useState<'percent' | 'amount'>(
     'percent',
   )
+  // 隐私模式：popup 金额打码 + 角标/菜单栏/分组详情强制百分比
+  const [privacyMode, setSafeMode] = useState(false)
   const [themePref, setThemePref] = useState<AppThemePref>('system')
   const [selectedIndices, setSelectedIndices] = useState<string[]>(
     DEFAULT_SELECTED_INDICES,
@@ -473,6 +475,7 @@ function GeneralSection({
     setGroupTabDetailMode(
       s.groupTabDetailMode === 'amount' ? 'amount' : 'percent',
     )
+    setSafeMode(s.privacyMode === true)
   }, [ports])
 
   async function handleThemeChange(next: AppThemePref) {
@@ -529,6 +532,19 @@ function GeneralSection({
       )
     } catch (e: unknown) {
       setError((e as Error)?.message || '保存分组 Tab 设置失败')
+    }
+  }
+
+  async function handleSafeModeChange(next: boolean) {
+    if (next === privacyMode) return
+    setSafeMode(next)
+    setError('')
+    setMessage('')
+    try {
+      await updateSettings(ports, {privacyMode: next})
+      setMessage(next ? '隐私模式已开启' : '隐私模式已关闭')
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '保存隐私模式设置失败')
     }
   }
 
@@ -642,8 +658,24 @@ function GeneralSection({
 
   return (
     <SectionCard title="个人设置">
+      {/* 隐私模式：popup 金额打码 + 角标/菜单栏/分组详情强制百分比 */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink">隐私模式</div>
+          <p className="text-xs text-muted">
+            开启后 popup 中所有金额（当日收益、持有收益、持仓金额）显示为 ****，只显示涨跌百分比；工具栏角标、菜单栏、分组收益详情也会强制显示百分比。仅影响显示，不影响数据计算。
+          </p>
+        </div>
+        <Switch
+          radius="full"
+          checked={privacyMode}
+          onCheckedChange={(c) => void handleSafeModeChange(c === true)}
+          aria-label="隐私模式"
+        />
+      </div>
+
       {/* 主题 */}
-      <div className="space-y-2">
+      <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">主题</div>
         <p className="text-xs text-muted">默认跟随系统，可在亮色 / 暗色间切换。</p>
         <SegmentedControl.Root
@@ -2806,6 +2838,18 @@ function DataDocsSection() {
           </p>
           <p>
             多只基金净值日可能不同，加总是一个数，但是各基金「最新已披露那一跳」的拼合——不是同一个海外交易日的收益（支付宝持仓汇总同理）。
+          </p>
+        </DocItem>
+
+        <DocItem q="隐私模式">
+          <p>
+            <b className="text-ink">隐私模式</b>是一个只看百分比、不看金额的显示开关：开启后，所有金额数字都会被隐藏——单只基金和分组的持仓金额、当日收益额、持有收益额，在 popup 里都会显示为 <b className="text-ink">****</b>。
+          </p>
+          <p>
+            同时，工具栏角标、菜单栏文字、分组收益详情也会统一改为<b className="text-ink">只显示涨跌百分比</b>，不再显示金额。
+          </p>
+          <p>
+            隐私模式<b className="text-ink">只影响显示，不影响数据</b>：计算、刷新、净值走势都照常进行，关闭后金额立即恢复显示。适合在容易被旁人看到屏幕的场合（如工位、地铁）保护持仓隐私。
           </p>
         </DocItem>
 

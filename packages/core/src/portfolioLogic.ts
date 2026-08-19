@@ -62,6 +62,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     // 默认全部分组纳入总览（空数组 = 无排除）
     overviewExcludedGroups: [],
     theme: 'system',
+    // 隐私模式：popup 金额打码 + 角标/菜单栏/分组详情强制百分比
+    privacyMode: false,
     // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
     silentStart: false,
     selectedIndices: [...DEFAULT_SELECTED_INDICES],
@@ -363,6 +365,10 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
         payload?.settings?.theme === 'system'
           ? payload.settings.theme
           : DEFAULT_CONFIG.settings.theme,
+      privacyMode:
+        typeof payload?.settings?.privacyMode === 'boolean'
+          ? payload.settings.privacyMode
+          : DEFAULT_CONFIG.settings.privacyMode,
       silentStart:
         typeof payload?.settings?.silentStart === 'boolean'
           ? payload.settings.silentStart

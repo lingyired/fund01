@@ -638,8 +638,13 @@ fn set_standard_menu(app: &AppHandle, id: &str) {
 /// 修改持仓/分组后即使尚未触发 rebuild，刷新也会让实例集合与最新配置对齐。
 pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     let config = app.state::<crate::state::AppState>().config.read().unwrap().clone();
-    // 数值显示方式：false=收益率百分比，true=收益额（简写）
-    let show_amount = config.settings.menubar_show_amount.unwrap_or(false);
+    // 数值显示方式：false=收益率百分比，true=收益额（简写）。
+    // 隐私模式（privacy_mode）下强制百分比（不暴露绝对金额），忽略用户设置的收益额偏好。
+    let show_amount = if config.settings.privacy_mode.unwrap_or(false) {
+        false
+    } else {
+        config.settings.menubar_show_amount.unwrap_or(false)
+    };
     // 颜色：上行固定色（默认白色）；下行按涨跌（涨色/跌色/平色均可配置）
     let top_color = config
         .settings

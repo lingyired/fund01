@@ -616,6 +616,9 @@ export async function updateSettings(
   if (typeof patch.silentStart === 'boolean') {
     config.settings.silentStart = patch.silentStart
   }
+  if (typeof patch.privacyMode === 'boolean') {
+    config.settings.privacyMode = patch.privacyMode
+  }
   if (typeof patch.menubarTopFont === 'string') {
     config.settings.menubarTopFont = patch.menubarTopFont.trim()
   }

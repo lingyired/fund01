@@ -77,6 +77,9 @@ pub struct AppSettings {
     pub overview_excluded_groups: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// 隐私模式：popup 金额打码为 ****，菜单栏/角标强制百分比。仅影响显示，不改数据
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy_mode: Option<bool>,
     /// 静默启动（clash-verge-rev enable_silent_start 同款）：启动后不打开设置界面，仅常驻菜单栏
     #[serde(skip_serializing_if = "Option::is_none")]
     pub silent_start: Option<bool>,
@@ -153,6 +156,7 @@ impl Default for AppSettings {
             holding_group_orders: None,
             overview_excluded_groups: None,
             theme: None,
+            privacy_mode: None,
             silent_start: None,
             selected_indices: None,
             menubar_hidden_groups: None,

@@ -28,6 +28,7 @@ pub fn default_config() -> AppConfig {
             overview_excluded_groups: Some(vec![]),
             theme: Some("system".to_string()),
             silent_start: Some(false),
+            privacy_mode: Some(false),
             selected_indices: Some(DEFAULT_SELECTED_INDICES.iter().map(|s| s.to_string()).collect()),
             menubar_hidden_groups: Some(vec![]),
             menubar_layout: Some(0),
@@ -457,6 +458,11 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         .and_then(|s| s.get("silentStart"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // privacyMode：隐私模式，popup 金额打码 + 菜单栏/角标强制百分比，默认 false
+    let privacy_mode = settings_raw
+        .and_then(|s| s.get("privacyMode"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     AppConfig {
         settings: AppSettings {
@@ -469,6 +475,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             overview_excluded_groups: Some(overview_excluded_groups),
             theme: Some(theme),
             silent_start: Some(silent_start),
+            privacy_mode: Some(privacy_mode),
             selected_indices: Some(selected_indices),
             menubar_hidden_groups: Some(menubar_hidden_groups),
             menubar_layout: Some(menubar_layout),
