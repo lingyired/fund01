@@ -51,8 +51,8 @@ pnpm typecheck        # 全仓库类型检查
 
 ## 🖥️ macOS 桌面版（Tauri）
 
-> **系统要求：macOS 13.0 (Ventura) 及以上**（Intel 与 Apple Silicon 均可）。
-> 原因：桌面版 UI 基于 Radix Themes 3.x，其 CSS 依赖 Safari 15.4+ 的 Cascade Layers / `:has()` 与 Safari 16.2+ 的 `color-mix()`，macOS 12 及更早版本的 WKWebView 无法渲染 → 界面白屏。低于 macOS 13 的系统上安装器会直接提示版本不满足。
+> **系统要求：macOS 10.15 (Catalina) 及以上**（Intel 与 Apple Silicon 均可）。
+> 桌面版 UI 基于 Radix Themes 3.x，其完整 CSS 依赖 Safari 16.2+（`@layer` / `color-mix()`），但 macOS 10.15–12 的 WKWebView 会自动切换**兼容样式**（构建期额外产出的 `compat.css`：`@layer` 展开、`color-mix` 降级为实色、`:where/:is` 展开等），保证能正常使用；代价是旧系统上部分视觉效果降级（半透明/渐变叠加丢失、hover 态简化等）。macOS 13+ 走完整样式，无影响。详见 `docs/macOS11白屏-兼容性诊断.md` §7。
 
 ```bash
 cd apps/tauri

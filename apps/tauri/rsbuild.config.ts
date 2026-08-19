@@ -38,6 +38,16 @@ export default defineConfig({
     },
   },
   tools: {
+    // 仅 JS 转译目标降到 Safari 13.1（macOS 10.15 的 WKWebView）：
+    // 把 ES2022+ 语法（class 私有字段等）转译为旧 WebKit 可解析的形式。
+    // 刻意不用 output.overrideBrowserslist —— 它会把 lightningcss 的 CSS targets
+    // 一并改掉（展开 :is()/静态求值 color-mix 等，污染主 CSS 在现代浏览器的表现）。
+    // CSS 兼容由 scripts/build-compat-css.mjs 单独产出 compat.css（见 tauri.conf.json beforeBuildCommand）。
+    swc: {
+      env: {
+        targets: ['safari >= 13.1'],
+      },
+    },
     rspack: {
       module: {
         rules: [

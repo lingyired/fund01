@@ -10,5 +10,12 @@
     "typecheck": "pnpm -r typecheck",
     "check:versions": "node scripts/check-versions.mjs"
   },
-  "packageManager": "pnpm@9.15.0"
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "@csstools/postcss-cascade-layers": "^6.0.0",
+    "create-dmg": "^8.1.0",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.21",
+    "postcss-selector-parser": "^7.1.5"
+  }
 }
