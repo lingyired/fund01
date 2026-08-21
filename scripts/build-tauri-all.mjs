@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // 双架构 Tauri 打包：arm64 (Apple Silicon / M 芯片) + x86_64 (Intel)
 // 分开产出两个独立 .app，命名带架构后缀，归档到 release-macos/。
-// DMG 在 agent 环境必失败（Finder 权限 -10004），本脚本只打 .app；
-// 需要 DMG 时对产物手动跑 bundle_dmg.sh --skip-jenkins（见输出提示）。
+// 需要 DMG 时跑 scripts/build-dmg.mjs（用 create-dmg / node-appdmg，无需 Finder 权限）。
 //
 // 用法：
 //   node scripts/build-tauri-all.mjs             # 双架构都打
@@ -66,11 +65,7 @@ for (const [arch, { target, label }] of Object.entries(selected)) {
   cpSync(srcApp, dstApp, { recursive: true })
   console.log(`\n✓ 已归档：${dstApp}`)
 
-  const dmgScript = path.join(root, `apps/tauri/src-tauri/target/release/bundle/dmg/bundle_dmg.sh`)
-  console.log(`  需要 DMG 时（agent 环境无法打，需手动）：
-    ${dmgScript} --volname Fund01 --icon "Fund01.app" 180 170 --app-drop-link 320 170 --window-size 500 350 --hide-extension "Fund01.app" --volicon apps/tauri/src-tauri/target/release/bundle/dmg/icon.icns --skip-jenkins <out.dmg> <staging>
-    提示：--bundles app 不生成各架构 target 的 dmg/ 目录，统一用默认 target 的脚本 + icon.icns；
-    staging = 拷入 ${arch} 版 Fund01.app 的临时目录；输出命名 Fund01_${version}_${arch}.dmg`)
+  console.log(`  需要 DMG 时直接跑：node scripts/build-dmg.mjs --arch ${arch}`)
 }
 
 console.log('\n========== 全部完成 ==========')
