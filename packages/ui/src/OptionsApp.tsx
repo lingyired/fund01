@@ -3045,8 +3045,9 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
 
 /**
  * 「发现新版本」提示条（仅 Tauri 有更新时渲染）。
- * downloadUrl 存在 → 额外显示「下载新版本」按钮（用系统浏览器打开下载地址）；
- * 两个按钮都不自动跳转，不打断用户。
+ * 「下载新版本」按钮始终显示：优先打开 downloadUrl，缺省 fallback 打开 homepage；
+ * 「前往项目主页」仅在 downloadUrl 存在时显示（避免两个按钮指向同一地址）。
+ * 均用系统浏览器打开，不自动跳转、不打断用户。
  */
 function UpdateBanner({update}: {update: CheckUpdateResult}) {
   const ports = usePorts()
@@ -3058,26 +3059,27 @@ function UpdateBanner({update}: {update: CheckUpdateResult}) {
         <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
       </span>
       <div className="flex items-center gap-2">
-        {downloadUrl ? (
-          <Button
-            variant="solid"
-            size="1"
-            onClick={() => {
-              if (ports.window.openExternal) void ports.window.openExternal(downloadUrl)
-            }}
-          >
-            下载新版本
-          </Button>
-        ) : null}
         <Button
-          variant="soft"
+          variant="solid"
           size="1"
           onClick={() => {
-            if (ports.window.openExternal) void ports.window.openExternal(homepage)
+            // 无下载地址时 fallback 打开项目主页（到主页自行找下载入口）
+            if (ports.window.openExternal) void ports.window.openExternal(downloadUrl ?? homepage)
           }}
         >
-          前往项目主页
+          下载新版本
         </Button>
+        {downloadUrl ? (
+          <Button
+            variant="soft"
+            size="1"
+            onClick={() => {
+              if (ports.window.openExternal) void ports.window.openExternal(homepage)
+            }}
+          >
+            前往项目主页
+          </Button>
+        ) : null}
       </div>
     </div>
   )
