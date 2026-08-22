@@ -123,6 +123,9 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
   {value: 'hidden', label: '隐藏'},
 ]
 
+/** 发现新版本提示条（UpdateBanner）的 DOM id：手动检查发现更新后滚动到此处，让用户看到下载入口 */
+const UPDATE_BANNER_ID = 'update-banner'
+
 export function OptionsApp({
   initialTab,
   initialAnchor,
@@ -153,6 +156,12 @@ export function OptionsApp({
         if (r) {
           setUpdate(r)
           setIsLatest(false)
+          if (force) {
+            // 手动检查发现新版本 → 等 banner 渲染完成后滚动到可见位置（露出「下载新版本」按钮）
+            window.setTimeout(() => {
+              document.getElementById(UPDATE_BANNER_ID)?.scrollIntoView({behavior: 'smooth', block: 'start'})
+            }, 0)
+          }
         } else if (force) {
           // 手动检查确认无更新 → 显示「当前已是最新版本」；自动检查保持静默
           setUpdate(null)
@@ -3073,7 +3082,10 @@ function UpdateBanner({update}: {update: CheckUpdateResult}) {
   const ports = usePorts()
   const {latestVersion, homepage, downloadUrl} = update
   return (
-    <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2">
+    <div
+      id={UPDATE_BANNER_ID}
+      className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2"
+    >
       <span className="text-xs text-ink-soft">
         发现新版本{' '}
         <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
