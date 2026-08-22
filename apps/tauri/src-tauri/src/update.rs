@@ -73,10 +73,11 @@ fn parse_check_result(v: &serde_json::Value) -> Option<CheckUpdateResult> {
 
 /// 检查是否有新版本：缓存命中直接返回；否则请求远端 JSON。
 /// 请求带 `v=当前版本号` 查询参数（服务端可据此统计客户端版本分布 / 兼容判断）。
+/// `force = true`（「关于」页手动点击）时跳过 1h 内存缓存，真正请求远端一次。
 /// Ok(None) = 已是最新（前端静默）；Err = 网络/解析失败（前端静默）。
-pub async fn check_update(state: &AppState) -> Result<Option<CheckUpdateResult>, String> {
-    // 内存缓存：1h TTL，避免频繁开关设置窗口反复请求
-    {
+pub async fn check_update(state: &AppState, force: bool) -> Result<Option<CheckUpdateResult>, String> {
+    // 内存缓存：1h TTL，避免频繁开关设置窗口反复请求（手动检查 force 跳过）
+    if !force {
         let cache = state.update_cache.read().unwrap();
         if let Some(c) = cache.as_ref() {
             let age = c.checked_at.elapsed().unwrap_or(CACHE_TTL);

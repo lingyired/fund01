@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import type * as React from 'react'
 import {
   AlertTriangle,
@@ -139,23 +139,37 @@ export function OptionsApp({
 }) {
   const ports = usePorts()
   // 检查更新（仅 Tauri：Chrome 不实现 checkUpdate → undefined → 跳过）。
-  // 打开设置界面即静默检查一次；无更新 / 网络失败完全静默（不显示任何内容）。
+  // 打开设置界面自动静默检查一次（不显示「已是最新」）；「关于」页「检查更新」按钮
+  // 手动检查（force=true 绕过 Rust 侧 1h 缓存真正请求远端，无更新时显示「已是最新」）。
   const [update, setUpdate] = useState<CheckUpdateResult | null>(null)
-  useEffect(() => {
-    if (!ports.window.checkUpdate) return
-    let cancelled = false
-    void ports.window
-      .checkUpdate()
-      .then((r) => {
-        if (!cancelled && r) setUpdate(r)
-      })
-      .catch(() => {
+  const [manualChecking, setManualChecking] = useState(false)
+  const [isLatest, setIsLatest] = useState(false)
+  const runCheck = useCallback(
+    async (force: boolean) => {
+      if (!ports.window.checkUpdate) return
+      if (force) setManualChecking(true)
+      try {
+        const r = await ports.window.checkUpdate(force)
+        if (r) {
+          setUpdate(r)
+          setIsLatest(false)
+        } else if (force) {
+          // 手动检查确认无更新 → 显示「当前已是最新版本」；自动检查保持静默
+          setUpdate(null)
+          setIsLatest(true)
+        }
+      } catch {
         /* 检查失败静默，不打扰用户 */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [ports])
+      } finally {
+        if (force) setManualChecking(false)
+      }
+    },
+    [ports],
+  )
+  // 打开设置界面自动静默检查一次（force=false）
+  useEffect(() => {
+    void runCheck(false)
+  }, [runCheck])
   // menubar 全空（用户移除了所有菜单栏状态项）→ 顶部 header 替换为恢复 banner
   const menubarEmpty = useMenubarEmpty()
   const restoreMenubar = async () => {
@@ -304,7 +318,13 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="about">
-            <AboutSection version={version} update={update} />
+            <AboutSection
+              version={version}
+              update={update}
+              manualChecking={manualChecking}
+              isLatest={isLatest}
+              onManualCheck={() => void runCheck(true)}
+            />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -3088,10 +3108,19 @@ function UpdateBanner({update}: {update: CheckUpdateResult}) {
 function AboutSection({
   version,
   update,
+  manualChecking,
+  isLatest,
+  onManualCheck,
 }: {
   version?: string
   /** 检查更新结果：仅 Tauri 有值（有更新时才非 null）；null/undefined 不渲染任何提示 */
   update?: CheckUpdateResult | null
+  /** 手动检查进行中（按钮禁用 + 「检查中…」文案） */
+  manualChecking?: boolean
+  /** 手动检查确认无更新（显示「当前已是最新版本」；自动检查静默不置位） */
+  isLatest?: boolean
+  /** 点击「检查更新」按钮（force=true 绕过缓存真正请求远端） */
+  onManualCheck?: () => void
 }) {
   // 平台判断：支持菜单栏 = Tauri macOS 桌面版（Mac 版）；否则为 Chrome 扩展版
   const ports = usePorts()
@@ -3185,6 +3214,26 @@ function AboutSection({
             <span className="text-muted">版本</span>
             <span>v{version ?? '—'}</span>
           </div>
+          {/* 手动检查更新（仅 Tauri：Chrome 无 checkUpdate 能力 → 整行隐藏）。
+              手动检查 force=true 绕过 1h 缓存真正请求远端；无更新显示「当前已是最新版本」。 */}
+          {ports.window.checkUpdate ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">检查更新</span>
+              {manualChecking ? (
+                <span className="flex items-center gap-1 text-xs text-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" /> 检查中…
+                </span>
+              ) : isLatest ? (
+                <span className="flex items-center gap-1 text-xs text-accent">
+                  <Check className="h-3 w-3" /> 当前已是最新版本
+                </span>
+              ) : (
+                <Button variant="soft" size="1" onClick={onManualCheck}>
+                  检查更新
+                </Button>
+              )}
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-3">
             <span className="text-muted">构建</span>
             <span>{buildInfo.sha}</span>

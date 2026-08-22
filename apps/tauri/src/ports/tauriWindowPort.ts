@@ -90,8 +90,11 @@ export class TauriWindowPort implements WindowPort {
     return v
   }
 
-  /** 检查更新：Rust 侧拉远端静态 JSON 比较版本（结果内存缓存 1h）；null = 已最新 */
-  async checkUpdate(): Promise<CheckUpdateResult | null> {
-    return invoke<CheckUpdateResult | null>('check_update')
+  /**
+   * 检查更新：Rust 侧拉远端静态 JSON 比较版本（结果内存缓存 1h）；null = 已最新。
+   * force=true（「关于」页手动点击）时绕过缓存真正请求远端一次。
+   */
+  async checkUpdate(force?: boolean): Promise<CheckUpdateResult | null> {
+    return invoke<CheckUpdateResult | null>('check_update', {force: !!force})
   }
 }

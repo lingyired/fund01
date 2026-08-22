@@ -147,8 +147,9 @@ export interface WindowPort {
   /**
    * 检查是否有新版本（仅 Tauri 实现；Chrome 不实现 → undefined → UI 自动跳过，保证「检查更新」仅桌面版生效）。
    * 返回 null = 已是最新版本；网络失败 / JSON 非法由实现方抛错，UI 捕获后静默（不打扰用户）。
+   * @param force 手动检查（true）时绕过后端 1h 内存缓存，真正请求远端一次；自动检查不传。
    */
-  checkUpdate?(): Promise<CheckUpdateResult | null>
+  checkUpdate?(force?: boolean): Promise<CheckUpdateResult | null>
 }
 
 /** UI 与具体 app 之间注入的 Port 集合 */
