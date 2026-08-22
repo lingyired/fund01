@@ -3043,6 +3043,46 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
   )
 }
 
+/**
+ * 「发现新版本」提示条（仅 Tauri 有更新时渲染）。
+ * downloadUrl 存在 → 额外显示「下载新版本」按钮（用系统浏览器打开下载地址）；
+ * 两个按钮都不自动跳转，不打断用户。
+ */
+function UpdateBanner({update}: {update: CheckUpdateResult}) {
+  const ports = usePorts()
+  const {latestVersion, homepage, downloadUrl} = update
+  return (
+    <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2">
+      <span className="text-xs text-ink-soft">
+        发现新版本{' '}
+        <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
+      </span>
+      <div className="flex items-center gap-2">
+        {downloadUrl ? (
+          <Button
+            variant="solid"
+            size="1"
+            onClick={() => {
+              if (ports.window.openExternal) void ports.window.openExternal(downloadUrl)
+            }}
+          >
+            下载新版本
+          </Button>
+        ) : null}
+        <Button
+          variant="soft"
+          size="1"
+          onClick={() => {
+            if (ports.window.openExternal) void ports.window.openExternal(homepage)
+          }}
+        >
+          前往项目主页
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function AboutSection({
   version,
   update,
@@ -3056,24 +3096,8 @@ function AboutSection({
   const isMac = !!ports.window.supportsMenubar?.()
   return (
     <SectionCard title="关于">
-      {/* 发现新版本提示条：点击「前往项目主页」用系统浏览器打开（不自动跳转，不打断用户） */}
-      {update ? (
-        <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2">
-          <span className="text-xs text-ink-soft">
-            发现新版本{' '}
-            <span className="font-mono text-[12px] text-accent">v{update.latestVersion}</span>
-          </span>
-          <Button
-            variant="soft"
-            size="1"
-            onClick={() => {
-              if (ports.window.openExternal) void ports.window.openExternal(update.homepage)
-            }}
-          >
-            前往项目主页
-          </Button>
-        </div>
-      ) : null}
+      {/* 发现新版本提示条（下载新版本 / 前往项目主页，均用系统浏览器打开） */}
+      {update ? <UpdateBanner update={update} /> : null}
       {/* 项目信息（标题 / 描述随平台变化） */}
       <div className="space-y-1.5">
         <div className="font-display text-base font-bold tracking-tight text-ink">

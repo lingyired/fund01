@@ -1,5 +1,5 @@
 //! 检查更新 —— 设置界面打开时拉取远端静态 JSON（https://lingai.net/fund01/version.json）
-//! 与当前版本比较；仅提示（跳转项目主页），不支持热更新。
+//! 与当前版本比较；仅提示（下载新版本 / 跳转项目主页），不支持热更新。
 //! 服务端零逻辑：静态 JSON 即可，格式见 docs/检查更新-服务端接入.md。
 
 use std::time::{Duration, SystemTime};
@@ -22,6 +22,8 @@ const CACHE_TTL: Duration = Duration::from_secs(3600);
 pub struct CheckUpdateResult {
     pub latest_version: String,
     pub homepage: String,
+    /// 下载地址（可选；缺省时前端只显示「前往项目主页」按钮）
+    pub download_url: Option<String>,
 }
 
 /// 解析 x.y.z 三段数字版本号；任一段非数字 → None（视为非法）
@@ -58,6 +60,11 @@ fn parse_check_result(v: &serde_json::Value) -> Option<CheckUpdateResult> {
         Some(CheckUpdateResult {
             latest_version: latest,
             homepage,
+            download_url: v
+                .get("downloadUrl")
+                .and_then(|x| x.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
         })
     } else {
         None
