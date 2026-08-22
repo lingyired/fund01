@@ -41,6 +41,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  CheckUpdateResult,
   FundQuoteRow,
   MenubarAlign,
   MenubarLayout,
@@ -137,6 +138,24 @@ export function OptionsApp({
   version?: string
 }) {
   const ports = usePorts()
+  // 检查更新（仅 Tauri：Chrome 不实现 checkUpdate → undefined → 跳过）。
+  // 打开设置界面即静默检查一次；无更新 / 网络失败完全静默（不显示任何内容）。
+  const [update, setUpdate] = useState<CheckUpdateResult | null>(null)
+  useEffect(() => {
+    if (!ports.window.checkUpdate) return
+    let cancelled = false
+    void ports.window
+      .checkUpdate()
+      .then((r) => {
+        if (!cancelled && r) setUpdate(r)
+      })
+      .catch(() => {
+        /* 检查失败静默，不打扰用户 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ports])
   // menubar 全空（用户移除了所有菜单栏状态项）→ 顶部 header 替换为恢复 banner
   const menubarEmpty = useMenubarEmpty()
   const restoreMenubar = async () => {
@@ -285,7 +304,7 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="about">
-            <AboutSection version={version} />
+            <AboutSection version={version} update={update} />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -3024,51 +3043,54 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
   )
 }
 
-function AboutSection({version}: {version?: string}) {
+function AboutSection({
+  version,
+  update,
+}: {
+  version?: string
+  /** 检查更新结果：仅 Tauri 有值（有更新时才非 null）；null/undefined 不渲染任何提示 */
+  update?: CheckUpdateResult | null
+}) {
+  // 平台判断：支持菜单栏 = Tauri macOS 桌面版（Mac 版）；否则为 Chrome 扩展版
+  const ports = usePorts()
+  const isMac = !!ports.window.supportsMenubar?.()
   return (
     <SectionCard title="关于">
-      {/* 版本与构建（构建戳：发布版本不负责「是否最新」，由构建戳承担） */}
-      <div className="space-y-1.5 border-t border-line/50 pt-3">
-        <div className="text-sm font-medium text-ink">版本与构建</div>
-        <div className="flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">版本</span>
-            <span>v{version ?? '—'}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">构建</span>
-            <span>{buildInfo.sha}</span>
-          </div>
-          {buildInfo.time ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted">时间</span>
-              <span>{buildInfo.time}</span>
-            </div>
-          ) : null}
-          {buildInfo.branch ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted">分支</span>
-              <span>{buildInfo.branch}</span>
-            </div>
-          ) : null}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">工作区</span>
-            <span className={buildInfo.dirty ? 'text-gold' : ''}>
-              {buildInfo.dirty ? '有未提交改动' : '干净'}
-            </span>
-          </div>
+      {/* 发现新版本提示条：点击「前往项目主页」用系统浏览器打开（不自动跳转，不打断用户） */}
+      {update ? (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2">
+          <span className="text-xs text-ink-soft">
+            发现新版本{' '}
+            <span className="font-mono text-[12px] text-accent">v{update.latestVersion}</span>
+          </span>
+          <Button
+            variant="soft"
+            size="1"
+            onClick={() => {
+              if (ports.window.openExternal) void ports.window.openExternal(update.homepage)
+            }}
+          >
+            前往项目主页
+          </Button>
         </div>
-      </div>
-
-      {/* 项目信息 */}
+      ) : null}
+      {/* 项目信息（标题 / 描述随平台变化） */}
       <div className="space-y-1.5">
         <div className="font-display text-base font-bold tracking-tight text-ink">
-          Fund01 基金盯盘
+          {isMac ? 'Fund01 ：Mac菜单栏基金盯盘工具' : 'Fund01 ：基金盯盘插件'}
         </div>
         <p className="text-xs text-muted">
-          基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。
+          {isMac
+            ? '基金实时估值、持仓收益、大盘指数（包括纳指和黄金指数）一站式盯盘，支持多个数据源。支持多个分组，可使用您的 AI 助手搭配我们提供的提示词以及基金截图生成批量导入数据，无需手动一个一个填入。支持多种显示方式，以及隐私模式。支持多个 Mac 菜单栏，每个分组一个菜单栏。方便监控多人的基金持仓状态。'
+            : '基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。'}
         </p>
         <div className="flex flex-col gap-1 pt-0.5 text-xs text-ink-soft">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">项目主页：</span>
+            <ExternalLink href="https://lingai.net/fund01">
+              lingai.net/fund01
+            </ExternalLink>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="shrink-0">项目仓库：</span>
             <ExternalLink href="https://github.com/lingyired/fund01">
@@ -3076,7 +3098,26 @@ function AboutSection({version}: {version?: string}) {
             </ExternalLink>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="shrink-0">作者主页：</span>
+            <span className="shrink-0">QQ 交流群：</span>
+            <span className="font-mono text-[12px] text-ink-soft">745873991</span>
+          </div>
+          <div className="pt-0.5 text-xs text-muted">
+            或者通过以下地址联系开发者：
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">小红书：</span>
+            <ExternalLink href="https://www.xiaohongshu.com/user/profile/60a479d30000000001006e88">
+              xiaohongshu.com/user/profile/60a479d30000000001006e88
+            </ExternalLink>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">bilibili：</span>
+            <ExternalLink href="https://space.bilibili.com/103021226">
+              space.bilibili.com/103021226
+            </ExternalLink>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">github：</span>
             <ExternalLink href="https://github.com/lingyired">
               github.com/lingyired
             </ExternalLink>
@@ -3107,6 +3148,33 @@ function AboutSection({version}: {version?: string}) {
           {LINGYIRED_PROJECTS.map((project) => (
             <LingyiredProjectCard key={project.id} project={project} />
           ))}
+        </div>
+      </div>
+
+      {/* 版本与构建（移到最后；移除「工作区」行；分支仅在非 main 时显示） */}
+      <div className="space-y-1.5 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">版本与构建</div>
+        <div className="flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">版本</span>
+            <span>v{version ?? '—'}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">构建</span>
+            <span>{buildInfo.sha}</span>
+          </div>
+          {buildInfo.time ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">时间</span>
+              <span>{buildInfo.time}</span>
+            </div>
+          ) : null}
+          {buildInfo.branch && buildInfo.branch !== 'main' ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">分支</span>
+              <span>{buildInfo.branch}</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </SectionCard>

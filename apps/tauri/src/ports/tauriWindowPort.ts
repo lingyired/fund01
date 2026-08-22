@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 import { save } from '@tauri-apps/plugin-dialog'
-import type { SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
+import type { CheckUpdateResult, SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
 
@@ -88,5 +88,10 @@ export class TauriWindowPort implements WindowPort {
     const v = await invoke<string>('get_version')
     versionCache = v
     return v
+  }
+
+  /** 检查更新：Rust 侧拉远端静态 JSON 比较版本（结果内存缓存 1h）；null = 已最新 */
+  async checkUpdate(): Promise<CheckUpdateResult | null> {
+    return invoke<CheckUpdateResult | null>('check_update')
   }
 }
