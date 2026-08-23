@@ -4159,18 +4159,17 @@ function MenubarColorRow({
           aria-label={label}
           className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
         />
-        {value !== defaultValue && (
-          <Tooltip content="重置为系统默认">
-            <IconButton
-              variant="ghost"
-              className="h-7 w-7"
-              onClick={() => onCommit(defaultValue)}
-              aria-label={`${label} 重置为默认`}
-            >
-              <RotateCcw className="h-4 w-4" />
-            </IconButton>
-          </Tooltip>
-        )}
+        <Tooltip content={value === defaultValue ? '当前已是系统默认' : '重置为系统默认'}>
+          <IconButton
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => onCommit(defaultValue)}
+            disabled={value === defaultValue}
+            aria-label={`${label} 重置为默认`}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </IconButton>
+        </Tooltip>
       </div>
     </div>
   )
