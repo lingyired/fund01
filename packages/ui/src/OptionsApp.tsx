@@ -4089,25 +4089,89 @@ function MenubarSection() {
               {key: 'flat', label: '下行平色', value: flatColor},
             ] as const
           ).map(({key, label, value}) => (
-            <div
+            <MenubarColorRow
               key={key}
-              className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2"
-            >
-              <span className="text-sm text-ink-soft">{label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted">{value}</span>
-                <input
-                  type="color"
-                  value={value}
-                  onChange={(e) => void commitColor(key, e.target.value)}
-                  aria-label={label}
-                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
-                />
-              </div>
-            </div>
+              label={label}
+              value={value}
+              defaultValue={COLOR_DEFAULTS[key]}
+              onCommit={(v) => void commitColor(key, v)}
+            />
           ))}
         </div>
       </div>
     </SectionCard>
+  )
+}
+
+/** 菜单栏颜色行：TextInput（可直接粘贴 hex）+ color picker + 非默认时显示「重置为系统默认」。
+ * 抽成模块级组件：颜色区是 .map() 渲染，行内不能用 hooks，draft 随行挂载/卸载自动归位。 */
+function MenubarColorRow({
+  label,
+  value,
+  defaultValue,
+  onCommit,
+}: {
+  label: string
+  value: string
+  defaultValue: string
+  onCommit: (v: string) => void
+}) {
+  const [draft, setDraft] = useState(value.toUpperCase())
+
+  // picker 即选即存后，TextInput 跟随已保存值（统一大写展示）
+  useEffect(() => {
+    setDraft(value.toUpperCase())
+  }, [value])
+
+  const revert = () => setDraft(value.toUpperCase())
+
+  const commit = () => {
+    const t = draft.trim().toUpperCase()
+    if (t === value.toUpperCase()) return
+    if (/^#[0-9a-fA-F]{6}$/.test(t)) {
+      onCommit(t)
+    } else {
+      revert()
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+      <span className="text-sm text-ink-soft">{label}</span>
+      <div className="flex items-center gap-2">
+        <TextField.Root
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            else if (e.key === 'Escape') revert()
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label={label}
+          className="h-6 w-24 font-mono text-xs"
+        />
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onCommit(e.target.value)}
+          aria-label={label}
+          className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+        />
+        {value !== defaultValue && (
+          <Tooltip content="重置为系统默认">
+            <IconButton
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => onCommit(defaultValue)}
+              aria-label={`${label} 重置为默认`}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </IconButton>
+          </Tooltip>
+        )}
+      </div>
+    </div>
   )
 }
