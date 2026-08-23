@@ -18,6 +18,7 @@ mod providers;
 mod refresh;
 mod state;
 mod theme;
+mod update;
 mod window;
 
 use tauri::{AppHandle, Manager};
@@ -57,6 +58,7 @@ pub fn run() {
             commands::open_settings_window,
             commands::open_popup_tab_window,
             commands::get_version,
+            commands::check_update,
             commands::open_external,
             commands::export_config_file,
             commands::dbg_log,

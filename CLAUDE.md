@@ -111,6 +111,19 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 
+## 更新日志撰写规范（给用户看）
+
+> 从 **v1.0.4（Chrome）/ v1.1.4（Tauri）** 起执行。日志文件：`CHANGELOG.md`。
+
+- **受众是最终用户，不是开发记录**：用户关心「这个版本我能感觉到什么变化 / 对我有什么影响」，不关心实现路径、重构、构建流程、调试过程。
+- **从产品 / 用户视角写**：用用户能懂的语言描述「改了什么、带来什么体验变化」，不写内部机制。
+- **粒度与措辞**：
+  - **修复类**：直接说「修复 xx 问题 / 修复 xx 场景下的 xx 现象」。禁止写「修复了 xxx 模块的 xxx bug」「调整了 xxx 函数 / 调用链」这类开发过程。
+  - **新增 / 优化类**：写用户获得的新能力或可感知的体验提升（如「新增多分组管理」「关于页补充了联系方式」），不写内部实现。
+  - **内部重构 / 性能 / 兜底逻辑**等用户不可感知的改动：**通常不单列**；只有当它解决了用户可感知的问题时，才只写用户侧结果。
+- **不要列**：commit 列表、文件改动清单、调试过程、构建戳（SHA / 分支 / dirty）、技术栈细节、agent 自述。
+- **版本对应**：Chrome 与 Tauri 各自独立版本号，更新日志按发布节点分别标注两端版本（或同一条目并列两端版本）。
+
 ## Tauri macOS dev/release 隔离规则（bundle id / name 区分，铁律）
 
 > **背景坑（2026-08 实测 + 参考 [macOS 26 Control Center trackedApplications ghost 分析](https://b-log.to/tech-analysis/macos-26-controlcenter-trackedapplications-ghost/)）**：macOS 26 之后，System Settings > Menu Bar 的「Allow in the Menu Bar」状态**不是 app 自己控制的**，而是由 Control Center 维护（`~/Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist` 的 `trackedApplications`，按 **bundle id** 记忆每个第三方 menubar app 的可见性）。已知 bug：**旧 app 的 blocked 记录可能残留并覆盖当前 app 自己的 allowed 记录**（表现：`NSStatusItem VisibleCC Item-0 = 0`），导致 app 明明启动了、代码也建了 status item，右上角就是不出现，从代码里查不出任何错。

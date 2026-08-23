@@ -270,6 +270,19 @@ pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// 检查是否有新版本（仅 Tauri 桌面版）。
+/// - 打开设置界面自动检查（前端不传 force）→ 走 1h 内存缓存，命中不请求网络；
+/// - 「关于」页「检查更新」按钮手动检查（force=true）→ 绕过缓存真正请求远端一次。
+/// Ok(None) = 已是最新；Err = 网络/解析失败 —— 前端两种情况静默（手动检查时
+/// 前端另行显示「当前已是最新版本」）。
+#[tauri::command]
+pub async fn check_update(
+    state: State<'_, AppState>,
+    force: Option<bool>,
+) -> Result<Option<crate::update::CheckUpdateResult>, String> {
+    crate::update::check_update(&state, force.unwrap_or(false)).await
+}
+
 /// 外部链接：用系统默认浏览器打开（macOS `open`；Windows 用 `cmd /c start`）。
 /// 桌面端 webview 的 window.open 默认被 WKWebView 拦截，必须走系统命令。
 #[tauri::command]

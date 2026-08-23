@@ -322,3 +322,15 @@ export type QuoteUpdate = {
   indices: IndexItem[] | null
   time: number
 }
+
+/**
+ * 检查更新结果（仅 Tauri 桌面版）。
+ * 对应 Rust 侧 update.rs CheckUpdateResult（camelCase 序列化）。
+ * latestVersion 为远端最新版本号（x.y.z）；homepage 为「前往项目主页」跳转地址；
+ * downloadUrl 为可选下载地址，存在时提示条额外显示「下载新版本」按钮。
+ */
+export type CheckUpdateResult = {
+  latestVersion: string
+  homepage: string
+  downloadUrl?: string
+}

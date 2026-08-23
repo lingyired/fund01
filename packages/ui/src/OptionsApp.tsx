@@ -1,4 +1,4 @@
-import {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react'
 import type * as React from 'react'
 import {
   AlertTriangle,
@@ -41,6 +41,7 @@ import type {
   AppConfig,
   AppThemePref,
   BadgeMode,
+  CheckUpdateResult,
   FundQuoteRow,
   MenubarAlign,
   MenubarLayout,
@@ -122,6 +123,9 @@ const BADGE_OPTIONS: {value: BadgeMode; label: string}[] = [
   {value: 'hidden', label: '隐藏'},
 ]
 
+/** 发现新版本提示条（UpdateBanner）的 DOM id：手动检查发现更新后滚动到此处，让用户看到下载入口 */
+const UPDATE_BANNER_ID = 'update-banner'
+
 export function OptionsApp({
   initialTab,
   initialAnchor,
@@ -137,6 +141,44 @@ export function OptionsApp({
   version?: string
 }) {
   const ports = usePorts()
+  // 检查更新（仅 Tauri：Chrome 不实现 checkUpdate → undefined → 跳过）。
+  // 打开设置界面自动静默检查一次（不显示「已是最新」）；「关于」页「检查更新」按钮
+  // 手动检查（force=true 绕过 Rust 侧 1h 缓存真正请求远端，无更新时显示「已是最新」）。
+  const [update, setUpdate] = useState<CheckUpdateResult | null>(null)
+  const [manualChecking, setManualChecking] = useState(false)
+  const [isLatest, setIsLatest] = useState(false)
+  const runCheck = useCallback(
+    async (force: boolean) => {
+      if (!ports.window.checkUpdate) return
+      if (force) setManualChecking(true)
+      try {
+        const r = await ports.window.checkUpdate(force)
+        if (r) {
+          setUpdate(r)
+          setIsLatest(false)
+          if (force) {
+            // 手动检查发现新版本 → 等 banner 渲染完成后滚动到可见位置（露出「下载新版本」按钮）
+            window.setTimeout(() => {
+              document.getElementById(UPDATE_BANNER_ID)?.scrollIntoView({behavior: 'smooth', block: 'start'})
+            }, 0)
+          }
+        } else if (force) {
+          // 手动检查确认无更新 → 显示「当前已是最新版本」；自动检查保持静默
+          setUpdate(null)
+          setIsLatest(true)
+        }
+      } catch {
+        /* 检查失败静默，不打扰用户 */
+      } finally {
+        if (force) setManualChecking(false)
+      }
+    },
+    [ports],
+  )
+  // 打开设置界面自动静默检查一次（force=false）
+  useEffect(() => {
+    void runCheck(false)
+  }, [runCheck])
   // menubar 全空（用户移除了所有菜单栏状态项）→ 顶部 header 替换为恢复 banner
   const menubarEmpty = useMenubarEmpty()
   const restoreMenubar = async () => {
@@ -285,7 +327,13 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="about">
-            <AboutSection version={version} />
+            <AboutSection
+              version={version}
+              update={update}
+              manualChecking={manualChecking}
+              isLatest={isLatest}
+              onManualCheck={() => void runCheck(true)}
+            />
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
@@ -3024,51 +3072,92 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
   )
 }
 
-function AboutSection({version}: {version?: string}) {
+/**
+ * 「发现新版本」提示条（仅 Tauri 有更新时渲染）。
+ * 「下载新版本」按钮始终显示：优先打开 downloadUrl，缺省 fallback 打开 homepage；
+ * 「前往项目主页」仅在 downloadUrl 存在时显示（避免两个按钮指向同一地址）。
+ * 均用系统浏览器打开，不自动跳转、不打断用户。
+ */
+function UpdateBanner({update}: {update: CheckUpdateResult}) {
+  const ports = usePorts()
+  const {latestVersion, homepage, downloadUrl} = update
+  return (
+    <div
+      id={UPDATE_BANNER_ID}
+      className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2"
+    >
+      <span className="text-xs text-ink-soft">
+        发现新版本{' '}
+        <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="solid"
+          size="1"
+          onClick={() => {
+            // 无下载地址时 fallback 打开项目主页（到主页自行找下载入口）
+            if (ports.window.openExternal) void ports.window.openExternal(downloadUrl ?? homepage)
+          }}
+        >
+          下载新版本
+        </Button>
+        {downloadUrl ? (
+          <Button
+            variant="soft"
+            size="1"
+            onClick={() => {
+              if (ports.window.openExternal) void ports.window.openExternal(homepage)
+            }}
+          >
+            前往项目主页
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function AboutSection({
+  version,
+  update,
+  manualChecking,
+  isLatest,
+  onManualCheck,
+}: {
+  version?: string
+  /** 检查更新结果：仅 Tauri 有值（有更新时才非 null）；null/undefined 不渲染任何提示 */
+  update?: CheckUpdateResult | null
+  /** 手动检查进行中（按钮禁用 + 「检查中…」文案） */
+  manualChecking?: boolean
+  /** 手动检查确认无更新（显示「当前已是最新版本」；自动检查静默不置位） */
+  isLatest?: boolean
+  /** 点击「检查更新」按钮（force=true 绕过缓存真正请求远端） */
+  onManualCheck?: () => void
+}) {
+  // 平台判断：支持菜单栏 = Tauri macOS 桌面版（Mac 版）；否则为 Chrome 扩展版
+  const ports = usePorts()
+  const isMac = !!ports.window.supportsMenubar?.()
   return (
     <SectionCard title="关于">
-      {/* 版本与构建（构建戳：发布版本不负责「是否最新」，由构建戳承担） */}
-      <div className="space-y-1.5 border-t border-line/50 pt-3">
-        <div className="text-sm font-medium text-ink">版本与构建</div>
-        <div className="flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">版本</span>
-            <span>v{version ?? '—'}</span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">构建</span>
-            <span>{buildInfo.sha}</span>
-          </div>
-          {buildInfo.time ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted">时间</span>
-              <span>{buildInfo.time}</span>
-            </div>
-          ) : null}
-          {buildInfo.branch ? (
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted">分支</span>
-              <span>{buildInfo.branch}</span>
-            </div>
-          ) : null}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">工作区</span>
-            <span className={buildInfo.dirty ? 'text-gold' : ''}>
-              {buildInfo.dirty ? '有未提交改动' : '干净'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 项目信息 */}
+      {/* 发现新版本提示条（下载新版本 / 前往项目主页，均用系统浏览器打开） */}
+      {update ? <UpdateBanner update={update} /> : null}
+      {/* 项目信息（标题 / 描述随平台变化） */}
       <div className="space-y-1.5">
         <div className="font-display text-base font-bold tracking-tight text-ink">
-          Fund01 基金盯盘
+          {isMac ? 'Fund01 ：Mac菜单栏基金盯盘工具' : 'Fund01 ：基金盯盘插件'}
         </div>
         <p className="text-xs text-muted">
-          基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。
+          {isMac
+            ? '基金实时估值、持仓收益、大盘指数（包括纳指和黄金指数）一站式盯盘，支持多个数据源。支持多个分组，可使用您的 AI 助手搭配我们提供的提示词以及基金截图生成批量导入数据，无需手动一个一个填入。支持多种显示方式，以及隐私模式。支持多个 Mac 菜单栏，每个分组一个菜单栏。方便监控多人的基金持仓状态。'
+            : '基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。'}
         </p>
         <div className="flex flex-col gap-1 pt-0.5 text-xs text-ink-soft">
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">项目主页：</span>
+            <ExternalLink href="https://lingai.net/fund01">
+              lingai.net/fund01
+            </ExternalLink>
+          </div>
           <div className="flex items-center gap-1.5">
             <span className="shrink-0">项目仓库：</span>
             <ExternalLink href="https://github.com/lingyired/fund01">
@@ -3076,7 +3165,26 @@ function AboutSection({version}: {version?: string}) {
             </ExternalLink>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="shrink-0">作者主页：</span>
+            <span className="shrink-0">QQ 交流群：</span>
+            <span className="font-mono text-[12px] text-ink-soft">745873991</span>
+          </div>
+          <div className="pt-0.5 text-xs text-muted">
+            或者通过以下地址联系开发者：
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">小红书：</span>
+            <ExternalLink href="https://www.xiaohongshu.com/user/profile/60a479d30000000001006e88">
+              xiaohongshu.com/user/profile/60a479d30000000001006e88
+            </ExternalLink>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">bilibili：</span>
+            <ExternalLink href="https://space.bilibili.com/103021226">
+              space.bilibili.com/103021226
+            </ExternalLink>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0">github：</span>
             <ExternalLink href="https://github.com/lingyired">
               github.com/lingyired
             </ExternalLink>
@@ -3107,6 +3215,53 @@ function AboutSection({version}: {version?: string}) {
           {LINGYIRED_PROJECTS.map((project) => (
             <LingyiredProjectCard key={project.id} project={project} />
           ))}
+        </div>
+      </div>
+
+      {/* 版本与构建（移到最后；移除「工作区」行；分支仅在非 main 时显示） */}
+      <div className="space-y-1.5 border-t border-line/50 pt-3">
+        <div className="text-sm font-medium text-ink">版本与构建</div>
+        <div className="flex flex-col gap-0.5 font-mono text-xs text-ink-soft">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">版本</span>
+            <span>v{version ?? '—'}</span>
+          </div>
+          {/* 手动检查更新（仅 Tauri：Chrome 无 checkUpdate 能力 → 整行隐藏）。
+              手动检查 force=true 绕过 1h 缓存真正请求远端；无更新显示「当前已是最新版本」。 */}
+          {ports.window.checkUpdate ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">检查更新</span>
+              {manualChecking ? (
+                <span className="flex items-center gap-1 text-xs text-muted">
+                  <Loader2 className="h-3 w-3 animate-spin" /> 检查中…
+                </span>
+              ) : isLatest ? (
+                <span className="flex items-center gap-1 text-xs text-accent">
+                  <Check className="h-3 w-3" /> 当前已是最新版本
+                </span>
+              ) : (
+                <Button variant="soft" size="1" onClick={onManualCheck}>
+                  检查更新
+                </Button>
+              )}
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-muted">构建</span>
+            <span>{buildInfo.sha}</span>
+          </div>
+          {buildInfo.time ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">时间</span>
+              <span>{buildInfo.time}</span>
+            </div>
+          ) : null}
+          {buildInfo.branch && buildInfo.branch !== 'main' ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">分支</span>
+              <span>{buildInfo.branch}</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </SectionCard>
@@ -3934,25 +4089,88 @@ function MenubarSection() {
               {key: 'flat', label: '下行平色', value: flatColor},
             ] as const
           ).map(({key, label, value}) => (
-            <div
+            <MenubarColorRow
               key={key}
-              className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2"
-            >
-              <span className="text-sm text-ink-soft">{label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted">{value}</span>
-                <input
-                  type="color"
-                  value={value}
-                  onChange={(e) => void commitColor(key, e.target.value)}
-                  aria-label={label}
-                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
-                />
-              </div>
-            </div>
+              label={label}
+              value={value}
+              defaultValue={COLOR_DEFAULTS[key]}
+              onCommit={(v) => void commitColor(key, v)}
+            />
           ))}
         </div>
       </div>
     </SectionCard>
+  )
+}
+
+/** 菜单栏颜色行：TextInput（可直接粘贴 hex）+ color picker + 非默认时显示「重置为系统默认」。
+ * 抽成模块级组件：颜色区是 .map() 渲染，行内不能用 hooks，draft 随行挂载/卸载自动归位。 */
+function MenubarColorRow({
+  label,
+  value,
+  defaultValue,
+  onCommit,
+}: {
+  label: string
+  value: string
+  defaultValue: string
+  onCommit: (v: string) => void
+}) {
+  const [draft, setDraft] = useState(value.toUpperCase())
+
+  // picker 即选即存后，TextInput 跟随已保存值（统一大写展示）
+  useEffect(() => {
+    setDraft(value.toUpperCase())
+  }, [value])
+
+  const revert = () => setDraft(value.toUpperCase())
+
+  const commit = () => {
+    const t = draft.trim().toUpperCase()
+    if (t === value.toUpperCase()) return
+    if (/^#[0-9a-fA-F]{6}$/.test(t)) {
+      onCommit(t)
+    } else {
+      revert()
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
+      <span className="text-sm text-ink-soft">{label}</span>
+      <div className="flex items-center gap-2">
+        <TextField.Root
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            else if (e.key === 'Escape') revert()
+          }}
+          spellCheck={false}
+          autoComplete="off"
+          aria-label={label}
+          className="h-6 w-24 font-mono text-xs"
+        />
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onCommit(e.target.value)}
+          aria-label={label}
+          className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+        />
+        <Tooltip content={value === defaultValue ? '当前已是系统默认' : '重置为系统默认'}>
+          <IconButton
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => onCommit(defaultValue)}
+            disabled={value === defaultValue}
+            aria-label={`${label} 重置为默认`}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </IconButton>
+        </Tooltip>
+      </div>
+    </div>
   )
 }

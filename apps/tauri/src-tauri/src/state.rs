@@ -1,9 +1,18 @@
 //! 应用全局状态。
 
 use std::sync::RwLock;
+use std::time::SystemTime;
 use tauri::async_runtime::JoinHandle;
 
 use crate::model::{AppConfig, QuoteUpdate};
+use crate::update::CheckUpdateResult;
+
+/// 检查更新结果缓存（内存态，重启即失效；TTL 由 update.rs CACHE_TTL 控制）
+pub struct UpdateCheckCache {
+    pub checked_at: SystemTime,
+    /// None = 已是最新（同样缓存，避免 1h 内重复请求）
+    pub result: Option<CheckUpdateResult>,
+}
 
 pub struct AppState {
     /// 最近一次完整刷新结果（前端 fetch_* 命令读这里）
@@ -16,6 +25,8 @@ pub struct AppState {
     pub last_quote_source: RwLock<Option<String>>,
     /// popup 延迟销毁计时器句柄（hide 后启动，show 时取消）
     pub popup_destroy_timer: std::sync::Mutex<Option<JoinHandle<()>>>,
+    /// 检查更新结果缓存（设置界面打开时读，1h TTL 防重复请求）
+    pub update_cache: RwLock<Option<UpdateCheckCache>>,
 }
 
 impl AppState {
@@ -25,6 +36,7 @@ impl AppState {
             config: RwLock::new(config),
             last_quote_source: RwLock::new(None),
             popup_destroy_timer: std::sync::Mutex::new(None),
+            update_cache: RwLock::new(None),
         }
     }
 }
