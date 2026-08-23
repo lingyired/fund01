@@ -6,6 +6,10 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 
 ## 截图
 
+| 暗色模式 | 亮色模式 |
+| --- | --- |
+| ![暗色模式](screenshots/暗色模式.png) | ![亮色模式](screenshots/亮色模式.png) |
+
 | 菜单栏样式 | 菜单栏自定义样式 |
 | --- | --- |
 | ![菜单栏样式](screenshots/菜单栏样式.png) | ![菜单栏自定义样式](screenshots/菜单栏自定义样式.png) |
@@ -13,10 +17,6 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 | AI Agent 批量导入 | 常用设置 |
 | --- | --- |
 | ![AI Agent 批量导入](screenshots/ai%20agent%20批量导入.png) | ![常用设置](screenshots/常用设置.png) |
-
-| 暗色模式 | 亮色模式 |
-| --- | --- |
-| ![暗色模式](screenshots/暗色模式.png) | ![亮色模式](screenshots/亮色模式.png) |
 
 ## 功能
 
