@@ -1,0 +1,20 @@
+github 地址：https://github.com/lingyired/fund01
+
+
+
+详细内容可以查看 newtab01
+
+视频展示：https://www.bilibili.com/video/BV1frTt6YERw
+
+
+
+
+newtab01 是一个 Chrome 新标签页扩展，把 Chrome 默认的新标签页替换成一个多列的书签板。
+
+多列书签板 —— 支持拖拽排序、特殊文件夹（书签栏 / Top Sites / 最近关闭 / Apps）
+文件夹批量操作 —— 批量打开、打开为 Chrome 标签组、整个文件夹丢进分屏视图
+书签模糊搜索 —— ⌘ / Ctrl + K 唤起（fuse.js，标题 + URL，权重 0.7 / 0.3）
+Popup 分屏 —— 从书签或已打开的标签里挑 2–4 个 URL，拼成 iframe 分屏视图（2h / 2v / 3H / 4grid）
+12 套内置主题 全部来自 tweakcn，无限运行时导入（粘贴 tweakcn URL 或 CSS 块）
+10 种语言 —— 切语言时 UI in-place 刷新
+per-theme per-mode 外观覆盖 + 用户 CSS
