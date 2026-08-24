@@ -42,12 +42,12 @@ node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 Fund01 是 pnpm monorepo，含两个被分发的产物与若干内部包。**发布版本号**与**构建戳**是两个不同职责，必须分开对待。
 
 ### 产物与版本归属
-- **Chrome 扩展**（`apps/chrome`）：独立版本号，唯一来源 `apps/chrome/package.json` 的 `version`；构建脚本 `scripts/copy-manifest.mjs` 会把它覆盖到 `dist/manifest.json`（**不要只改 manifest.json**）。UI 经 `chromeWindowPort.getVersion()` 读 `chrome.runtime.getManifest().version`。
-- **Tauri 桌面端**（`apps/tauri`）：独立版本号，来源 `tauri.conf.json` 与 `Cargo.toml` 必须一致（含 `Cargo.lock` 的 `fund01-tauri` 条目，只改该条目）。UI 经 `tauriWindowPort.preloadVersion()` → Rust `get_version` 命令。
+- **Chrome 扩展**（`apps/chrome`）：版本来源 `apps/chrome/package.json` 的 `version`；构建脚本 `scripts/copy-manifest.mjs` 会把它覆盖到 `dist/manifest.json`（**不要只改 manifest.json**）。UI 经 `chromeWindowPort.getVersion()` 读 `chrome.runtime.getManifest().version`。
+- **Tauri 桌面端**（`apps/tauri`）：版本来源 `tauri.conf.json` 与 `Cargo.toml` 必须一致（含 `Cargo.lock` 的 `fund01-tauri` 条目，只改该条目）。UI 经 `tauriWindowPort.preloadVersion()` → Rust `get_version` 命令。
 - **内部包**（`packages/core`、`packages/ui`、`packages/services`）：纯 workspace 内部包，不单独发布，`dependencies` 均为 `workspace:*`。其 `package.json` 的 `version` 仅为 pnpm 占位，**发布流程不依赖其值，无需主动 bump**；版本真相是 git commit。
 
-### 双版本独立（非共享）
-Chrome 与 Tauri 各自维护独立版本号。两端改动常不互涉（如仅改 tauri 原生层不影响 chrome）。独立编号配合下方「bump 纪律」满足「只 bump 真正 shipped 的二进制」，避免小改动带动多版本号。
+### 统一版本号（共享，2026-08-24 起）
+Chrome 与 Tauri **共用同一个版本号**（基线 1.3.0）。任何一次发布——无论只改 Chrome、只改 Tauri、还是改了共享 `packages/*`——版本都两端同步 +1；即使本次改动只落在某一端，下次另一端需要更新时版本号也已对齐。用户看到的 Chrome 与桌面端始终是同一个版本，不存在「chrome-only / tauri-only」的独立版本号。
 
 ### 语义化版本（SemVer）
 `MAJOR.MINOR.PATCH`：
@@ -55,6 +55,7 @@ Chrome 与 Tauri 各自维护独立版本号。两端改动常不互涉（如仅
 - `MINOR`：一个功能或一批相关改动
 - `MAJOR`：保留（预发布阶段暂不使用）
 - 预发布基线已重置为 **1.0.0**（2026-08-18 落地：Chrome 1.2.80→1.0.0、Tauri 1.0.50→1.0.0，无历史包袱，重新计数）
+- **2026-08-24 起双端统一版本号，基线 **1.3.0**：最后一次分叉为 Chrome 1.0.8 / Tauri 1.2.3，此后 Chrome 与 Tauri 不再各自计数，所有 bump 两端同步 +1。
 
 ### MINOR / PATCH 判定（怎么决定）
 Fund01 是预发布、自用型 app（使用者即你自己），没有外部 API 消费者，因此**不按「是否向后兼容」分，而按「用户可感知的能力是否新增」分**：
@@ -71,14 +72,14 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 **决策口诀**：打开后「能不能做一件之前做不到的事？」能 → MINOR；不能（只是之前能做的更对 / 更好 / 不崩）→ PATCH。**拿不准默认 PATCH**（保守），等一个功能分支整体做完、想给它一个里程碑时再 MINOR。
 
-**MINOR / PATCH 由 AI agent 在 commit/push 时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；并据「bump 纪律」决定 bump 哪个产物（chrome-only / tauri-only / 共享包双 bump）。关键：bump 在「改动完成、准备 commit/push」时一次定，不中途纠结。
+**MINOR / PATCH 由 AI agent 在 commit/push 时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；**版本号两端必须一起 +1（统一版本号）**。关键：bump 在「改动完成、准备 commit/push」时一次定，不中途纠结。
 
 **本项目实例参照（分类，具体号随基线重置后重新计数）**：popup 加载态修复 / 涨跌色值微调 / 缓存 bug = PATCH；持仓分组排序、指数 / 市场面板、QDII 夜盘刷新 = MINOR。
 
-### Bump 纪律（关键，取代旧「任意改动都自动 chrome+1 且 tauri+1」）
+### Bump 纪律（统一版本号，2026-08-24 起）
 - **发布版本只在「改动完成、准备 commit/push」时 bump 一次，不在每次中间尝试时 bump。**
-- **只 bump 实际 shipped 的二进制**：仅改 chrome 专属代码 → 只 bump chrome；仅改 tauri 专属代码 → 只 bump tauri；改了共享 `packages/*` → chrome 与 tauri 都 bump（两个二进制都含此改动）。
-- 严禁「任意代码改动都自动 chrome+1 且 tauri+1」的旧约定。
+- **任何改动（chrome-only / tauri-only / 共享包）都两端同步 +1**：`apps/chrome/package.json` 与 Tauri 三处（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock` 的 fund01-tauri 条目）必须全部改为同一新版本。
+- 严禁「只 bump 一端」；提交前必须跑 `pnpm check:versions`（已实现两端相等校验）。
 
 ### 构建戳（build stamp，已实现）
 - **发布版本不负责「我测的是不是刚编的最新版」——那由构建戳承担。**
@@ -93,9 +94,10 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 ### 版本同步校验（已实现，bump 前必跑）
 - 脚本 `scripts/check-versions.mjs`，根 `package.json` 暴露为 `pnpm check:versions`。
+- 校验 **两端统一**：`apps/chrome/package.json` == `tauri.conf.json`；不一致非零退出（统一版本号铁律）。
 - 校验 **Tauri 三处一致**：`tauri.conf.json` == `Cargo.toml` == `Cargo.lock`（fund01-tauri 条目）；不一致非零退出。
 - 校验 **Chrome 来源一致**：`dist/manifest.json`（若已构建）必须与 `apps/chrome/package.json` 的 version 相等（否则重新 build 即可，copy-manifest 会自动同步）。
-- **Agent 在 bump 版本 / commit 前必须运行 `pnpm check:versions`**，拦截「漏改一处版本号 / Cargo.lock 不同步」。
+- **Agent 在 bump 版本 / commit 前必须运行 `pnpm check:versions`**，拦截「漏改一处版本号 / Cargo.lock 不同步 / 两端不一致」。
 
 ### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包）
 - **产物策略**：Intel 版与 Apple Silicon 版**分开打包、分开下载**，不做 Universal 单包（单包 = 双份二进制 ≈ 体积翻倍，装的时候只用一半，白占磁盘）。
@@ -113,7 +115,7 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 ## 更新日志撰写规范（给用户看）
 
-> 从 **v1.0.4（Chrome）/ v1.1.4（Tauri）** 起执行。日志文件：`CHANGELOG.md`。
+> 从 **v1.0.4（Chrome）/ v1.1.4（Tauri）** 起执行；**v1.3.0 起 Chrome 与 Tauri 统一版本号**，日志一条目对应一个版本。日志文件：`CHANGELOG.md`。
 
 - **受众是最终用户，不是开发记录**：用户关心「这个版本我能感觉到什么变化 / 对我有什么影响」，不关心实现路径、重构、构建流程、调试过程。
 - **从产品 / 用户视角写**：用用户能懂的语言描述「改了什么、带来什么体验变化」，不写内部机制。
@@ -122,7 +124,7 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
   - **新增 / 优化类**：写用户获得的新能力或可感知的体验提升（如「新增多分组管理」「关于页补充了联系方式」），不写内部实现。
   - **内部重构 / 性能 / 兜底逻辑**等用户不可感知的改动：**通常不单列**；只有当它解决了用户可感知的问题时，才只写用户侧结果。
 - **不要列**：commit 列表、文件改动清单、调试过程、构建戳（SHA / 分支 / dirty）、技术栈细节、agent 自述。
-- **版本对应**：Chrome 与 Tauri 各自独立版本号，更新日志按发布节点分别标注两端版本（或同一条目并列两端版本）。
+- **版本对应**：Chrome 与 Tauri 统一版本号（2026-08-24 起，基线 1.3.0），更新日志一条目对应一个版本，无需再并列两端版本。
 
 ## Tauri macOS dev/release 隔离规则（bundle id / name 区分，铁律）
 

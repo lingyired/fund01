@@ -1,6 +1,7 @@
-// 版本同步校验：确保被分发的产物，其版本号在各来源处一致。
+// 版本同步校验：Chrome 与 Tauri 共用统一版本号（2026-08-24 起，基线 1.3.0），各来源处必须一致。
 //   - Tauri：tauri.conf.json == Cargo.toml == Cargo.lock(fund01-tauri 条目) 三处必须相等
 //   - Chrome：package.json 为唯一来源；若 dist/manifest.json 已构建，则必须与 package.json 一致
+//   - 两端统一：Chrome package.json == Tauri tauri.conf.json（任何 bump 都必须两端同步 +1）
 // 任一不一致 → 打印差异并以非零退出，可在 bump / 提交前拦截「漏改一处版本号」。
 // 用法：node scripts/check-versions.mjs
 import { readFileSync, existsSync } from 'node:fs'
@@ -63,6 +64,15 @@ if (existsSync(path.resolve(root, chromeManifestPath))) {
   console.log('· Chrome dist/manifest.json 不存在，跳过 Chrome 一致性校验（build 后建议复查）')
 }
 
+/* ── 两端统一：Chrome == Tauri（统一版本号铁律）── */
+if (chromePkg.version !== tauriConf.version) {
+  errors.push(
+    `Chrome 与 Tauri 版本不一致（统一版本号）：\n` +
+      `    Chrome package.json: ${chromePkg.version}\n` +
+      `    Tauri tauri.conf.json: ${tauriConf.version}`,
+  )
+}
+
 /* ── 结果 ── */
 if (errors.length > 0) {
   console.error('\n✗ 版本同步校验失败：\n')
@@ -71,6 +81,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `\n✓ 版本同步校验通过：Tauri ${tauriConf.version}（三处一致）` +
-    `，Chrome ${chromePkg.version}（来源一致）`,
+  `\n✓ 版本同步校验通过：统一版本 ${chromePkg.version}（Chrome 与 Tauri 一致，Tauri 三处一致）`,
 )
