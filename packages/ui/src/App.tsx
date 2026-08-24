@@ -25,7 +25,8 @@ import './index.css'
 export function App() {
   const ports = usePorts()
   const {config, window: windowPort} = ports
-  const {holdings, indices, lastUpdate, loading, refresh, refreshSchedule} = useMarketData()
+  const {holdings, indices, lastUpdate, loading, refresh, refreshSchedule} =
+    useMarketData()
   const [refreshing, setRefreshing] = useState(false)
   const [cfgTick, setCfgTick] = useState(0)
   // menubar 全空（Tauri 端用户移除了所有菜单栏状态项）→ header 替换为恢复 banner
@@ -236,7 +237,8 @@ export function App() {
       </header>
       )}
 
-      <IndexBar indices={indices} selected={selectedIndices} loading={loading} />
+      {/* 指数看板由 selected（默认 5 个）驱动渲染，行情缺失时显示占位卡片，无需 loading */}
+      <IndexBar indices={indices} selected={selectedIndices} />
 
       <PopupLayout
         data={holdings}

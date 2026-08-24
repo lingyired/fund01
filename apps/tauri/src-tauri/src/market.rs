@@ -90,6 +90,14 @@ pub async fn get_us_indices() -> Vec<IndexItem> {
     fetch_indices(&list).await
 }
 
+/// 全量指数（A 股 + 美股 + 黄金，一次批量请求）：
+/// 供 fetch_indices「读时填充」——指数快照缺失（如非盘中启动、刷新循环尚未产出）
+/// 时实时拉一次，保证 popup 初始即有默认 5 个指数的行情，不依赖刷新循环的时段窗口。
+pub async fn get_all_indices() -> Vec<IndexItem> {
+    let list: Vec<&IndexMeta> = INDEX_LIST.iter().collect();
+    fetch_indices(&list).await
+}
+
 /// 拉取指数实时行情（条目级容错：接口整体失败/条目缺失不抛错，对应条目带 error 码，
 /// 保证看板卡片始终能显示，数值处与底部展示错误状态）
 async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {

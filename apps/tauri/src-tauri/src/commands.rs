@@ -1,6 +1,6 @@
 //! Tauri command 层 —— 对应前端 DataPort/ConfigPort/WindowPort。
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::model::*;
 use crate::state::AppState;
@@ -43,14 +43,46 @@ pub fn fetch_holdings(state: State<AppState>) -> Option<HoldingsPayload> {
 }
 
 #[tauri::command]
-pub fn fetch_indices(state: State<AppState>) -> Vec<IndexItem> {
-    state
-        .quote
-        .read()
-        .unwrap()
-        .as_ref()
-        .and_then(|q| q.indices.clone())
-        .unwrap_or_default()
+pub async fn fetch_indices(app: AppHandle) -> Vec<IndexItem> {
+    // 读时填充：先同步检查缓存快照（块内取 state，不跨 await 持引用）
+    let cached = {
+        let state = app.state::<AppState>();
+        let quote = state.quote.read().unwrap();
+        quote
+            .as_ref()
+            .and_then(|q| q.indices.clone())
+            .unwrap_or_default()
+    };
+    if !cached.is_empty() {
+        return cached;
+    }
+    // 指数快照缺失（如非盘中启动、刷新循环从未产出）→ 实时拉一次全量指数，
+    // 保证 popup 初始即有默认 5 个指数的行情，不依赖刷新循环的时段窗口（指数面板独立于持仓）。
+    let indices = crate::market::get_all_indices().await;
+    {
+        let state = app.state::<AppState>();
+        let mut quote = state.quote.write().unwrap();
+        let now = chrono::Local::now().timestamp_millis();
+        if let Some(q) = quote.as_mut() {
+            q.indices = Some(indices.clone());
+            q.time = now;
+        } else {
+            *quote = Some(QuoteUpdate {
+                holdings: None,
+                indices: Some(indices.clone()),
+                time: now,
+            });
+        }
+    }
+    // 广播：menubar / 其他窗口同步（当前 popup 已通过返回值拿到数据）
+    {
+        let state = app.state::<AppState>();
+        let quote = state.quote.read().unwrap().clone();
+        if let Some(q) = quote {
+            let _ = app.emit("quote-update", &q);
+        }
+    }
+    indices
 }
 
 /// 最近一次后台成功刷新的时间戳（ms）；尚未刷新过返回 0。

@@ -65,7 +65,11 @@ export class ChromeDataPort implements DataPort {
 
   async fetchIndices(): Promise<IndexItem[]> {
     const r = await chrome.storage.local.get('cache-indices')
-    return (r['cache-indices'] as IndexItem[]) || []
+    const cached = (r['cache-indices'] as IndexItem[]) || []
+    if (cached.length) return cached
+    // 读时填充：指数快照缺失（非盘中 SW 不刷新）→ 让 SW 实时拉一次全量指数并写缓存，
+    // 保证 popup 初始即有默认 5 个指数的行情，不依赖刷新循环的时段窗口（指数面板独立于持仓）。
+    return sendMessage<IndexItem[]>({type: 'FETCH_INDICES'}).catch(() => [])
   }
 
   /** 最近一次后台刷新时间：读 SW 写入的 cache-time（后台静默刷新也持续更新） */

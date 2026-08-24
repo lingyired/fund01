@@ -569,6 +569,9 @@ chrome.runtime.onMessage.addListener(
           }
           case 'FETCH_INDICES': {
             const data = await getIndices()
+            // 读时填充的指数快照写入缓存（全量），后续 popup 打开直接读缓存；
+            // 不写 cache-time（避免误触发 quote-update 的加载态结束语义）
+            await chrome.storage.local.set({[CACHE_KEYS.indices]: data})
             sendResponse({ok: true, data})
             return
           }
