@@ -33,6 +33,7 @@ pnpm typecheck        # 全仓库递归 TypeScript 类型检查
 node scripts/build-tauri-all.mjs            # 双架构 Tauri 打包（arm64 + x86_64，见「双架构发布产物」）
 node scripts/build-tauri-all.mjs --arch arm64   # 仅 Apple Silicon 版
 node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
+pnpm --filter @fund01/tauri tauri:build:release:all   # ⭐ 发 GitHub Release 专用：双架构签名构建 + create-dmg 打 DMG（见「双架构发布产物」）
 ```
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
@@ -102,14 +103,18 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 ### 双架构发布产物（2026-08-18 定，分开发布非 Universal 单包）
 - **产物策略**：Intel 版与 Apple Silicon 版**分开打包、分开下载**，不做 Universal 单包（单包 = 双份二进制 ≈ 体积翻倍，装的时候只用一半，白占磁盘）。
 - **最低系统版本（硬性，勿降）**：`bundle.macOS.minimumSystemVersion = "13.0"`（tauri.conf.json 已配，写入 Info.plist 的 `LSMinimumSystemVersion`）。**背景**：UI 基于 Radix Themes 3.x，其 CSS 需要 Safari 15.4+（`@layer`/`:has()`/`dvh`）与 Safari 16.2+（`color-mix()` 110 处）；macOS 11/12 的 WKWebView 不支持 → 样式整块被跳过 → popup/设置界面白屏（2026-08-18 真机诊断）。低于 13.0 的系统由安装器直接拒绝，不出现白屏。
-- **打包含令**：`node scripts/build-tauri-all.mjs`（双架构一次出；`--arch arm64|x86_64` 可单独打）。脚本自动：
-  - 从 `tauri.conf.json` 读 version，产物命名 `release-macos/Fund01-{version}-{arch}.app`（arm64 / x86_64 后缀）；
-  - 前置条件：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）。
+- **⭐ GitHub Release 发布命令（2026-08-25 定，发版必须用它）**：`pnpm --filter @fund01/tauri tauri:build:release:all`
+  - 一键完成：双架构签名构建（arm64 + x86_64）→ 归档 `.app` → create-dmg 打双架构 DMG，全部落 `release-macos/`。
+  - **签名**：脚本自动注入 `APPLE_SIGNING_IDENTITY="Fund01"`（自签名代码签名证书，钥匙串中 CN=Fund01），产物 `Authority=Fund01`。用户下载安装后提示「Apple 无法验证…恶意软件」→ 系统设置 → 隐私与安全性 → **仍要打开**（软拦截可放行，替代旧的「已损坏」硬拦截 + xattr 绕过）。
+  - `tauri.conf.json` 的 `signingIdentity: "-"`（ad-hoc 兜底）保证**任何机器 clone 后都能构建**；发版才用 env 覆盖为 Fund01。别人跑 `pnpm tauri:build:release:all` 无证书会失败，属预期（只有发布者跑）。
+  - 底层：`scripts/build-release-all.mjs`（编排）→ `scripts/build-tauri-all.mjs`（构建+归档 .app）→ `scripts/build-dmg.mjs`（create-dmg 打 DMG，纯 hdiutil 无 Finder 依赖）。
+- **前置条件**：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）；钥匙串存在 Fund01 代码签名证书（无证书回退 ad-hoc，仅本机可跑）。
+- **Node 版本坑（create-dmg 依赖 macos-alias 原生模块）**：原生模块按编译时的 Node ABI 绑定。用户终端是 nvm Node 24（ABI 137），若报 `NODE_MODULE_VERSION` 不匹配 / `ERR_DLOPEN_FAILED`，跑 `PATH="/Users/lingsmbp/.nvm/versions/node/v24.16.0/bin:$PATH" pnpm rebuild macos-alias` 修复（在用户实际 Node 版本下重编译）。
 - **DMG 例外**：agent 环境打 DMG 必失败（Finder 权限 -10004），脚本只出 .app；需要 DMG 时手动跑
   `target/release/bundle/dmg/bundle_dmg.sh`（**注意：`--bundles app` 不生成各架构 target 的 `dmg/` 目录，统一用默认 target 的脚本 + `icon.icns`，脚本支持任意 staging source，两架构通用**），完整命令：
   `bundle_dmg.sh --volname Fund01 --icon "Fund01.app" 180 170 --app-drop-link 320 170 --window-size 500 350 --hide-extension "Fund01.app" --volicon <repo>/apps/tauri/src-tauri/target/release/bundle/dmg/icon.icns --skip-jenkins <out.dmg> <staging>`
   其中 `<staging>` 为拷入对应架构 `Fund01.app` 的临时目录；输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
-- **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`。
+- **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`；`codesign -dv` 应显示 `Authority=Fund01`；`spctl -a -vv -t exec` 应为 `rejected / origin=Fund01`（软拦截标志，发版前必查）。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 

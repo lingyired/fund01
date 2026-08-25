@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:release": "APPLE_SIGNING_IDENTITY=\"Fund01\" tauri build",
+    "tauri:build:release:all": "node ../../scripts/build-release-all.mjs"
   },
   "dependencies": {
     "@fund01/core": "workspace:*",
