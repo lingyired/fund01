@@ -109,8 +109,9 @@ export type RefreshSchedule = {
  * 基金当日行情数据源。
  * - fundmnfinfo：东方财富 FundMNFInfo 批量接口（净值/估值/涨跌幅），默认；分时走势仍走 fund123
  * - fund123：蚂蚁基金（fund123.cn）+ 东方财富历史净值，盘中估值走势走 fund123
+ * - xiaobei：小倍养基（api.xiaobeiyangji.com）盘中实时估值（含 QDII），净值/历史数据由东方财富补齐；取不到时自动回落 FundMNFInfo
  */
-export type QuoteSource = 'fund123' | 'fundmnfinfo'
+export type QuoteSource = 'fund123' | 'fundmnfinfo' | 'xiaobei'
 
 /** 主题偏好：跟随系统 / 亮色 / 暗色，默认 system */
 export type AppThemePref = 'system' | 'light' | 'dark'

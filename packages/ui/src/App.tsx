@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 import {ExternalLink, Moon, Settings2, Sun} from 'lucide-react'
-import type {AppThemePref} from '@fund01/core'
+import type {AppThemePref, QuoteSource} from '@fund01/core'
 import {DEFAULT_SELECTED_INDICES, isNightMarketActive} from '@fund01/core'
 import {
   applyTheme,
@@ -128,14 +128,16 @@ export function App() {
   }, [popupOpenGroup])
 
   const settings = config.getConfig().settings
-  // 数据源标识：fundmnfinfo=东方财富→「东」，fund123=蚂蚁基金→「蚁」
-  const quoteSource: 'fund123' | 'fundmnfinfo' =
-    settings.quoteSource ?? 'fundmnfinfo'
-  const quoteSourceBadge = quoteSource === 'fund123' ? '蚁' : '东'
+  // 数据源标识：fundmnfinfo=东方财富→「东」，fund123=蚂蚁基金→「蚁」，xiaobei=小倍养基→「倍」
+  const quoteSource: QuoteSource = settings.quoteSource ?? 'fundmnfinfo'
+  const quoteSourceBadge =
+    quoteSource === 'fund123' ? '蚁' : quoteSource === 'xiaobei' ? '倍' : '东'
   const quoteSourceTitle =
     quoteSource === 'fund123'
       ? '数据源：蚂蚁基金（fund123）'
-      : '数据源：东方财富（FundMNFInfo）'
+      : quoteSource === 'xiaobei'
+        ? '数据源：小倍养基（盘中估值）'
+        : '数据源：东方财富（FundMNFInfo）'
   const selectedIndices =
     settings.selectedIndices && settings.selectedIndices.length > 0
       ? settings.selectedIndices

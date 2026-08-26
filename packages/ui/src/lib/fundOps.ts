@@ -499,7 +499,11 @@ export async function updateSettings(
   patch: Partial<AppSettings>,
 ): Promise<AppSettings> {
   const config = ports.config.getConfig()
-  if (patch.quoteSource === 'fund123' || patch.quoteSource === 'fundmnfinfo') {
+  if (
+    patch.quoteSource === 'fund123' ||
+    patch.quoteSource === 'fundmnfinfo' ||
+    patch.quoteSource === 'xiaobei'
+  ) {
     config.settings.quoteSource = patch.quoteSource
   }
   if (

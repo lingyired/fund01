@@ -259,6 +259,15 @@ export interface EventPort {
 - 美股指数备用新浪 US `stock.finance.sina.com.cn`
 - 新浪黄金 `hq.sinajs.cn` 返回 GBK 编码，用 `TextDecoder('gbk')` 原生解码，**不要**引入 iconv-lite
 
+### 小倍养基（api.xiaobeiyangji.com，非官方源）
+
+- 单只 POST `https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310`，body `{"code":"6位补零","version":"3.8.7.0","clientType":"APP"}`，需移动 UA
+- 响应 `data.dailyYield`：number 小数盘中实时估值（0.0268 → 2.68%），**QDII 也有值**；`data.nav` 当前净值；`data.isQDII` 字段不可信（008987 实测 false 但 Fund01 按 QDII 处理），一律用 `is_qdii_name` 判定
+- 能力边界：只有估值百分比 + nav，**无**估值净值/分时/历史净值 → 净值对与净值日期由东财 `FundMNHisNetList` 补齐
+- ⚠️ 只取 dailyYield，**不用 changeRate 兜底**：changeRate 属热搜口径（开盘常为空），与 dailyYield 不同源，混用显示错误涨幅
+- 缓存 60s TTL（Rust `XIAOBEI_CACHE` / TS `xiaobeiDetailCache`），并发 chunk=10；仅缓存有估值的响应
+- 参考：wzk-fund 文档 `docs/小倍养基实时估值逻辑.md`
+
 ## 估值兜底规则（数据源 fallback 体系）
 
 > **约定（必须遵守）**：本仓库所有「估值/净值的兜底、近似、fallback」行为以此章节为唯一权威。**新增或修改任何兜底规则时，必须同步更新：① 本章节；② 设置界面文案 `packages/ui/src/OptionsApp.tsx` 数据源选项下方的「估值兜底规则」说明**（保证用户可在设置中知晓）。遗漏任一处视为未完成。
@@ -280,6 +289,15 @@ export interface EventPort {
 
 - 逐只拉取 fund123（searchFund + matiaria + 分时走势 + 东财历史净值），**不触发 FundMNFInfo 兜底**。
 - **QDII 口径**：盘中 percent 不显示（显示「-」，灰色），**按「披露日」对齐普通基金口径**（披露日 = PDATE 下一交易日，T+1；`is_confirmed_session_active` delayed 分支：净值披露后保留到披露日的下一交易日开盘前，周末照常显示「已更新」与当日收益）；不认 fund123 `matiaria.dayOfGrowth`（T+1 昨日涨幅冒充今日）与东财 hist 滞后日涨幅。净值日期恒标注在基金列次行。
+
+### 数据源 = 小倍养基（`quoteSource=xiaobei`，`XiaobeiQuoteProvider` / `xiaobei.rs`）
+
+- **盘中**：percent = 小倍 `dailyYield`×100（percentSource='estimate'），**QDII 与非 QDII 统一显示**（QDII 不再一直是「-」）。
+- **盘后/确认窗口**：走 `resolveDisplayPercent`（TS）/fund123.rs 同构判定（Rust）——`isConfirmedSessionActive` 确认窗口命中时切到东财 `FundMNHisNetList` 已披露涨幅（percentSource='confirmed'）。
+- **净值对**：net_value/prev_net_value/net_value_date 由东财 `FundMNHisNetList` 补齐；盘中 estimateNetValue = 最新确认净值×(1+估值涨幅)，当日收益 = 份额×净值×涨幅。
+- **降级（per-fund）**：小倍失败/无估值 → 该基金回落 FundMNFInfo（其内部含自算/fund123 兜底）。单向 DAG：`xiaobei→fundmnfinfo→fund123`，无环，不违背上文单向兜底约束。
+- **QDII「已更新」badge**：盘中无 confirmed 信号不显示；盘后东财对齐后照常显示。
+- 缓存 60s（Rust `XIAOBEI_CACHE` / TS `xiaobeiDetailCache`），手动刷新 `clearFundEstimateCaches` 会清小倍缓存。
 
 ### 其他净值口径兜底
 

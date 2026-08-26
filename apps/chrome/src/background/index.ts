@@ -190,7 +190,11 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
   const canRefreshAShare = wantDay && (force || shouldRefreshAShareMarket(now))
   const canRefreshUS = wantNight && usCfg && (force || shouldRefreshUSIndex(now))
   const quoteSource =
-    config.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
+    config.settings?.quoteSource === 'fund123'
+      ? 'fund123'
+      : config.settings?.quoteSource === 'xiaobei'
+        ? 'xiaobei'
+        : 'fundmnfinfo'
 
   // 手动刷新（force）时清空自算估值/股票涨跌幅缓存，强制本轮实时拉取行情，
   // 使「点击刷新 = 点击时刻的最新估算值」（与 Tauri refresh_day force=true 对齐）。
@@ -552,7 +556,11 @@ chrome.runtime.onMessage.addListener(
           case 'FETCH_QUOTES': {
             const cfg = await getSessionConfig()
             const qSource =
-              cfg?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo'
+              cfg?.settings?.quoteSource === 'fund123'
+                ? 'fund123'
+                : cfg?.settings?.quoteSource === 'xiaobei'
+                  ? 'xiaobei'
+                  : 'fundmnfinfo'
             const quotes = await getFundsQuotes(msg.funds, qSource)
             sendResponse({ok: true, data: quotes})
             return

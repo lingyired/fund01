@@ -410,10 +410,10 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
         Some("amount") => "amount".to_string(),
         _ => "percent".to_string(),
     };
-    let quote_source = if settings_raw.and_then(|s| s.get("quoteSource").and_then(|v| v.as_str())) == Some("fund123") {
-        "fund123".to_string()
-    } else {
-        "fundmnfinfo".to_string()
+    let quote_source = match settings_raw.and_then(|s| s.get("quoteSource").and_then(|v| v.as_str())) {
+        Some("fund123") => "fund123".to_string(),
+        Some("xiaobei") => "xiaobei".to_string(),
+        _ => "fundmnfinfo".to_string(),
     };
     let badge_mode = match settings_raw.and_then(|s| s.get("badgeMode").and_then(|v| v.as_str())) {
         Some("amount") | Some("hidden") => settings_raw.unwrap().get("badgeMode").unwrap().as_str().unwrap().to_string(),
