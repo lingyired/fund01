@@ -1,8 +1,9 @@
 //! 行情 provider 抽象 —— 对应 `packages/services/src/fund.ts` 的 FundQuoteProvider。
-//! fundmnfinfo（东方财富批量）与 fund123（蚂蚁基金 CSRF）两个实现。
+//! fundmnfinfo（东方财富批量）、fund123（蚂蚁基金 CSRF）、xiaobei（小倍养基）三个实现。
 
 pub mod fund123;
 pub mod fundmnfinfo;
+pub mod xiaobei;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -26,14 +27,15 @@ pub struct FundQuoteInput {
 pub enum QuoteSource {
     Fund123,
     FundMnfinfo,
+    Xiaobei,
 }
 
 impl QuoteSource {
     pub fn from_str(s: &str) -> QuoteSource {
-        if s == "fund123" {
-            QuoteSource::Fund123
-        } else {
-            QuoteSource::FundMnfinfo
+        match s {
+            "fund123" => QuoteSource::Fund123,
+            "xiaobei" => QuoteSource::Xiaobei,
+            _ => QuoteSource::FundMnfinfo,
         }
     }
 }
@@ -46,6 +48,7 @@ pub trait QuoteProvider {
 pub enum AnyProvider {
     Fund123(fund123::Fund123QuoteProvider),
     Mnf(fundmnfinfo::FundMNFInfoQuoteProvider),
+    Xiaobei(xiaobei::XiaobeiQuoteProvider),
 }
 
 impl AnyProvider {
@@ -53,6 +56,7 @@ impl AnyProvider {
         match self {
             AnyProvider::Fund123(p) => p.fetch_quotes(funds).await,
             AnyProvider::Mnf(p) => p.fetch_quotes(funds).await,
+            AnyProvider::Xiaobei(p) => p.fetch_quotes(funds).await,
         }
     }
 }
@@ -61,6 +65,7 @@ pub fn get_quote_provider(source: QuoteSource) -> AnyProvider {
     match source {
         QuoteSource::Fund123 => AnyProvider::Fund123(fund123::Fund123QuoteProvider),
         QuoteSource::FundMnfinfo => AnyProvider::Mnf(fundmnfinfo::FundMNFInfoQuoteProvider),
+        QuoteSource::Xiaobei => AnyProvider::Xiaobei(xiaobei::XiaobeiQuoteProvider),
     }
 }
 

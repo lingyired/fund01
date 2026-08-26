@@ -1111,6 +1111,7 @@ const CALC_GSZZL_CACHE = new TtlCache<number>(200, 5 * 60 * 1000)
 export function clearFundEstimateCaches(): void {
   CALC_GSZZL_CACHE.clear()
   STOCK_PCT_CACHE.clear()
+  xiaobeiDetailCache.clear()
 }
 
 export async function getCalcGszzl(code: string): Promise<number | null> {
@@ -1506,10 +1507,170 @@ export async function fetchFundIntradayForDialog(
   }
 }
 
+// ----------------------------- 小倍养基（xiaobei）数据源 -----------------------------
+// POST get-fund-detail-v310 → data.dailyYield（number 小数，盘中实时估值，如 0.0268 → 2.68%）。
+// ⚠️ 只取 dailyYield，不用 changeRate 兜底：changeRate 属热搜口径（开盘常为空），与 dailyYield
+// 不同源，混用会显示错误涨幅（wzk-fund 文档 §7.1 明确警告）。
+// 小倍只提供估值百分比 + nav，无估值净值/分时/历史净值 → 净值对与净值日期由东财
+// FundMNHisNetList 补齐；取不到估值时回落 FundMNFInfo（单向 DAG：xiaobei→fundmnfinfo→fund123）。
+
+const XIAOBEI_DETAIL_TTL_MS = 60 * 1000 // 盘中估值 60s 刷新（对齐 wzk）
+const xiaobeiDetailCache = new TtlCache<{dailyYield: number | null; name: string}>(
+  200,
+  XIAOBEI_DETAIL_TTL_MS,
+)
+const xiaobeiInflight = new Map<string, Promise<{dailyYield: number | null; name: string}>>()
+
+async function fetchXiaobeiDetail(
+  code: string,
+): Promise<{dailyYield: number | null; name: string}> {
+  const cached = xiaobeiDetailCache.get(code)
+  if (cached) return cached
+  const inflight = xiaobeiInflight.get(code)
+  if (inflight) return inflight
+  const p = (async () => {
+    const res = await httpPost(
+      'https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310',
+      {code, version: '3.8.7.0', clientType: 'APP'},
+      {headers: {'User-Agent': MOBILE_UA}, timeout: 12000},
+    )
+    const data = res?.data
+    if (!data) throw new Error('小倍响应无 data')
+    const raw = Number(data.dailyYield)
+    const dailyYield = Number.isFinite(raw) ? Math.round(raw * 10000) / 100 : null
+    const out = {dailyYield, name: String(data.name || '')}
+    // 仅缓存有估值的响应（无估值不缓存，便于下次重试）
+    if (dailyYield != null) xiaobeiDetailCache.set(code, out)
+    return out
+  })()
+  xiaobeiInflight.set(code, p)
+  try {
+    return await p
+  } finally {
+    xiaobeiInflight.delete(code)
+  }
+}
+
+/**
+ * 小倍养基数据源：盘中实时估值（dailyYield，含 QDII）→ percent；
+ * 净值对 / 净值日期走东财历史净值对齐；盘后由 resolveDisplayPercent 的确认窗口
+ * 自动切换到东财已披露涨幅（confirmed）；小倍取不到时 per-fund 回落 FundMNFInfo
+ * （其内部含自算估值 / fund123 兜底链）。
+ */
+class XiaobeiQuoteProvider implements FundQuoteProvider {
+  readonly id: QuoteSource = 'xiaobei'
+
+  async fetchQuotes(funds: FundQuoteInput[]): Promise<FundQuote[]> {
+    if (!funds.length) return []
+    const results = await runQuotesConcurrent(funds, (f) => this.fetchOne(f), 10)
+    // 降级：小倍失败 / 无估值的基金 → FundMNFInfo（单向 DAG，无环）
+    const failedIdx: number[] = []
+    results.forEach((q, i) => {
+      if (q.percent == null && q.percentSource == null) failedIdx.push(i)
+    })
+    if (failedIdx.length) {
+      const fallback = await new FundMNFInfoQuoteProvider().fetchQuotes(
+        failedIdx.map((i) => funds[i]),
+      )
+      fallback.forEach((q, j) => {
+        results[failedIdx[j]] = q
+      })
+    }
+    return results
+  }
+
+  private async fetchOne(fund: FundQuoteInput): Promise<FundQuote> {
+    const code = String(fund.code).padStart(6, '0')
+    let name = fund.name || ''
+    let dailyYield: number | null = null
+    try {
+      const detail = await fetchXiaobeiDetail(code)
+      name = name || detail.name
+      dailyYield = detail.dailyYield
+    } catch (e) {
+      return emptyQuote(fund, `xiaobei: ${(e as Error)?.message || e}`)
+    }
+    if (dailyYield == null) {
+      return emptyQuote(fund, 'xiaobei: 无盘中估值')
+    }
+
+    // 净值 / 净值日期 / dayGrowth：东财历史净值对齐（对标 fund123 源 getFundQuote 第 4 步）
+    let netValue: number | null = null
+    let dayGrowth: number | null = null
+    let netValueDate = ''
+    let histIdx = -1
+    let hist: any[] = []
+    try {
+      hist = await fetchFundNavHistory(code, 5)
+      if (hist.length) {
+        histIdx = 0 // 小倍不给净值日期，取东财最新一条
+        const match = hist[0]
+        if (match?.netValue != null) {
+          netValue = match.netValue
+          if (match.dayGrowth != null) dayGrowth = match.dayGrowth
+          if (match.date) netValueDate = match.date
+        }
+      }
+    } catch {
+      hist = []
+      histIdx = -1
+    }
+
+    const qdii = isQdiiName(name)
+    const {percent, percentSource} = resolveDisplayPercent({
+      estimateGrowth: dailyYield,
+      dayGrowth,
+      netValueDate,
+      isQdii: qdii,
+    })
+    // 估算净值：小倍无估值净值，用 最新确认净值 × (1+当日估值涨幅) 近似，
+    // 供 resolveNavPair 的 estimate 分支产出 当日收益 = 份额 × 净值 × 涨幅
+    const estimateNetValue =
+      netValue != null && netValue > 0 ? round4(netValue * (1 + dailyYield / 100)) : null
+    let prevNetValue: number | null = null
+    if (percentSource === 'confirmed') {
+      if (histIdx >= 0 && hist[histIdx + 1]?.netValue != null) {
+        prevNetValue = hist[histIdx + 1].netValue
+      }
+    } else if (percentSource === 'estimate' && netValue != null) {
+      prevNetValue = netValue
+    }
+
+    // 板块推断（同 fund123 源）
+    let sectors = Array.isArray(fund.sectors) ? [...fund.sectors] : []
+    if (sectorsNeedRefresh(sectors.length ? sectors : null, name)) {
+      try {
+        const next = await fetchFundSectorsQueued(code, name)
+        if (next.length) sectors = next
+      } catch {
+        // keep previous
+      }
+    }
+
+    return {
+      code,
+      name: name || code,
+      fundKey: '',
+      dayGrowth,
+      estimateGrowth: dailyYield,
+      percent,
+      percentSource,
+      netValue,
+      estimateNetValue,
+      prevNetValue,
+      netValueDate,
+      time: null,
+      trend: [],
+      sectors,
+      isQdii: qdii,
+    }
+  }
+}
+
 export function getQuoteProvider(source: QuoteSource): FundQuoteProvider {
-  return source === 'fundmnfinfo'
-    ? new FundMNFInfoQuoteProvider()
-    : new Fund123QuoteProvider()
+  if (source === 'fundmnfinfo') return new FundMNFInfoQuoteProvider()
+  if (source === 'xiaobei') return new XiaobeiQuoteProvider()
+  return new Fund123QuoteProvider()
 }
 
 export async function getFundsQuotes(

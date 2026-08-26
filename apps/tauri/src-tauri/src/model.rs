@@ -60,6 +60,8 @@ impl FundRecord {
 pub struct AppSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_interval: Option<RefreshInterval>,
+    /// 行情数据源：fundmnfinfo（默认，东财批量）/ fund123（蚂蚁基金）/ xiaobei（小倍养基）。
+    /// 白名单归一化在 portfolio.rs normalize_config。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quote_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

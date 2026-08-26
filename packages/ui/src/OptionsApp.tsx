@@ -45,6 +45,7 @@ import type {
   FundQuoteRow,
   MenubarAlign,
   MenubarLayout,
+  QuoteSource,
   ResolveFundResult,
   SettingsTabId,
 } from '@fund01/core'
@@ -495,9 +496,7 @@ function GeneralSection({
   const dragOrder = useRef<string[] | null>(null) // 拖拽中的最新顺序（避免 state 渲染滞后）
   const rowEls = useRef<(HTMLDivElement | null)[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null) // 仅驱动样式（拖起行半透明）
-  const [quoteSource, setQuoteSource] = useState<'fund123' | 'fundmnfinfo'>(
-    'fundmnfinfo',
-  )
+  const [quoteSource, setQuoteSource] = useState<QuoteSource>('fundmnfinfo')
   const [trading, setTrading] = useState('')
   const [nonTrading, setNonTrading] = useState('')
   const [savingInterval, setSavingInterval] = useState(false)
@@ -516,7 +515,13 @@ function GeneralSection({
         ? s.selectedIndices
         : DEFAULT_SELECTED_INDICES,
     )
-    setQuoteSource(s.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo')
+    setQuoteSource(
+      s.quoteSource === 'fund123'
+        ? 'fund123'
+        : s.quoteSource === 'xiaobei'
+          ? 'xiaobei'
+          : 'fundmnfinfo',
+    )
     setTrading(String(s.refreshInterval?.trading ?? ''))
     setNonTrading(String(s.refreshInterval?.nonTrading ?? ''))
     setGroupTabDetail(s.groupTabShowDetail !== false)
@@ -650,7 +655,7 @@ function GeneralSection({
     setSelectedIndices(next)
   }
 
-  async function handleQuoteSourceChange(next: 'fund123' | 'fundmnfinfo') {
+  async function handleQuoteSourceChange(next: QuoteSource) {
     if (next === quoteSource) return
     setQuoteSource(next)
     setSavingSource(true)
@@ -659,7 +664,13 @@ function GeneralSection({
     try {
       await updateSettings(ports, {quoteSource: next})
       setMessage(
-        `数据源已切换为 ${next === 'fundmnfinfo' ? 'FundMNFInfo' : 'fund123'}`,
+        `数据源已切换为 ${
+          next === 'fundmnfinfo'
+            ? 'FundMNFInfo'
+            : next === 'xiaobei'
+              ? '小倍养基'
+              : 'fund123'
+        }`,
       )
     } catch (e: unknown) {
       setError((e as Error)?.message || '切换数据源失败')
@@ -927,14 +938,12 @@ function GeneralSection({
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">数据源</div>
         <p className="text-xs text-muted">
-          基金当日净值/估值/涨跌幅的来源。两种数据源的盘中分时走势均走 fund123。
+          基金当日净值/估值/涨跌幅的来源。盘中分时走势均走 fund123。
         </p>
         <div className="space-y-1 pt-1">
           <Select.Root
             value={quoteSource}
-            onValueChange={(v) =>
-              void handleQuoteSourceChange(v as 'fund123' | 'fundmnfinfo')
-            }
+            onValueChange={(v) => void handleQuoteSourceChange(v as QuoteSource)}
             disabled={savingSource}
             size="2"
           >
@@ -944,16 +953,20 @@ function GeneralSection({
                 FundMNFInfo（东方财富批量数据，默认）
               </Select.Item>
               <Select.Item value="fund123">fund123（蚂蚁基金）</Select.Item>
+              <Select.Item value="xiaobei">小倍养基（盘中估值）</Select.Item>
             </Select.Content>
           </Select.Root>
           <p className="text-[11px] text-muted">
-            FundMNFInfo：一次可批量获取东方财富数据（最多 200 只/次），速度更快；fund123：逐只获取蚂蚁基金 + 东方财富历史净值。
+            FundMNFInfo：一次可批量获取东方财富数据（最多 200 只/次），速度更快；fund123：逐只获取蚂蚁基金 + 东方财富历史净值；小倍养基：盘中实时估值（含 QDII），净值与历史数据由东方财富补齐。
           </p>
           <p className="text-[11px] text-muted">
             估值兜底规则 · FundMNFInfo 源：盘中看不到估值时，会先用基金重仓股当天的涨跌幅估算一个参考值；若基金没有重仓股（如黄金、商品 ETF 联接等非 QDII 品种），则改用 fund123 的盘中走势估算。QDII 按「披露日」规则处理（披露日 = 净值日的下一交易日，净值通常 T+1 披露）：官方披露后保留到披露日的下一交易日开盘前，周末照常显示「已更新」与当日收益；未更新时段显示「-」（灰色）。净值日期标注在基金名下，便于知晓滞后性。
           </p>
           <p className="text-[11px] text-muted">
             估值兜底规则 · fund123 源：QDII 同样遵循「披露日」规则，只有官方披露了最新净值才显示当日收益，不会用昨天或滞后的涨幅顶替；未披露时显示「-」（灰色）。
+          </p>
+          <p className="text-[11px] text-muted">
+            估值兜底规则 · 小倍养基源：盘中显示实时估值（QDII 也显示，不再一直是「-」）；盘后小倍不再更新估值时，自动改用东方财富已披露的净值涨幅；小倍取不到数据时自动回落到 FundMNFInfo。小倍为第三方盘中估算，可能与基金公司官方口径存在差异，以官方净值为准。
           </p>
           <p className="text-[11px] text-muted">
             说明：不同数据源的预估收益计算方式不同，实际当日收益可能存在差异；一般当日 20:00 后开始更新真实净值，以官方净值为准。

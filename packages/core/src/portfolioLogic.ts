@@ -343,7 +343,11 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
     settings: {
       refreshInterval: clampRefreshInterval(payload?.settings?.refreshInterval),
       quoteSource:
-        payload?.settings?.quoteSource === 'fund123' ? 'fund123' : 'fundmnfinfo',
+        payload?.settings?.quoteSource === 'fund123'
+          ? 'fund123'
+          : payload?.settings?.quoteSource === 'xiaobei'
+            ? 'xiaobei'
+            : 'fundmnfinfo',
       badgeMode:
         payload?.settings?.badgeMode === 'amount' ||
         payload?.settings?.badgeMode === 'hidden'

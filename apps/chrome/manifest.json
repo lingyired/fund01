@@ -19,7 +19,8 @@
     "https://hq.sinajs.cn/*",
     "https://api.jijinhao.com/*",
     "https://money.finance.sina.com.cn/*",
-    "https://stock.finance.sina.com.cn/*"
+    "https://stock.finance.sina.com.cn/*",
+    "https://api.xiaobeiyangji.com/*"
   ],
   "background": {
     "service_worker": "background.js",
