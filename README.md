@@ -1,8 +1,8 @@
 # Fund01
 
-Fund01 是一个基金持仓盯盘工具，提供 Chrome 扩展与 macOS 桌面应用（Tauri）两种形态。两者复用同一套前端代码（`packages/ui`），通过 Port 接口适配不同运行时。
+Fund01 是一个基金持仓盯盘工具，提供 Chrome 扩展与桌面应用（Tauri，macOS / Windows）两种形态。两者复用同一套前端代码（`packages/ui`），通过 Port 接口适配不同运行时。
 
-macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组对应一根独立的菜单栏实例，实时显示该分组的当日涨跌幅（红色表示上涨，绿色表示下跌）。App 在后台持续刷新，关闭浮窗不影响行情更新。所有持仓与配置均存储在本地，不上传服务器。
+macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组对应一根独立的菜单栏实例，实时显示该分组的当日涨跌幅（红色表示上涨，绿色表示下跌）。Windows 桌面端形态对应任务栏（taskband）：每个分组一个任务栏项（默认停靠右侧，可单独改左侧），并提供系统托盘图标（左键弹浮窗总览，右键打开设置/退出）。App 在后台持续刷新，关闭浮窗不影响行情更新。所有持仓与配置均存储在本地，不上传服务器。
 
 ## 截图
 
@@ -68,15 +68,16 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 ### 主题与系统要求
 
 - 主题：深 / 浅 / 跟随系统，默认跟随系统。
-- 最低系统（桌面版）：macOS 13.0 (Ventura) 及以上，Intel 与 Apple Silicon 均支持。
+- 最低系统（桌面版）：macOS 13.0 (Ventura) 及以上，Intel 与 Apple Silicon 均支持；Windows 10 / 11（x64，实验性支持，见已知限制）。
 - 数据本地存储，非商业化个人项目。
 
 ## 两种产品形态
 
-同一份前端代码（`packages/ui`）通过 Port 接口适配多个运行时，目前提供两种形态：
+同一份前端代码（`packages/ui`）通过 Port 接口适配多个运行时，目前提供以下形态：
 
 - **Chrome 扩展**：popup 看板 + 工具栏角标，MV3 Service Worker 后台定时刷新。
 - **macOS 桌面版（Tauri）**：菜单栏常驻应用（不占 Dock），每个持仓分组一个菜单栏实例，实时显示当日涨跌；点击实例弹出浮窗看板。
+- **Windows 桌面版（Tauri，实验性）**：任务栏常驻应用，每个持仓分组一个任务栏项（默认右侧，可单独设置左侧），支持任务栏边缘外边距；系统托盘图标左键弹浮窗（总览）、右键打开设置/退出。
 
 ## 开发指南
 
@@ -86,7 +87,7 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 | --- | --- | --- |
 | Node.js | 22+ | 建议使用仓库锁定的 pnpm |
 | pnpm | 9.15.0 | `packageManager` 已锁定，可用 `corepack enable` |
-| Rust | 最新稳定版 | **仅 macOS 桌面版**需要（Tauri 后端） |
+| Rust | 最新稳定版 | **桌面版**需要（Tauri 后端；Windows 构建需 MSVC 工具链） |
 | Xcode Command Line Tools | — | **仅 macOS 桌面版**需要 |
 
 > macOS 桌面版 UI 基于 Radix Themes 3.x，其 CSS 依赖 Safari 15.4+ 的 Cascade Layers / `:has()` 与 Safari 16.2+ 的 `color-mix()`，低于 macOS 13 的 WKWebView 无法渲染 → 界面白屏，因此安装器会校验系统版本。
@@ -101,7 +102,7 @@ fund01/
 │   └── ui/         @fund01/ui        React 组件（通过 PortsContext 接受 Port 实现）
 ├── apps/
 │   ├── chrome/     Chrome 扩展（popup + background SW + Port 实现）
-│   └── tauri/      macOS 菜单栏桌面应用（Rust 后端 + 同一套 packages/ui）
+│   └── tauri/      桌面应用（Rust 后端 + 同一套 packages/ui；macOS 菜单栏 / Windows 任务栏）
 ├── scripts/        构建 / 打包 / 版本校验脚本
 └── docs/           设计 spec、导入提示词与诊断文档
 ```
@@ -157,7 +158,8 @@ TypeScript 6 / React 19 / pnpm workspaces / Rsbuild 2 / Radix Themes 3 / echarts
 ## 已知限制
 
 - **macOS 桌面版未签名 / 未公证**：当前为 ad-hoc 签名，首次打开会被 Gatekeeper 拦截（需 `xattr -rd com.apple.quarantine /Applications/Fund01.app` 绕过）。后续版本计划接入 Developer ID 签名 + 公证。
-- **仅支持 macOS**：菜单栏形态依赖 macOS 多 `NSStatusItem` 插件，Windows / Linux 适配未做。
+- **Windows 版为实验性支持**：任务栏形态基于自研 `tauri-plugin-multiline-taskband` 插件（仅 Windows 11 验证过，Windows 10 未验证；插件适配缺口清单见 `docs/tauri-plugin-multiline-taskband-适配说明.md`）。Linux 未适配。
+- **macOS 桌面版未签名 / 未公证**：当前为 ad-hoc 签名，首次打开会被 Gatekeeper 拦截（需 `xattr -rd com.apple.quarantine /Applications/Fund01.app` 绕过）。后续版本计划接入 Developer ID 签名 + 公证。
 - **Chrome 扩展 popup 为 MV3 形态**：设置、持仓编辑等重操作放在原生 options 页（常驻标签页），popup 仅保留看板与快捷操作。
 
 ## 文档

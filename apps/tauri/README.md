@@ -27,7 +27,14 @@
 - **退出拦截**：`window::install_terminate_hook`（objc2 给 AppDelegate 挂 `applicationShouldTerminate:`）拦截 Dock 右键「退出」/ Cmd+Q → 只关主界面窗口、menubar 保持常驻；纯 menubar 态（无主界面窗口）放行真正退出。另通过 `RunEvent::ExitRequested` 拦「最后一个窗口销毁 → 隐式退出」，进程常驻。
 - **插件版本**：`tauri-plugin-multiline-menubar` git 依赖固定 `tag = "v1.6.0"`（v1.5.0 新增 per-line 水平对齐；v1.6.0 新增 `NSStatusItemBehaviorRemovalAllowed` 与 remove 事件）。
 
-未来可基于同一份 `packages/ui` + `packages/core` 扩展 Windows / Linux（当前 menubar 形态仅 macOS，插件本身是 macOS 多 `NSStatusItem` 实现）。
+未来可基于同一份 `packages/ui` + `packages/core` 扩展 Linux（当前插件仅 macOS / Windows 两套，Linux 未适配）。
+
+### Windows 任务栏形态（feat/windows-taskband 起，实验性）
+
+- **插件**：自研 [tauri-plugin-multiline-taskband](https://github.com/lingyired/tauri-plugin-multiline-taskband)（git rev 固定，发版后换 tag），仅 Windows 目标编译（`[target.'cfg(target_os = "windows")'.dependencies]`），与 macOS 的 multiline-menubar **互斥编译、API 同构**。
+- **模块**：`taskband.rs`（实例编排，与 `menubar.rs` 平行）、`menubar_common.rs`（纯逻辑共享：期望实例集合/涨跌口径/id 编解码）、`status_bar.rs`（平台分派薄层，lib.rs/commands.rs/refresh.rs 只调它）、`tray.rs`（Tauri 官方托盘：左键弹浮窗「总览」，右键「打开设置…/退出 fund01」）。
+- **平台差异**：无「布局模式」（插件固定上下两行）；分组表多「位置」（左/右停靠侧，`menubarGroupSides`）列与「任务栏边距」（`menubarEdgeMargins`，物理像素）设置；`quit` 菜单 id 由应用自理 `app.exit(0)`（taskband 不保留该 id）；「全空退出」逻辑仅 macOS 生效（Windows 托盘常驻）。详见 `docs/tauri-plugin-multiline-taskband-适配说明.md`。
+- **构建**：Windows 机器上 `pnpm --filter @fund01/tauri tauri:build:windows`（nsis）；`tauri.windows.conf.json`（bundle.targets=nsis）按目标平台自动合并。
 
 ## 1. 项目与构建
 
@@ -41,8 +48,8 @@ pnpm --filter @fund01/tauri tauri build  # 打包 .app / .dmg（release）
 
 - 前端入口（rsbuild 双入口）：`index` → `src/menubar.tsx`（浮窗，加载 `packages/ui` 的 `App`）；
   `options` → `src/options.tsx`（设置窗口，加载 `OptionsApp`）。`?tab=` / `?tab=1` / `#anchor` 由前端解析。
-- `tauri.conf.json`：`frontendDist: "../dist"`，`app.windows: []`（不创建默认窗口，menubar 按需创建），`security.csp: null`（echarts 内联样式），`macOSPrivateApi: true`，`bundle.targets: ["app","dmg"]`，`identifier: com.lingyi.fund01`。
-- Rust 依赖见 `src-tauri/Cargo.toml`：`tauri`（features `tray-icon` + `macos-private-api`）、`tauri-plugin-store`、`tokio`（full）、`reqwest`（json + rustls-tls + cookies）、`chrono`、`regex`、`futures`、`tauri-plugin-multiline-menubar`；macOS-only `objc2` / `objc2-app-kit`（版本与 tauri 依赖链 objc2 0.6.x 对齐）。`profile.release` 用 `lto = "thin"`（fat LTO 与插件 native ObjC++ block 符号不兼容）。
+- `tauri.conf.json`：`frontendDist: "../dist"`，`app.windows: []`（不创建默认窗口，浮窗/设置窗按需创建），`security.csp: null`（echarts 内联样式），`macOSPrivateApi: true`，`bundle.targets: ["app","dmg"]` + `icons/icon.ico`，`identifier: com.lingyi.fund01`。
+- Rust 依赖见 `src-tauri/Cargo.toml`：`tauri`（features `tray-icon` + `macos-private-api`）、`tauri-plugin-store`、`tokio`（full）、`reqwest`（json + rustls-tls + cookies）、`chrono`、`regex`、`futures`；平台 target 段：macOS-only `tauri-plugin-multiline-menubar` + `objc2` / `objc2-app-kit`（版本与 tauri 依赖链 objc2 0.6.x 对齐），Windows-only `tauri-plugin-multiline-taskband`。`profile.release` 用 `lto = "thin"`（fat LTO 与 macOS 插件 native ObjC++ block 符号不兼容）。
 
 ## 2. macOS menubar 架构（实际实现）
 
