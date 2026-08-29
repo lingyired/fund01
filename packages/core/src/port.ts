@@ -121,6 +121,18 @@ export interface WindowPort {
   openInNewWindowTitle?(): string
   /** 是否支持菜单栏（Tauri 实现返回 true；Chrome 不实现 → undefined → UI 自动隐藏「菜单栏」设置 tab） */
   supportsMenubar?(): boolean
+  /**
+   * 状态栏形态（仅 Tauri 实现）：'macos'=顶部菜单栏（multiline-menubar 插件）
+   * / 'windows'=任务栏（multiline-taskband 插件）。Chrome 不实现 → undefined。
+   * 设置页据此切换「菜单栏/任务栏」分区标题与平台专属设置项（布局/边距/停靠侧等）。
+   */
+  menubarPlatform?(): 'macos' | 'windows'
+  /**
+   * 预热 menubarPlatform 缓存并返回真实平台（与 preloadVersion 同模式）：
+   * menubarPlatform() 是同步接口，未 preload 前调用会回落 'macos'，
+   * options 入口 bootstrap 先 await 这里再渲染，避免设置页 tab 文案闪变。
+   */
+  preloadMenubarPlatform?(): Promise<'macos' | 'windows'>
   /** 是否支持扩展角标（Chrome 实现返回 true；Tauri 实现返回 false → UI 自动隐藏「扩展角标」设置项） */
   supportsBadge?(): boolean
   /** 是否支持开机自启动（Tauri 实现返回 true；Chrome 不实现 → undefined → UI 自动隐藏「App 设置」card） */

@@ -45,6 +45,7 @@ import type {
   FundQuoteRow,
   MenubarAlign,
   MenubarLayout,
+  MenubarGroupSide,
   QuoteSource,
   ResolveFundResult,
   SettingsTabId,
@@ -54,6 +55,7 @@ import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
   MENUBAR_DEFAULTS,
+  MENUBAR_EDGE_MARGINS_MAX,
   MENUBAR_FONT_RANGES,
   MENUBAR_OVERVIEW_KEY,
   MIN_REFRESH_INTERVAL,
@@ -196,10 +198,17 @@ export function OptionsApp({
     if (t === 'menubar' && !ports.window.supportsMenubar?.()) return 'general'
     return t
   })
-  // 仅保留当前平台可用的 tab（menubar 只在 tauri 显示）
+  // 仅保留当前平台可用的 tab（menubar 只在 tauri 显示）；
+  // tab 文案按状态栏形态切换：macOS=菜单栏 / Windows=任务栏（bootstrap 已预热，同步读取）
+  const menubarPlatform = ports.window.menubarPlatform?.() ?? 'macos'
   const visibleTabs = useMemo(
-    () => TABS.filter((t) => t.id !== 'menubar' || !!ports.window.supportsMenubar?.()),
-    [ports],
+    () =>
+      TABS.map((t) =>
+        t.id === 'menubar'
+          ? {...t, label: menubarPlatform === 'windows' ? '任务栏' : '菜单栏'}
+          : t,
+      ).filter((t) => t.id !== 'menubar' || !!ports.window.supportsMenubar?.()),
+    [ports, menubarPlatform],
   )
   // 导入持仓成功后会自增，用来触发「编辑持仓」实时刷新
   const [holdingsReload, setHoldingsReload] = useState(0)
@@ -338,7 +347,7 @@ export function OptionsApp({
           </Tabs.Content>
 
           <Tabs.Content value="menubar">
-            <MenubarSection />
+            <MenubarSection platform={menubarPlatform} />
           </Tabs.Content>
         </main>
       </Tabs.Root>
@@ -3147,9 +3156,10 @@ function AboutSection({
   /** 点击「检查更新」按钮（force=true 绕过缓存真正请求远端） */
   onManualCheck?: () => void
 }) {
-  // 平台判断：支持菜单栏 = Tauri macOS 桌面版（Mac 版）；否则为 Chrome 扩展版
+  // 平台判断：支持菜单栏 = Tauri 桌面版（macOS 菜单栏 / Windows 任务栏）；否则为 Chrome 扩展版
   const ports = usePorts()
   const isMac = !!ports.window.supportsMenubar?.()
+  const isWin = isMac && ports.window.menubarPlatform?.() === 'windows'
   return (
     <SectionCard title="关于">
       {/* 发现新版本提示条（下载新版本 / 前往项目主页，均用系统浏览器打开） */}
@@ -3157,12 +3167,18 @@ function AboutSection({
       {/* 项目信息（标题 / 描述随平台变化） */}
       <div className="space-y-1.5">
         <div className="font-display text-base font-bold tracking-tight text-ink">
-          {isMac ? 'Fund01 ：Mac菜单栏基金盯盘工具' : 'Fund01 ：基金盯盘插件'}
+          {isWin
+            ? 'Fund01 ：Windows任务栏基金盯盘工具'
+            : isMac
+              ? 'Fund01 ：Mac菜单栏基金盯盘工具'
+              : 'Fund01 ：基金盯盘插件'}
         </div>
         <p className="text-xs text-muted">
-          {isMac
-            ? '基金实时估值、持仓收益、大盘指数（包括纳指和黄金指数）一站式盯盘，支持多个数据源。支持多个分组，可使用您的 AI 助手搭配我们提供的提示词以及基金截图生成批量导入数据，无需手动一个一个填入。支持多种显示方式，以及隐私模式。支持多个 Mac 菜单栏，每个分组一个菜单栏。方便监控多人的基金持仓状态。'
-            : '基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。'}
+          {isWin
+            ? '基金实时估值、持仓收益、大盘指数（包括纳指和黄金指数）一站式盯盘，支持多个数据源。支持多个分组，可使用您的 AI 助手搭配我们提供的提示词以及基金截图生成批量导入数据，无需手动一个一个填入。支持多种显示方式，以及隐私模式。支持 Windows 任务栏分组与系统托盘，每个分组一个任务栏项。方便监控多人的基金持仓状态。'
+            : isMac
+              ? '基金实时估值、持仓收益、大盘指数（包括纳指和黄金指数）一站式盯盘，支持多个数据源。支持多个分组，可使用您的 AI 助手搭配我们提供的提示词以及基金截图生成批量导入数据，无需手动一个一个填入。支持多种显示方式，以及隐私模式。支持多个 Mac 菜单栏，每个分组一个菜单栏。方便监控多人的基金持仓状态。'
+              : '基金实时估值、持仓收益、大盘指数一站式盯盘。支持 Chrome 扩展（popup + 工具栏角标）与 macOS 菜单栏桌面版（Tauri）。'}
         </p>
         <div className="flex flex-col gap-1 pt-0.5 text-xs text-ink-soft">
           <div className="flex items-center gap-1.5">
@@ -3501,7 +3517,16 @@ function clampToRange(
   return Math.min(range[1], Math.max(range[0], v))
 }
 
-function MenubarSection() {
+/**
+ * 菜单栏/任务栏设置分区（仅 tauri 显示）。
+ * platform='macos' → macOS 顶部菜单栏（multiline-menubar 插件）；
+ * platform='windows' → Windows 任务栏（multiline-taskband 插件）：
+ * 相同设置沿用同一 UI，平台差异仅在于 —— Windows 无「布局模式」（插件固定上下两行）、
+ * 分组表多「位置」（左/右停靠侧）列、多「任务栏边距」（整体外边距）设置。
+ */
+function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
+  const isWindows = platform === 'windows'
+  const display = isWindows ? '任务栏' : '菜单栏'
   const ports = usePorts()
   const [groups, setGroups] = useState<string[]>([])
   const [hidden, setHidden] = useState<string[]>([])
@@ -3525,6 +3550,15 @@ function MenubarSection() {
   const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
   const [fallColor, setFallColor] = useState(MENUBAR_DEFAULTS.fallColor)
   const [flatColor, setFlatColor] = useState(MENUBAR_DEFAULTS.flatColor)
+  // Windows 任务栏专属：分组停靠侧（缺省=右侧）与整体外边距（物理像素）
+  const [groupSides, setGroupSides] = useState<Record<string, MenubarGroupSide>>({})
+  const [edgeMargins, setEdgeMargins] = useState<{left: number; right: number}>({
+    left: 0,
+    right: 0,
+  })
+  // 外边距输入框草稿（字符串）：允许中间态输入（如清空、输入 "12" 的过程），失焦/回车才提交
+  const [marginLeftDraft, setMarginLeftDraft] = useState('0')
+  const [marginRightDraft, setMarginRightDraft] = useState('0')
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
@@ -3549,6 +3583,12 @@ function MenubarSection() {
     setRiseColor(normalizeHexColor(s.menubarRiseColor, MENUBAR_DEFAULTS.riseColor))
     setFallColor(normalizeHexColor(s.menubarFallColor, MENUBAR_DEFAULTS.fallColor))
     setFlatColor(normalizeHexColor(s.menubarFlatColor, MENUBAR_DEFAULTS.flatColor))
+    // Windows 任务栏专属字段（macOS 端读到的都是缺省值，不影响 UI）
+    setGroupSides(s.menubarGroupSides ?? {})
+    const margins = s.menubarEdgeMargins ?? {left: 0, right: 0}
+    setEdgeMargins(margins)
+    setMarginLeftDraft(String(margins.left))
+    setMarginRightDraft(String(margins.right))
     const gs = listHoldingGroups(ports)
     setGroups(gs)
     // 未分组 = 存在份额落在非 holdingGroups 分组的基金（与 Rust 侧 has_ungrouped 口径一致）
@@ -3655,7 +3695,8 @@ function MenubarSection() {
     }
   }
 
-  const range = MENUBAR_FONT_RANGES[layout]
+  // 字号范围：Windows 无布局概念（插件固定上下两行渲染）→ 固定用布局 0 范围；macOS 随布局变化
+  const range = isWindows ? MENUBAR_FONT_RANGES[0] : MENUBAR_FONT_RANGES[layout]
 
   /** 字体族：失焦/回车才保存（避免每按键触发后端刷新） */
   async function commitFontFamily(side: 'top' | 'bottom', v: string) {
@@ -3759,17 +3800,64 @@ function MenubarSection() {
     }
   }
 
+  /** 任务栏分组停靠侧（仅 Windows）：切换即保存；'right' 为默认，仍保留显式条目便于 UI 直观回显 */
+  async function commitGroupSide(g: string, side: MenubarGroupSide) {
+    const next = {...groupSides, [g]: side}
+    setGroupSides(next)
+    try {
+      await updateSettings(ports, {menubarGroupSides: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 任务栏整体外边距（仅 Windows，物理像素）：失焦/回车提交，clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]
+   *  （与 Rust/插件归一化一致，非法输入回落 0） */
+  async function commitEdgeMargin(side: 'left' | 'right', raw: string) {
+    const n = Math.min(MENUBAR_EDGE_MARGINS_MAX, Math.max(0, Math.floor(Number(raw) || 0)))
+    const next = {...edgeMargins, [side]: n}
+    setEdgeMargins(next)
+    if (side === 'left') setMarginLeftDraft(String(n))
+    else setMarginRightDraft(String(n))
+    try {
+      await updateSettings(ports, {menubarEdgeMargins: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 分组「位置」单元格（仅 Windows 渲染）：Radix Select 左/右停靠侧，缺省回显右侧 */
+  const renderSideCell = (key: string, label: string) =>
+    isWindows ? (
+      <td className="py-2 pl-3">
+        <div className="flex justify-end">
+          <Select.Root
+            value={groupSides[key] ?? 'right'}
+            onValueChange={(v) => void commitGroupSide(key, v as MenubarGroupSide)}
+          >
+            <Select.Trigger aria-label={`${label} 停靠位置`} className="w-24" />
+            <Select.Content>
+              <Select.Item value="right">右侧</Select.Item>
+              <Select.Item value="left">左侧</Select.Item>
+            </Select.Content>
+          </Select.Root>
+        </div>
+      </td>
+    ) : null
+
   return (
-    <SectionCard title="菜单栏">
+    <SectionCard title={display}>
       <p className="text-xs text-muted">
-        菜单栏显示在 macOS 顶部状态栏，两行展示基金涨跌（红涨绿跌）。以下设置仅桌面版生效。
+        {isWindows
+          ? '任务栏分组显示在 Windows 任务栏（默认右侧、靠近通知区域），两行展示基金涨跌（红涨绿跌）。以下设置仅桌面版生效。'
+          : '菜单栏显示在 macOS 顶部状态栏，两行展示基金涨跌（红涨绿跌）。以下设置仅桌面版生效。'}
       </p>
 
       {/* 数值显示 */}
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">数值显示</div>
         <p className="text-xs text-muted">
-          菜单栏第二行显示收益率百分比或收益额；收益额用 k(千)/w(万)/kw(千万) 简写。
+          {display}第二行显示收益率百分比或收益额；收益额用 k(千)/w(万)/kw(千万) 简写。
         </p>
         <SegmentedControl.Root
           value={showAmount ? 'amount' : 'percent'}
@@ -3785,13 +3873,16 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
-          菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」默认始终显示、不可在本页关闭；若在菜单栏被按住 ⌘ 拖出，可在此重新开启（开启后恢复始终显示）。
+          {isWindows
+            ? '任务栏分组默认停靠在任务栏右侧（靠近通知区域），可在「位置」中改为左侧（靠近开始按钮一侧）；「显示」控制分组是否出现在任务栏。「总览」默认始终显示、不可在本页关闭。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色。'
+            : '菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」默认始终显示、不可在本页关闭；若在菜单栏被按住 ⌘ 拖出，可在此重新开启（开启后恢复始终显示）。'}
         </p>
         <table className="w-full pt-1 text-sm">
           <thead>
             <tr className="text-xs text-muted">
               <th className="pb-1 text-left font-normal">分组</th>
               <th className="pb-1 text-right font-normal">自定义颜色</th>
+              {isWindows ? <th className="pb-1 pl-3 text-right font-normal">位置</th> : null}
               <th className="pb-1 pl-3 text-right font-normal">显示</th>
             </tr>
           </thead>
@@ -3817,6 +3908,7 @@ function MenubarSection() {
                   />
                 </div>
               </td>
+              {renderSideCell(MENUBAR_OVERVIEW_KEY, '总览')}
               <td className="py-2 pl-3">
                 <div className="flex justify-end">
                   {/* 总览默认恒显、禁止关闭；被 ⌘-拖出后解锁为可重新开启（开启后恢复恒显） */}
@@ -3851,6 +3943,7 @@ function MenubarSection() {
                     />
                   </div>
                 </td>
+                {renderSideCell(g, g)}
                 <td className="py-2 pl-3">
                   <div className="flex justify-end">
                     <Switch radius="full"
@@ -3885,6 +3978,7 @@ function MenubarSection() {
                     />
                   </div>
                 </td>
+                {renderSideCell('', '未分组')}
                 <td className="py-2 pl-3">
                   <div className="flex justify-end">
                     <Switch radius="full"
@@ -3901,32 +3995,80 @@ function MenubarSection() {
         </table>
       </div>
 
-      {/* 布局模式 */}
-      <div className="space-y-2 border-t border-line/50 pt-3">
-        <div className="text-sm font-medium text-ink">布局模式</div>
-        <p className="text-xs text-muted">
-          下行大字/上行小字（默认）、两行等大。每种布局的字号独立记忆，切换布局互不影响。
-        </p>
-        <SegmentedControl.Root
-          value={String(layout)}
-          onValueChange={(v) => void handleLayoutChange(v)}
-          className="pt-1"
-        >
-          {MENUBAR_LAYOUTS.map((opt) => (
-            <SegmentedControl.Item key={opt.value} value={opt.value}>
-              {opt.label}
-            </SegmentedControl.Item>
-          ))}
-        </SegmentedControl.Root>
-      </div>
+      {/* 布局模式（仅 macOS：taskband 插件固定上下两行渲染，无布局概念） */}
+      {!isWindows ? (
+        <div className="space-y-2 border-t border-line/50 pt-3">
+          <div className="text-sm font-medium text-ink">布局模式</div>
+          <p className="text-xs text-muted">
+            下行大字/上行小字（默认）、两行等大。每种布局的字号独立记忆，切换布局互不影响。
+          </p>
+          <SegmentedControl.Root
+            value={String(layout)}
+            onValueChange={(v) => void handleLayoutChange(v)}
+            className="pt-1"
+          >
+            {MENUBAR_LAYOUTS.map((opt) => (
+              <SegmentedControl.Item key={opt.value} value={opt.value}>
+                {opt.label}
+              </SegmentedControl.Item>
+            ))}
+          </SegmentedControl.Root>
+        </div>
+      ) : null}
+
+      {/* 任务栏边距（仅 Windows）：整体外边距，避开开始按钮/其他应用图标 */}
+      {isWindows ? (
+        <div className="space-y-2 border-t border-line/50 pt-3">
+          <div className="text-sm font-medium text-ink">任务栏边距</div>
+          <p className="text-xs text-muted">
+            任务栏分组整体与任务栏左右边缘的留白（物理像素，默认 0）。用于避开开始按钮、其他应用图标或任务栏工具；保存后立即应用。
+          </p>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <label className="space-y-1">
+              <span className="text-sm text-ink-soft leading-none">左侧边距</span>
+              <TextField.Root
+                type="number"
+                min={0}
+                max={MENUBAR_EDGE_MARGINS_MAX}
+                value={marginLeftDraft}
+                onChange={(e) => setMarginLeftDraft(e.target.value)}
+                onBlur={(e) => void commitEdgeMargin('left', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+                className="mt-1"
+                aria-label="左侧边距（像素）"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm text-ink-soft leading-none">右侧边距</span>
+              <TextField.Root
+                type="number"
+                min={0}
+                max={MENUBAR_EDGE_MARGINS_MAX}
+                value={marginRightDraft}
+                onChange={(e) => setMarginRightDraft(e.target.value)}
+                onBlur={(e) => void commitEdgeMargin('right', e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+                className="mt-1"
+                aria-label="右侧边距（像素）"
+              />
+            </label>
+          </div>
+        </div>
+      ) : null}
 
       {/* 字号 */}
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">字号</div>
         <p className="text-xs text-muted">
-          单位 pt。拖动实时预览，松开后保存并立即应用到菜单栏；范围随当前布局模式变化。
+          {isWindows
+            ? '单位 pt。拖动实时预览，松开后保存并立即应用到任务栏。'
+            : '单位 pt。拖动实时预览，松开后保存并立即应用到菜单栏；范围随当前布局模式变化。'}
         </p>
-        {layout === 2 ? (
+        {!isWindows && layout === 2 ? (
           <div className="space-y-1 pt-1">
             <div className="flex items-center justify-between">
               <span className="text-sm text-ink-soft leading-none">等大字号</span>
@@ -3991,7 +4133,9 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">字体</div>
         <p className="text-xs text-muted">
-          默认系统字体。填 macOS 字体族名（如 Menlo），留空=系统字体；失焦或回车保存。
+          {isWindows
+            ? '默认系统字体。填 Windows 字体族名（如 Microsoft YaHei UI），留空=系统字体；失焦或回车保存。'
+            : '默认系统字体。填 macOS 字体族名（如 Menlo），留空=系统字体；失焦或回车保存。'}
         </p>
         <div className="grid grid-cols-2 gap-3 pt-1">
           <label className="space-y-1">
@@ -4053,7 +4197,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">对齐方式</div>
         <p className="text-xs text-muted">
-          菜单栏两行文字的水平对齐：左对齐（默认）、居中、右对齐，上下行独立设置。
+          {display}两行文字的水平对齐：左对齐（默认）、居中、右对齐，上下行独立设置。
         </p>
         <div className="space-y-1.5 pt-1">
           <div className="flex items-center justify-between rounded-md border border-line/50 bg-panel/60 px-3 py-2">
@@ -4091,7 +4235,7 @@ function MenubarSection() {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">颜色</div>
         <p className="text-xs text-muted">
-          上行（分组名/总览）固定色默认白色；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759、平色默认 #8e8e93。
+          上行（分组名/总览）固定色默认白色（Windows 浅色任务栏下如不清晰可自行调深）；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759、平色默认 #8e8e93。
         </p>
         <div className="space-y-1.5 pt-1">
           {(

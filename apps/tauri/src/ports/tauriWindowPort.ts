@@ -4,6 +4,8 @@ import { save } from '@tauri-apps/plugin-dialog'
 import type { CheckUpdateResult, SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
 
 let versionCache = ''
+// 状态栏形态缓存（macos/windows）：preloadMenubarPlatform 后同步可读
+let menubarPlatformCache: 'macos' | 'windows' | '' = ''
 
 /** Tauri 窗口 Port：打开设置窗口 / popup 独立页面（Rust 创建/聚焦对应窗口） */
 export class TauriWindowPort implements WindowPort {
@@ -28,6 +30,27 @@ export class TauriWindowPort implements WindowPort {
   /** 桌面版支持 macOS 菜单栏 → 设置页显示「菜单栏」tab */
   supportsMenubar(): boolean {
     return true
+  }
+
+  /**
+   * 状态栏形态：macOS=顶部菜单栏 / Windows=任务栏（Rust 侧 get_platform 返回
+   * std::env::consts::OS）。设置页据此切换分区标题与平台专属设置项。
+   * 同步接口：未 preload 前回落 'macos'（见 preloadMenubarPlatform 注释）。
+   */
+  menubarPlatform(): 'macos' | 'windows' {
+    if (!menubarPlatformCache) {
+      invoke<string>('get_platform').then((os) => {
+        menubarPlatformCache = os === 'windows' ? 'windows' : 'macos'
+      })
+    }
+    return menubarPlatformCache || 'macos'
+  }
+
+  /** 预热平台缓存并返回真实平台（options 入口 bootstrap await，避免 tab 文案闪变） */
+  async preloadMenubarPlatform(): Promise<'macos' | 'windows'> {
+    const os = await invoke<string>('get_platform')
+    menubarPlatformCache = os === 'windows' ? 'windows' : 'macos'
+    return menubarPlatformCache
   }
 
   /** 扩展角标是 Chrome 扩展能力，桌面版不显示该设置项 */

@@ -34,6 +34,9 @@ async function bootstrap() {
   // 版本号先 await 再渲染：getVersion() 同步接口首次调用会回落 1.0.0（invoke 未返回），
   // 必须等 preloadVersion 拿到真实版本，否则设置页版本号永远显示 1.0.0。
   const version = await windowPort.preloadVersion()
+  // 平台形态同理先 await（macos/windows）：menubarPlatform() 未预热会回落 'macos'，
+  // Windows 上「任务栏」tab 会先渲染成「菜单栏」再闪变，bootstrap 阶段一并预热。
+  await windowPort.preloadMenubarPlatform?.()
 
   createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
