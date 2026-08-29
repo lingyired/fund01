@@ -2,10 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::model::{AppConfig, AppSettings, FundRecord, RefreshInterval};
+use crate::model::{AppConfig, AppSettings, EdgeMargins, FundRecord, RefreshInterval};
 
 pub const DEFAULT_SELECTED_INDICES: [&str; 5] = ["000001", "399001", "399006", "000300", "NDX"];
 pub const MAX_SELECTED_INDICES: usize = 5;
+
+/// 任务栏外边距上限（物理像素，防误输入撑爆任务栏；与 TS MENUBAR_EDGE_MARGINS_MAX 对应）
+pub const MENUBAR_EDGE_MARGINS_MAX: i32 = 2000;
 
 pub const DEFAULT_REFRESH_INTERVAL: RefreshInterval = RefreshInterval {
     trading: 60,
@@ -47,6 +50,8 @@ pub fn default_config() -> AppConfig {
             menubar_rise_color: Some("#FF4F44".to_string()),
             menubar_fall_color: Some("#34C759".to_string()),
             menubar_flat_color: Some("#8e8e93".to_string()),
+            menubar_group_sides: Some(HashMap::new()),
+            menubar_edge_margins: Some(EdgeMargins { left: 0, right: 0 }),
             group_tab_show_detail: Some(true),
             group_tab_detail_mode: Some("percent".to_string()),
         },
@@ -400,6 +405,39 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
     let menubar_flat_color = color_of("menubarFlatColor", "#8e8e93");
+    // menubarGroupSides（仅 Windows 生效）：key 限 ''/__overview__/有效分组，value 限 'left'|'right'，
+    // 非法条目直接丢弃（= 回落右侧默认，与 TS normalizeMenubarGroupSides 一致）
+    let menubar_group_sides: HashMap<String, String> = settings_raw
+        .and_then(|s| s.get("menubarGroupSides"))
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            let mut map = HashMap::new();
+            for (k, v) in obj {
+                let key = k.trim().to_string();
+                let side = v.as_str().unwrap_or("");
+                if (key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key))
+                    && (side == "left" || side == "right")
+                {
+                    map.insert(key, side.to_string());
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+    // menubarEdgeMargins（仅 Windows 生效，物理像素）：clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]，
+    // 非法/缺省回落 0（与插件 set_edge_margins 的 clamp>=0 语义、TS normalizeMenubarEdgeMargins 一致）
+    let clamp_margin = |v: Option<f64>| -> i32 {
+        let n = v.unwrap_or(0.0);
+        if !n.is_finite() {
+            return 0;
+        }
+        n.floor().clamp(0.0, MENUBAR_EDGE_MARGINS_MAX as f64) as i32
+    };
+    let raw_margins = settings_raw.and_then(|s| s.get("menubarEdgeMargins"));
+    let menubar_edge_margins = EdgeMargins {
+        left: clamp_margin(raw_margins.and_then(|m| m.get("left")).and_then(|v| v.as_f64())),
+        right: clamp_margin(raw_margins.and_then(|m| m.get("right")).and_then(|v| v.as_f64())),
+    };
     // popup 分组 Tab 收益详情：默认开启（true）；mode 仅 "amount" 合法，否则 percent
     let group_tab_show_detail = settings_raw
         .and_then(|s| s.get("groupTabShowDetail").and_then(|v| v.as_bool()))
@@ -494,6 +532,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_rise_color: Some(menubar_rise_color),
             menubar_fall_color: Some(menubar_fall_color),
             menubar_flat_color: Some(menubar_flat_color),
+            menubar_group_sides: Some(menubar_group_sides),
+            menubar_edge_margins: Some(menubar_edge_margins),
             group_tab_show_detail: Some(group_tab_show_detail),
             group_tab_detail_mode: Some(group_tab_detail_mode),
         },

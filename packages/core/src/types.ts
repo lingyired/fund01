@@ -156,6 +156,9 @@ export type MenubarLayout = 0 | 2
 /** 菜单栏文字水平对齐方式：0=左对齐(默认) 1=居中 2=右对齐。仅 tauri 生效 */
 export type MenubarAlign = 0 | 1 | 2
 
+/** Windows 任务栏分组停靠侧：left=任务栏左缘 right=任务栏右缘（默认）。仅 tauri Windows 生效 */
+export type MenubarGroupSide = 'left' | 'right'
+
 /** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
 export type HoldingsNavPosition = 'top' | 'side'
 
@@ -239,6 +242,19 @@ export type AppSettings = {
   menubarFallColor?: string
   /** 菜单栏下行平色（hex，默认 #8e8e93）。仅 tauri 生效 */
   menubarFlatColor?: string
+  /**
+   * 各任务栏分组的停靠侧（仅 tauri Windows 生效）：'left'=任务栏左缘、'right'=右缘（默认）。
+   * key 约定与 menubarHiddenGroups 一致（''=未分组、'__overview__'=总览、其余=分组名）；
+   * 未配置的分组一律视为 right。对应 tauri-plugin-multiline-taskband 的 set_side。
+   */
+  menubarGroupSides?: Record<string, MenubarGroupSide>
+  /**
+   * 任务栏分组整体的外边距（仅 tauri Windows 生效，物理像素）：
+   * left=距任务栏左缘的留白（左侧分组使用），right=距通知区域/右缘的留白（右侧分组使用），
+   * 用于避开开始按钮或其他应用图标。对应 tauri-plugin-multiline-taskband 的 set_edge_margins。
+   * 默认 {left:0, right:0}。
+   */
+  menubarEdgeMargins?: {left: number; right: number}
   /**
    * popup 分组 Tab 是否显示两行：分组名下方增加当日收益详情行。
    * 默认 true（两行：名称 + 基金数 + 当日收益）。关闭后回到单行。两行模式文字整体缩小。

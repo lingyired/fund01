@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -40,6 +40,14 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
 /** 总览实例在 menubarGroupColors 中的固定 key（下划线前缀避免与用户分组名冲突） */
 export const MENUBAR_OVERVIEW_KEY = '__overview__'
+
+/** 任务栏外边距默认值（物理像素，仅 tauri Windows 生效；与插件 set_edge_margins 默认一致） */
+export const MENUBAR_EDGE_MARGINS_DEFAULT: {left: number; right: number} = {
+  left: 0,
+  right: 0,
+}
+/** 任务栏外边距合法区间（物理像素）：上限防误输入撑爆任务栏 */
+export const MENUBAR_EDGE_MARGINS_MAX = 2000
 
 /** 归一化 hex 颜色：仅接受 #rrggbb，非法回落 fallback */
 export function normalizeHexColor(v: unknown, fallback: string): string {
@@ -84,6 +92,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
     menubarFlatColor: MENUBAR_DEFAULTS.flatColor,
+    // 任务栏（仅 tauri Windows）：分组默认全部停靠右侧；外边距默认 0
+    menubarGroupSides: {},
+    menubarEdgeMargins: {...MENUBAR_EDGE_MARGINS_DEFAULT},
     // popup 分组 Tab 收益详情默认开启（两行：分组名 + 当日收益）
     groupTabShowDetail: true,
     groupTabDetailMode: 'percent',
@@ -293,6 +304,37 @@ export function normalizeMenubarGroupColors(
   return next
 }
 
+/** 归一化各任务栏分组停靠侧（仅 tauri Windows）：仅保留 ''(未分组)、总览或存在于
+ *  holdingGroups 的 key，value 仅接受 'left'|'right'（非法条目直接丢弃=回落右侧默认） */
+export function normalizeMenubarGroupSides(
+  v: unknown,
+  groups: string[],
+): Record<string, MenubarGroupSide> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  const valid = new Set(groups)
+  const next: Record<string, MenubarGroupSide> = {}
+  for (const [g, side] of Object.entries(v as Record<string, unknown>)) {
+    const key = String(g ?? '').trim()
+    if (key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) {
+      if (side === 'left' || side === 'right') next[key] = side
+    }
+  }
+  return next
+}
+
+/** 归一化任务栏外边距（仅 tauri Windows，物理像素）：非负整数，clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]，
+ *  非法回落 0（与插件 set_edge_margins 的 clamp>=0 语义对齐） */
+export function normalizeMenubarEdgeMargins(v: unknown): {left: number; right: number} {
+  const clamp = (raw: unknown): number => {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return 0
+    return Math.min(MENUBAR_EDGE_MARGINS_MAX, Math.max(0, Math.floor(n)))
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {...MENUBAR_EDGE_MARGINS_DEFAULT}
+  const rec = v as Record<string, unknown>
+  return {left: clamp(rec.left), right: clamp(rec.right)}
+}
+
 export function normalizeConfig(payload: LegacyAppConfig | null | undefined): AppConfig {
   // 兼容旧格式：单一 funds map（仅纳入 type='hold' 的持仓；旧自选条目不再迁移）
   const holdings: FundMap = {}
@@ -450,6 +492,14 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       menubarFlatColor: normalizeHexColor(
         payload?.settings?.menubarFlatColor,
         MENUBAR_DEFAULTS.flatColor,
+      ),
+      // 任务栏（仅 tauri Windows）：停靠侧与外边距；其他平台忽略
+      menubarGroupSides: normalizeMenubarGroupSides(
+        payload?.settings?.menubarGroupSides,
+        holdingGroups,
+      ),
+      menubarEdgeMargins: normalizeMenubarEdgeMargins(
+        payload?.settings?.menubarEdgeMargins,
       ),
       // popup 分组 Tab 收益详情：默认开启（true）；旧配置缺失时回落默认
       groupTabShowDetail:

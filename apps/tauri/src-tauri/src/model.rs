@@ -139,6 +139,13 @@ pub struct AppSettings {
     /// 菜单栏下行平色（hex，默认 #8e8e93）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_flat_color: Option<String>,
+    /// 各任务栏分组停靠侧（仅 Windows 生效）：'left'|'right'（缺省=右侧）。
+    /// key 约定与 menubar_hidden_groups 一致（''=未分组、'__overview__'=总览、其余=分组名）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_group_sides: Option<HashMap<String, String>>,
+    /// 任务栏分组整体外边距（仅 Windows 生效，物理像素）：left=左缘留白 right=右缘留白
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_edge_margins: Option<EdgeMargins>,
     /// popup 分组 Tab 是否显示两行收益详情（默认 true：分组名 + 当日收益）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_tab_show_detail: Option<bool>,
@@ -178,6 +185,8 @@ impl Default for AppSettings {
             menubar_rise_color: None,
             menubar_fall_color: None,
             menubar_flat_color: None,
+            menubar_group_sides: None,
+            menubar_edge_margins: None,
             group_tab_show_detail: None,
             group_tab_detail_mode: None,
         }
@@ -189,6 +198,15 @@ impl Default for AppSettings {
 pub struct RefreshInterval {
     pub trading: u64,
     pub non_trading: u64,
+}
+
+/// 任务栏分组整体外边距（仅 Windows 生效，物理像素；对应 taskband 插件 set_edge_margins）。
+/// left=距任务栏左缘留白（左侧分组用），right=距通知区域/右缘留白（右侧分组用）
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct EdgeMargins {
+    pub left: i32,
+    pub right: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
