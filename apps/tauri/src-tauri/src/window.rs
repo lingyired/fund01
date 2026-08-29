@@ -14,7 +14,7 @@ use tauri::{
 };
 
 #[cfg(not(target_os = "macos"))]
-use tauri::{LogicalPosition, Position};
+use tauri::{PhysicalPosition, Position};
 
 #[cfg(target_os = "macos")]
 use std::ptr::NonNull;
@@ -98,12 +98,10 @@ fn attach_popup_handlers(app: &AppHandle, win: &WebviewWindow) {
 #[cfg(target_os = "macos")]
 fn set_popup_native_flags(win: &WebviewWindow) {
     let win2 = win.clone();
-    let _ = win.run_on_main_thread(move || {
-        unsafe {
-            if let Ok(ptr) = win2.ns_window() {
-                let ns_win: *mut AnyObject = ptr.cast();
-                let _: () = msg_send![ns_win, setHidesOnDeactivate: true];
-            }
+    let _ = win.run_on_main_thread(move || unsafe {
+        if let Ok(ptr) = win2.ns_window() {
+            let ns_win: *mut AnyObject = ptr.cast();
+            let _: () = msg_send![ns_win, setHidesOnDeactivate: true];
         }
     });
 }
@@ -210,10 +208,9 @@ fn popup_from_mouse(
 ) -> (f64, f64) {
     let mut x = mouse.0 - win_w / 2.0;
     let mut y = 0.0;
-    if let Some(&(sx, _yb, yt, sw)) = screens_ak
-        .iter()
-        .find(|&&(sx, yb, yt, sw)| mouse.0 >= sx && mouse.0 < sx + sw && mouse.1 >= yb && mouse.1 <= yt)
-    {
+    if let Some(&(sx, _yb, yt, sw)) = screens_ak.iter().find(|&&(sx, yb, yt, sw)| {
+        mouse.0 >= sx && mouse.0 < sx + sw && mouse.1 >= yb && mouse.1 <= yt
+    }) {
         x = x.clamp(sx, (sx + sw - win_w).max(sx));
         y = yt - thickness - 1.0;
     }
@@ -237,9 +234,9 @@ fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f6
         .flatten()
         .map(|m| m.size().height as f64 / m.scale_factor())
         .unwrap_or(0.0); // 主屏逻辑高（pt）
-    // 各屏 → AppKit 全局 points 区间 (左x, 底y, 顶y, 宽)：
-    // tauri Monitor::position() = CGDisplayBounds×scale（top-left 原点、y 向下，副屏在上方 y 负），
-    // size() = 物理×scale；÷scale 还原 points 后翻转 y 为屏底向上（底y = main_h - (sy+sh)，顶y = main_h - sy）。
+                         // 各屏 → AppKit 全局 points 区间 (左x, 底y, 顶y, 宽)：
+                         // tauri Monitor::position() = CGDisplayBounds×scale（top-left 原点、y 向下，副屏在上方 y 负），
+                         // size() = 物理×scale；÷scale 还原 points 后翻转 y 为屏底向上（底y = main_h - (sy+sh)，顶y = main_h - sy）。
     let screens_ak: Vec<(f64, f64, f64, f64)> = app
         .available_monitors()
         .unwrap_or_default()
@@ -277,10 +274,73 @@ fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f6
     });
 }
 
+/// Windows（及非 macOS 平台）：把浮窗定位到任务栏项/托盘图标旁。
+///
+/// rect 为 taskband click 事件 / 托盘事件给出的**物理像素**矩形（屏幕坐标、top-left 原点）：
+/// - 水平任务栏（绝大多数场景）→ 浮窗贴分组正上方（间隙 1 逻辑 px）、水平居中于分组；
+///   上方空间不足（顶部任务栏/上屏边缘）→ 翻到分组下方；
+/// - 竖直任务栏（rect 高>宽）→ 左缘任务栏弹分组右侧、右缘任务栏弹分组左侧，垂直居中；
+/// - x/y clamp 到分组所在显示器（遍历 monitors 找包含 rect 中心者，找不到回退主屏；
+///   均不可得时不 clamp）。
+/// 多屏拼接 / 任务栏自动隐藏等场景待 Windows 真机验证（mac 侧无法覆盖）。
 #[cfg(not(target_os = "macos"))]
-fn position_below(app: &AppHandle, win: &WebviewWindow, _rect: (f64, f64, f64, f64)) {
-    let _ = win.set_position(Position::Logical(LogicalPosition::new(0.0, 0.0)));
-    let _ = app;
+fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f64)) {
+    let scale = win.scale_factor().unwrap_or(1.0);
+    // 窗口尺寸（物理 px）：无边框窗口 outer=inner（680×600）；刚 build 未完成布局时
+    // outer_size 可能为 0 → 回退逻辑尺寸×scale 估算
+    let outer = win.outer_size().unwrap_or_default();
+    let (mut w, mut h) = (outer.width as f64, outer.height as f64);
+    if w <= 0.0 || h <= 0.0 {
+        w = 680.0 * scale;
+        h = 600.0 * scale;
+    }
+    let gap = scale; // 与分组的间隙：1 逻辑 px（物理 px 计）
+    let (cx, cy) = (rect.0 + rect.2 / 2.0, rect.1 + rect.3 / 2.0);
+    // 分组所在显示器（物理坐标区间）
+    let monitor = app
+        .available_monitors()
+        .ok()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|m| {
+            let p = m.position();
+            let s = m.size();
+            cx >= p.x as f64
+                && cx < (p.x + s.width) as f64
+                && cy >= p.y as f64
+                && cy < (p.y + s.height) as f64
+        })
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let (mx, my, mw, mh) = monitor
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            (p.x as f64, p.y as f64, s.width as f64, s.height as f64)
+        })
+        .unwrap_or((0.0, 0.0, f64::MAX, f64::MAX));
+    let (mut x, mut y);
+    if rect.3 > rect.2 {
+        // 竖直任务栏：按屏中线判断分组在左缘还是右缘任务栏
+        if cx < mx + mw / 2.0 {
+            x = rect.0 + rect.2 + gap;
+        } else {
+            x = rect.0 - w - gap;
+        }
+        y = cy - h / 2.0;
+    } else {
+        // 水平任务栏：贴分组正上方
+        x = cx - w / 2.0;
+        y = rect.1 - h - gap;
+        if y < my {
+            y = rect.1 + rect.3 + gap; // 顶部任务栏 → 翻到分组下方
+        }
+    }
+    x = x.clamp(mx, (mx + mw - w).max(mx));
+    y = y.clamp(my, (my + mh - h).max(my));
+    let _ = win.set_position(Position::Physical(PhysicalPosition::new(
+        x.round() as i32,
+        y.round() as i32,
+    )));
 }
 
 /// 显示浮窗（点击 menubar 实例时调用；rect 为该实例屏幕位置）。
@@ -349,7 +409,7 @@ pub fn open_popup_tab_window(app: &AppHandle) {
                         let empty = {
                             let state = app2.state::<crate::state::AppState>();
                             let cfg = state.config.read().unwrap().clone();
-                            crate::menubar::menubar_all_hidden(&cfg)
+                            crate::status_bar::all_hidden(&cfg)
                         };
                         if empty {
                             eprintln!("[fund01] menubar 全空且无窗口 → 退出 app");
@@ -379,7 +439,10 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
     }
     let url = match tab {
         Some(t) if t == "holdings" || t == "data" => {
-            let hash = anchor.filter(|_| t == "holdings").map(|a| format!("#{a}")).unwrap_or_default();
+            let hash = anchor
+                .filter(|_| t == "holdings")
+                .map(|a| format!("#{a}"))
+                .unwrap_or_default();
             format!("options.html?tab={t}{hash}")
         }
         _ => "options.html".to_string(),
@@ -403,7 +466,7 @@ pub fn open_settings_window(app: &AppHandle, tab: Option<&str>, anchor: Option<&
                         let empty = {
                             let state = app2.state::<crate::state::AppState>();
                             let cfg = state.config.read().unwrap().clone();
-                            crate::menubar::menubar_all_hidden(&cfg)
+                            crate::status_bar::all_hidden(&cfg)
                         };
                         if empty {
                             eprintln!("[fund01] menubar 全空且无窗口 → 退出 app");
@@ -455,11 +518,12 @@ pub fn install_terminate_hook(app: &AppHandle) {
         if class_getInstanceMethod(cls as *const AnyClass, should_terminate_sel).is_null() {
             // fn item 先转 fn pointer，再 transmute 成 Imp（objc2 内部 MethodImplementation::__imp 同款做法；
             // trait 对 Option<&AnyObject> 参数签名的 impl 缺失，故手动 transmute，两者语义等价）
-            let impl_fn = application_should_terminate as unsafe extern "C-unwind" fn(
-                &AnyObject,
-                Sel,
-                Option<&AnyObject>,
-            ) -> NSApplicationTerminateReply;
+            let impl_fn = application_should_terminate
+                as unsafe extern "C-unwind" fn(
+                    &AnyObject,
+                    Sel,
+                    Option<&AnyObject>,
+                ) -> NSApplicationTerminateReply;
             let imp: Imp = std::mem::transmute(impl_fn);
             let ok = class_addMethod(cls, should_terminate_sel, imp, c"L@:@".as_ptr());
             if !ok.as_bool() {

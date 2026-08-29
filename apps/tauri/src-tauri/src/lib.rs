@@ -1,4 +1,4 @@
-// fund01 Tauri 桌面版（macOS menubar）—— 应用装配入口
+// fund01 Tauri 桌面版 —— 应用装配入口（macOS menubar / Windows taskband 双平台）
 
 mod badge;
 mod calc;
@@ -11,7 +11,8 @@ mod fundname;
 mod history;
 mod http;
 mod market;
-mod menubar;
+// 纯逻辑共享层（实例期望集合/涨跌口径/id 编解码），macOS 与 Windows 编排层共用
+mod menubar_common;
 mod model;
 mod portfolio;
 mod providers;
@@ -20,28 +21,42 @@ mod state;
 mod theme;
 mod update;
 mod window;
+// 平台编排层：macOS 菜单栏（multiline-menubar 插件）/ Windows 任务栏（multiline-taskband 插件）
+#[cfg(target_os = "macos")]
+mod menubar;
+#[cfg(target_os = "windows")]
+mod taskband;
+#[cfg(target_os = "windows")]
+mod tray;
+// 统一分派入口（调用方不感知平台差异）
+mod status_bar;
 
 use tauri::{AppHandle, Manager};
-use tauri_plugin_multiline_menubar::MultilineMenubarExt;
 
 use state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
-        // 开机自启动（macOS LaunchAgent 登录项；与 Clash Verge Rev 同款 tauri-plugin-autostart）。
-        // 注意：LaunchAgent 只写 ~/Library/LaunchAgents/*.plist，不立即 launchctl load ——
+        // 开机自启动（macOS LaunchAgent 登录项 / Windows 注册表 Run 键，同款 tauri-plugin-autostart）。
+        // 注意：macOS LaunchAgent 只写 ~/Library/LaunchAgents/*.plist，不立即 launchctl load ——
         // 勾选后需重启登录，launchd 才加载并登记到系统设置「登录项」列表（clash 亦如此）。
-        // 第二个参数（--autostart）写入 plist ProgramArguments：登录项拉起时进程带该参数，
+        // 第二个参数（--autostart）写入启动参数：登录项拉起时进程带该参数，
         // setup 据此静默常驻（不弹设置窗口），手动打开则无此参数。
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
         ))
         // 原生保存/打开对话框（导出配置选位置保存 → 前端 save() + export_config_file 落盘）
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_multiline_menubar::init())
+        .plugin(tauri_plugin_dialog::init());
+    // 平台状态栏插件：两插件 API 同构、互斥编译（Cargo.toml 按 target 分段引入）
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_multiline_menubar::init());
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_multiline_taskband::init());
+
+    let app = builder
         .manage(AppState::new(portfolio::default_config()))
         .invoke_handler(tauri::generate_handler![
             commands::trigger_refresh,
@@ -58,6 +73,7 @@ pub fn run() {
             commands::open_settings_window,
             commands::open_popup_tab_window,
             commands::get_version,
+            commands::get_platform,
             commands::check_update,
             commands::open_external,
             commands::export_config_file,
@@ -75,43 +91,55 @@ pub fn run() {
             // 加载持久化配置（无则用默认）
             load_config(app.handle())?;
 
-            // 插件：禁用自动 popup（生命周期由 window.rs 自管）
-            app.multiline_menubar().set_auto_popup(false)?;
-            app.multiline_menubar().set_popup_window(window::POPUP_LABEL.to_string())?;
+            // 平台插件装配：禁用自动 popup（生命周期由 window.rs 自管）+ 声明浮窗 label
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_multiline_menubar::MultilineMenubarExt;
+                app.multiline_menubar().set_auto_popup(false)?;
+                app.multiline_menubar()
+                    .set_popup_window(window::POPUP_LABEL.to_string())?;
+            }
+            #[cfg(target_os = "windows")]
+            taskband::setup(app.handle());
 
-            // 菜单事件（右键菜单项）
+            // Windows: 系统托盘（左键 → 浮窗「总览」分组；右键 → 打开设置/退出）
+            #[cfg(target_os = "windows")]
+            tray::create_tray(app.handle())?;
+
+            // 菜单事件（实例右键菜单 + Windows 托盘菜单，统一分派）
             {
                 let app = app.handle().clone();
                 app.on_menu_event(|app, event| {
                     let item_id = event.id().0.as_str();
-                    menubar::on_menu_event(app, item_id);
+                    status_bar::on_menu_event(app, item_id);
                 });
             }
 
-            // 重建 menubar 实例 + 监听点击
+            // 重建 menubar/taskband 实例 + 监听点击
             let handle = app.handle().clone();
             let state = app.state::<AppState>();
             let mut config = state.config.read().unwrap().clone();
-            // 上次退出时 menubar 全空（用户移除了全部实例，关掉最后一个窗口退出）→
-            // 用户主动重新打开 app = 想用，自动恢复默认菜单栏（清空隐藏列表，rebuild 全量复活）。
-            if menubar::menubar_all_hidden(&config) {
+            // 上次退出时实例全空（用户移除了全部实例，关掉最后一个窗口退出）→
+            // 用户主动重新打开 app = 想用，自动恢复默认（清空隐藏列表，rebuild 全量复活）。
+            // Windows 无 ⌘-拖出通道、总览不可经 UI 隐藏 → all_hidden 恒 false，此分支不触发。
+            if status_bar::all_hidden(&config) {
                 eprintln!("[fund01] 启动检测 menubar 全空 → 恢复默认菜单栏");
                 config.settings.menubar_hidden_groups = Some(vec![]);
                 *state.config.write().unwrap() = config.clone();
                 crate::commands::persist_config(&handle, &config);
             }
             let quote = state.quote.read().unwrap().clone();
-            menubar::rebuild_menubar(&handle, &config, quote.as_ref());
+            status_bar::rebuild(&handle, &config, quote.as_ref());
 
             // 静默启动判断（决定是否打开设置界面）：
             // - 登录项拉起（带 --autostart）→ 静默（开机自启动场景，不弹设置窗口）
             // - 用户勾选「静默启动」（clash-verge-rev enable_silent_start 同款）→ 任何方式启动都静默
-            // - 其余（手动打开）→ 打开设置界面（menubar 常驻，打开 app 即见主界面窗口）
+            // - 其余（手动打开）→ 打开设置界面（常驻托盘/菜单栏，打开 app 即见主界面窗口）
             let is_autostart_launch = std::env::args().any(|a| a == "--autostart");
             let is_silent_start = config.settings.silent_start.unwrap_or(false);
             if is_autostart_launch || is_silent_start {
                 eprintln!(
-                    "[fund01] 静默启动（autostart={is_autostart_launch}, silent_start={is_silent_start}）→ 仅常驻 menubar，不打开设置界面"
+                    "[fund01] 静默启动（autostart={is_autostart_launch}, silent_start={is_silent_start}）→ 仅常驻状态栏，不打开设置界面"
                 );
             } else {
                 window::open_settings_window(&handle, None, None);
@@ -129,8 +157,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building fund01 tauri application");
 
-    // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，menubar 实例不随浮窗销毁。
-    // 显式退出（右键菜单「退出 fund01」→ 插件 quit 延迟 app.exit(0)）code.is_some() → 放行。
+    // 拦截「最后一个窗口销毁 → 隐式退出」：进程保持常驻，实例不随浮窗销毁
+    //（macOS menubar / Windows 托盘都要求常驻）。显式退出（右键菜单「退出 fund01」）
+    // code.is_some() → 放行。
     app.run(|app, event| {
         match event {
             // macOS：进程常驻时用户再次点击 Dock / 启动台 / Finder 双击 app，
@@ -142,7 +171,7 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { code, api, .. } => {
                 crate::err_log!("[退出] ExitRequested code={code:?}");
                 if code.is_none() {
-                    eprintln!("[fund01] 窗口全关，保持常驻（menubar 存活）");
+                    eprintln!("[fund01] 窗口全关，保持常驻（状态栏/托盘存活）");
                     api.prevent_exit();
                 }
             }

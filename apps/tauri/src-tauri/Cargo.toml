@@ -28,22 +28,30 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"] }
 chrono = "0.4"
 regex = "1"
 futures = "0.3"
-# 多行 menubar 插件（用户自研）：固定 GitHub v1.6.1（v1.5.0 新增 per-line 水平对齐；v1.6.0 新增
-# NSStatusItemBehaviorRemovalAllowed —— 用户可 ⌘-拖出单个实例而不影响其他，并 emit remove 事件；
-# v1.6.1 修复右键菜单退出挂起：native 补发 rightMouseUp + quit 延迟 ~200ms 异步 app.exit），
-# 与本地工作区解耦
-tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.6.1" }
 
+# 平台状态栏插件（用户自研、API 同构、互斥编译）：
+# - macOS multiline-menubar：固定 GitHub v1.6.1（v1.5.0 新增 per-line 水平对齐；v1.6.0 新增
+#   NSStatusItemBehaviorRemovalAllowed —— 用户可 ⌘-拖出单个实例而不影响其他，并 emit remove 事件；
+#   v1.6.1 修复右键菜单退出挂起：native 补发 rightMouseUp + quit 延迟 ~200ms 异步 app.exit）
+# - Windows multiline-taskband：见下方 target 段
+# 与本地工作区解耦
 # macOS: 拦截 Dock 右键「退出」/ Cmd+Q（NSApp terminate:），给 AppDelegate 动态挂 applicationShouldTerminate:
 # 实现「退出 = 只关设置窗口，menubar 保持常驻」。版本与 tauri 依赖链 objc2 0.6.x 一致。
 # block2: popup 点击外部自动隐藏 —— 全局 NSEvent mouseDown monitor（见 window.rs install_global_click_monitor）。
 # macOS 上 floating level / Accessory app 的 windowDidResignKey 经常不触发，Focused(false) 兜不住，
 # 全局 monitor 按点击坐标判断（社区验证最可靠）。block2 与 objc2-app-kit 的 "block2" feature 配套。
 [target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.6.1" }
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["block2"] }
 objc2-foundation = "0.3"
 block2 = "0.6"
+
+# Windows 任务栏多行分组插件：仅 windows 目标编译，macOS 构建完全不带。
+# 插件尚无 tag，先 pin rev（2026-08-29 main），插件发版后换成 tag
+#（见 docs/tauri-plugin-multiline-taskband-适配说明.md）。
+[target.'cfg(target_os = "windows")'.dependencies]
+tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", rev = "9597d41ec5fbc87a95c32aa2fd8b2439e6a6ee3e" }
 
 [profile.release]
 strip = true

@@ -179,6 +179,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_rise_color = None;
     a.settings.menubar_fall_color = None;
     a.settings.menubar_flat_color = None;
+    a.settings.menubar_group_sides = None;
+    a.settings.menubar_edge_margins = None;
     a.settings.privacy_mode = None;
     b.settings.menubar_hidden_groups = None;
     b.settings.menubar_layout = None;
@@ -197,6 +199,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_rise_color = None;
     b.settings.menubar_fall_color = None;
     b.settings.menubar_flat_color = None;
+    b.settings.menubar_group_sides = None;
+    b.settings.menubar_edge_margins = None;
     b.settings.privacy_mode = None;
     a == b
 }
@@ -264,7 +268,7 @@ pub async fn save_config(
     }
     // 分组/持仓变化 → 重建 menubar 实例（含菜单栏样式应用）
     let quote = state.quote.read().unwrap().clone();
-    crate::menubar::rebuild_menubar(&app, &normalized, quote.as_ref());
+    crate::status_bar::rebuild(&app, &normalized, quote.as_ref());
     // 仅当「影响行情数据的配置」变更时才立即刷新；
     // 纯菜单栏展示设置（隐藏分组/布局/字号）不触发网络请求
     if !is_menubar_only_settings_change(&old, &normalized) {
@@ -300,6 +304,13 @@ pub async fn open_popup_tab_window(app: AppHandle) {
 #[tauri::command]
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// 当前平台（"macos" / "windows" / "linux"，std::env::consts::OS）。
+/// 前端设置页据此切换「菜单栏（macOS）」/「任务栏（Windows）」设置分区。
+#[tauri::command]
+pub fn get_platform() -> String {
+    std::env::consts::OS.to_string()
 }
 
 /// 检查是否有新版本（仅 Tauri 桌面版）。

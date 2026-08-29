@@ -11,13 +11,13 @@ use tokio::sync::Notify;
 
 use crate::calc::{calc_holdings, PersistPatch};
 use crate::calendar;
-use crate::menubar;
 use crate::model::{
     AppConfig, FundQuote, FundQuoteRow, FundRecord, HoldingsPayload, IndexItem, QuoteUpdate,
 };
 use crate::portfolio::DEFAULT_REFRESH_INTERVAL;
 use crate::providers::{get_quote_provider, FundQuoteInput, QuoteSource};
 use crate::state::AppState;
+use crate::status_bar;
 
 /// 推送给前端的自动刷新计划
 #[derive(Clone, serde::Serialize)]
@@ -267,7 +267,7 @@ fn split_indices(list: &[IndexItem]) -> (Vec<IndexItem>, Vec<IndexItem>) {
     (a, us)
 }
 
-/// 合并缓存 → 写 state.quote → 广播 quote-update → menubar
+/// 合并缓存 → 写 state.quote → 广播 quote-update → 状态栏实例（menubar/taskband）
 async fn broadcast(
     app: &AppHandle,
     holdings: Option<HoldingsPayload>,
@@ -287,8 +287,8 @@ async fn broadcast(
     // 板块回写（在 emit 之后，避免与 config 锁竞争）
     apply_patches(app, patches);
 
-    // menubar 更新
-    menubar::update_menubar_with(app, &Some(update));
+    // 状态栏实例更新（macOS menubar / Windows taskband）
+    status_bar::update_with(app, &Some(update));
 }
 
 /// 全量刷新（trigger_refresh 手动刷新 / 导入配置后）：日盘 → 夜盘

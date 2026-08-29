@@ -957,6 +957,7 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-dialog",
  "tauri-plugin-multiline-menubar",
+ "tauri-plugin-multiline-taskband",
  "tauri-plugin-store",
  "tokio",
 ]
@@ -3814,6 +3815,19 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "tauri-plugin-multiline-taskband"
+version = "0.1.0"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-taskband?rev=9597d41ec5fbc87a95c32aa2fd8b2439e6a6ee3e#9597d41ec5fbc87a95c32aa2fd8b2439e6a6ee3e"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.19",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
