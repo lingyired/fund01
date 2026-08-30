@@ -133,8 +133,12 @@ macOS 与 Windows 本就是两种形态（菜单栏 vs 任务栏），行为存�
 ```powershell
 # 前置：Node 22+ / pnpm 9.15 / Rust stable-msvc / WebView2（Win11 自带）
 pnpm install
-pnpm --filter @fund01/tauri tauri:build:windows   # tauri build --bundles nsis
-# 产物：apps/tauri/src-tauri/target/release/bundle/nsis/*.exe
+pnpm --filter @fund01/tauri tauri:build:windows        # 当前宿主机单架构：tauri build --bundles nsis
+pnpm --filter @fund01/tauri tauri:build:windows:all   # 一键双架构发布：arm64 + x64
+# 单架构产物：apps/tauri/src-tauri/target/<三元组>/release/bundle/nsis/*.exe
+# 双架构脚本（scripts/build-release-windows.mjs）会自动 vcvarsall → 逐架构 build →
+# 归档 release-windows/Fund01_<version>_{arm64,x64}-setup.exe 并生成 SHA256SUMS.txt；
+# 可用 --arch arm64 / --arch x64 只打单架构，FUND01_RELEASE_DIR 覆盖归档目录
 ```
 
 - `tauri.windows.conf.json`（bundle.targets=nsis）构建 Windows 时自动与主配置合并。

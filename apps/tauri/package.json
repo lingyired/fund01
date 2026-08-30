@@ -12,7 +12,8 @@
     "tauri:build": "tauri build",
     "tauri:build:release": "APPLE_SIGNING_IDENTITY=\"Fund01\" tauri build",
     "tauri:build:release:all": "node ../../scripts/build-release-all.mjs",
-    "tauri:build:windows": "tauri build --bundles nsis"
+    "tauri:build:windows": "tauri build --bundles nsis",
+    "tauri:build:windows:all": "node ../../scripts/build-release-windows.mjs"
   },
   "dependencies": {
     "@fund01/core": "workspace:*",

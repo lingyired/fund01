@@ -34,7 +34,7 @@
 - **插件**：自研 [tauri-plugin-multiline-taskband](https://github.com/lingyired/tauri-plugin-multiline-taskband)（git rev 固定，发版后换 tag），仅 Windows 目标编译（`[target.'cfg(target_os = "windows")'.dependencies]`），与 macOS 的 multiline-menubar **互斥编译、API 同构**。
 - **模块**：`taskband.rs`（实例编排，与 `menubar.rs` 平行）、`menubar_common.rs`（纯逻辑共享：期望实例集合/涨跌口径/id 编解码）、`status_bar.rs`（平台分派薄层，lib.rs/commands.rs/refresh.rs 只调它）、`tray.rs`（Tauri 官方托盘：左键弹浮窗「总览」，右键「打开设置…/退出 fund01」）。
 - **平台差异**：无「布局模式」（插件固定上下两行）；分组表多「位置」（左/右停靠侧，`menubarGroupSides`）列与「任务栏边距」（`menubarEdgeMargins`，物理像素）设置；`quit` 菜单 id 由应用自理 `app.exit(0)`（taskband 不保留该 id）；「全空退出」逻辑仅 macOS 生效（Windows 托盘常驻）。详见 `docs/tauri-plugin-multiline-taskband-适配说明.md`。
-- **构建**：Windows 机器上 `pnpm --filter @fund01/tauri tauri:build:windows`（nsis）；`tauri.windows.conf.json`（bundle.targets=nsis）按目标平台自动合并。
+- **构建**：Windows 机器上 `pnpm --filter @fund01/tauri tauri:build:windows`（单架构 nsis，产物在 `target/<三元组>/release/bundle/nsis/`）；一键双架构（arm64 + x64）发布用 `pnpm --filter @fund01/tauri tauri:build:windows:all`（对应 `scripts/build-release-windows.mjs`，自动 vcvarsall + 归档 `release-windows/` + 生成 SHA256SUMS）；`tauri.windows.conf.json`（bundle.targets=nsis）按目标平台自动合并。
 
 ## 1. 项目与构建
 
