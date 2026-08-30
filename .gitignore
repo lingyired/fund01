@@ -23,3 +23,7 @@ _tmp_*
 
 # Tauri 打包产物副本（本地测试用，不入库）
 release-macos/
+release-windows/
+
+# AI 助手工具本地数据目录
+.zcode/
