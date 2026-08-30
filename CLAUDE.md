@@ -109,10 +109,8 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
   - `tauri.conf.json` 的 `signingIdentity: "-"`（ad-hoc 兜底）保证**任何机器 clone 后都能构建**；发版才用 env 覆盖为 Fund01。别人跑 `pnpm tauri:build:release:all` 无证书会失败，属预期（只有发布者跑）。
   - 底层：`scripts/build-release-all.mjs`（编排）→ `scripts/build-tauri-all.mjs`（构建+归档 .app）→ `scripts/build-dmg.mjs`（create-dmg 打 DMG，纯 hdiutil 无 Finder 依赖）。
 - **前置条件**：`rustup target add aarch64-apple-darwin x86_64-apple-darwin`（本机已装，换机需补）；钥匙串存在 Fund01 代码签名证书（无证书回退 ad-hoc，仅本机可跑）。
-- **Node 版本坑（create-dmg 依赖 macos-alias 原生模块）**：原生模块按编译时的 Node ABI 绑定。用户终端是 nvm Node 24（ABI 137），若报 `NODE_MODULE_VERSION` 不匹配 / `ERR_DLOPEN_FAILED`，跑 `PATH="/Users/lingsmbp/.nvm/versions/node/v24.16.0/bin:$PATH" pnpm rebuild macos-alias` 修复（在用户实际 Node 版本下重编译）。
-- **DMG 例外**：agent 环境打 DMG 必失败（Finder 权限 -10004），脚本只出 .app；需要 DMG 时手动跑
-  `target/release/bundle/dmg/bundle_dmg.sh`（**注意：`--bundles app` 不生成各架构 target 的 `dmg/` 目录，统一用默认 target 的脚本 + `icon.icns`，脚本支持任意 staging source，两架构通用**），完整命令：
-  `bundle_dmg.sh --volname Fund01 --icon "Fund01.app" 180 170 --app-drop-link 320 170 --window-size 500 350 --hide-extension "Fund01.app" --volicon <repo>/apps/tauri/src-tauri/target/release/bundle/dmg/icon.icns --skip-jenkins <out.dmg> <staging>`
+- **Node 版本坑（create-dmg 依赖 macos-alias 原生模块）**：原生模块按编译时的 Node ABI 绑定。用户终端是 nvm Node 24（ABI 137），若报 `NODE_MODULE_VERSION` 不匹配 / `ERR_DLOPEN_FAILED`，跑 `PATH="/Users/lingsmbp/.nvm/versions/node/v24.16.0/bin:$PATH" pnpm rebuild macos-alias` 修复（在用户实际 Node 版本下重编译）。**WorkBuddy agent 环境（node 22.22.2，2026-08-26 实测）**：直接 `pnpm rebuild macos-alias`（用当前 node 重编译）即可，无需 nvm PATH 覆盖；重编译后再跑 build-dmg.mjs。
+- **DMG 例外（已过时，勿按旧文操作）**：旧 bundle_dmg.sh 在 agent 环境因 Finder 权限 -10004 必失败；**2026-08-25 起改用 `scripts/build-dmg.mjs`（纯 create-dmg --no-code-sign + hdiutil，无 Finder 依赖），agent 环境实测可用**（2026-08-26 v1.4.0 双架构 DMG 在 WorkBuddy 环境打出成功）。
   其中 `<staging>` 为拷入对应架构 `Fund01.app` 的临时目录；输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
 - **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`；`codesign -dv` 应显示 `Authority=Fund01`；`spctl -a -vv -t exec` 应为 `rejected / origin=Fund01`（软拦截标志，发版前必查）。
 
