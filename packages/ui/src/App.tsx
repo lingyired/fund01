@@ -15,7 +15,7 @@ import {IndexBar} from './components/popup/IndexBar'
 import {PopupLayout} from './components/popup/PopupLayout'
 import {AutoRefreshButton} from './components/AutoRefreshButton'
 import {MenubarEmptyBanner} from './components/MenubarEmptyBanner'
-import {updateSettings} from './lib/fundOps'
+import {buildPendingHoldings, updateSettings} from './lib/fundOps'
 import {IconButton, Theme, Tooltip} from '@radix-ui/themes'
 // 注意：Radix 的 styles.css 不在这里 import —— 它已在 index.css 里以
 // `@import '@radix-ui/themes/styles.css' layer(radix-themes)` 的方式引入，
@@ -147,6 +147,11 @@ export function App() {
     ? new Date(lastUpdate).toLocaleTimeString('zh-CN', {hour12: false})
     : ''
 
+  // 行情快照未就绪（后端首轮刷新进行中 / 切源清空待刷）时，用本地配置合成持仓骨架
+  // 立即渲染列表结构；quotePending=true 时行情数值列显示 -- 并附「正在加载行情」提示。
+  const displayHoldings = holdings ?? buildPendingHoldings(config.getConfig())
+  const quotePending = holdings == null && displayHoldings != null
+
   function toggleTheme() {
     setThemePref((p) => (resolveTheme(p) === 'dark' ? 'light' : 'dark'))
   }
@@ -242,8 +247,12 @@ export function App() {
       {/* 指数看板由 selected（默认 5 个）驱动渲染，行情缺失时显示占位卡片，无需 loading */}
       <IndexBar indices={indices} selected={selectedIndices} />
 
+      {/* 持仓结构（分组/基金列表，本地配置）与行情数值（数据源请求）解耦：
+          行情快照未就绪时用配置合成骨架 payload 立即渲染列表，数值列显示 --，
+          待首份 quote-update 推来真实数据后填充（quotePending 驱动占位与提示）。 */}
       <PopupLayout
-        data={holdings}
+        data={displayHoldings}
+        quotePending={quotePending}
         loading={loading}
         onEditHoldings={() => void windowPort.openSettings('holdings')}
         requestedTab={requestedTab}

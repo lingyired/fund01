@@ -6,10 +6,12 @@ import type {
   AppConfig,
   AppSettings,
   FundRecord,
+  HoldingsPayload,
   Ports,
   ResolveFundPayload,
 } from '@fund01/core'
 import {
+  calcHoldings,
   clampRefreshInterval,
   MAX_SELECTED_INDICES,
   MENUBAR_OVERVIEW_KEY,
@@ -969,4 +971,39 @@ export async function resetConfig(ports: Ports): Promise<AppConfig> {
   const next = normalizeConfig(null)
   await ports.config.saveConfig(next)
   return next
+}
+
+/**
+ * 行情未就绪时的「持仓骨架」payload：仅用本地配置（分组 / 份额 / 成本 / 名称）渲染
+ * 基金列表结构，行情衍生数值（金额 / 收益 / 净值）全部留空 —— popup 打开即渲染列表，
+ * 待后端 quote-update 推来真实快照后再填充数值（持仓结构与行情请求解耦）。
+ *
+ * 复用 calcHoldings 传空行情数组（与 Rust calc_holdings 同款空 quote 语义），
+ * 保证 shares/allocations/costs/排序等推导与真实 payload 1:1；再把行情字段显式清零，
+ * 避免空市值减成本产出「持有收益 = -总成本」之类的误导占位（渲染层另有 quotePending 兜底）。
+ * 无持仓时返回 null —— 调用方据此走「暂无基金持仓」空态。
+ */
+export function buildPendingHoldings(config: AppConfig): HoldingsPayload | null {
+  const funds = Object.values(config.holdings ?? {})
+  if (funds.length === 0) return null
+  const excludedGroups = config.settings.overviewExcludedGroups ?? []
+  const {summary, list} = calcHoldings(funds, [], {excludedGroups})
+  return {
+    summary: {
+      ...summary,
+      totalAmount: 0,
+      totalPnl: 0,
+      totalPnlPercent: 0,
+      totalCumPnl: null,
+      totalCumPnlPercent: null,
+    },
+    list: list.map((row) => ({
+      ...row,
+      amount: 0,
+      liveAmount: 0,
+      pnl: null,
+      totalCumPnl: null,
+      totalCumPnlPercent: null,
+    })),
+  }
 }

@@ -18,11 +18,14 @@ import {FooterBar} from './FooterBar'
 export function PopupLayout({
   data,
   loading,
+  quotePending = false,
   onEditHoldings,
   requestedTab,
 }: {
   data: HoldingsPayload | null
   loading?: boolean
+  /** 行情快照未就绪（持仓骨架已用本地配置渲染）：数值列显示 -- 并附加载提示 */
+  quotePending?: boolean
   /** 打开设置页「持仓」tab（footer「修改持仓」按钮触发） */
   onEditHoldings?: () => void
   /**
@@ -139,6 +142,7 @@ export function PopupLayout({
           activeTab={validTab}
           tabTotalAmount={tabTotalAmount}
           loading={loading}
+          quotePending={quotePending}
           privacyMode={privacyMode}
           onAddFund={() => openSettingsAnchor('add-fund')}
           onImportHoldings={() => openSettingsAnchor('import-holdings')}
@@ -150,6 +154,7 @@ export function PopupLayout({
         pnlPercent={footer.pnlPercent}
         up={footer.up}
         down={footer.down}
+        quotePending={quotePending}
         privacyMode={privacyMode}
         onEditHoldings={onEditHoldings}
       />

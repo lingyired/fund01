@@ -111,6 +111,7 @@ export function FundList({
   activeTab,
   tabTotalAmount,
   loading,
+  quotePending = false,
   privacyMode = false,
   onAddFund,
   onImportHoldings,
@@ -119,6 +120,8 @@ export function FundList({
   activeTab: string
   tabTotalAmount: number
   loading?: boolean
+  /** 行情快照未就绪（列表骨架已渲染）：数值列显示 --、顶部附加载提示 */
+  quotePending?: boolean
   /** 隐私模式：持仓金额 / 当日收益额 / 持有收益额显示为 **** */
   privacyMode?: boolean
   /** 空状态「添加持仓」入口：打开设置页持仓 tab 并定位到「添加持仓」区块 */
@@ -181,7 +184,9 @@ export function FundList({
 
   if (loading && !rows.length) {
     // 加载中（数据在途，非「暂无持仓」）：spinner + 文案 + skeleton 行，
-    // 与下方空状态（暂无基金持仓 + 引导）视觉区分
+    // 与下方空状态（暂无基金持仓 + 引导）视觉区分。
+    // 注意：有持仓时上游会用本地配置合成骨架行（rows 非空），走不到这里——
+    // 那种场景由 quotePending 驱动「真实列表 + 数值 --」的占位渲染（见下）。
     return (
       <div className="px-3 py-3">
         <div className="mb-3 flex items-center gap-2 text-xs text-muted">
@@ -240,6 +245,17 @@ export function FundList({
   }
 
   return (
+    <div>
+    {quotePending ? (
+      // 行情在途：持仓结构已用本地配置渲染，仅数值待填（对齐 IndexBar 占位卡片体验）
+      <div className="mb-3 flex items-center gap-2 px-1 text-xs text-muted">
+        <span
+          aria-hidden
+          className="h-3 w-3 shrink-0 animate-spin rounded-full border-[1.5px] border-line border-t-accent"
+        />
+        正在加载行情…
+      </div>
+    ) : null}
     <div className="overflow-hidden rounded-xl border border-line/70 bg-paper shadow-card">
     <Table.Root
       variant="surface"
@@ -357,7 +373,7 @@ export function FundList({
                           className="font-mono text-xs text-ink-soft"
                           title="上一确认点市值，不含盘中估算浮动"
                         >
-                          {privacyMode ? '****' : `¥${formatAmount(amount)}`}
+                          {privacyMode ? '****' : quotePending ? '--' : `¥${formatAmount(amount)}`}
                         </span>
                         {row.isQdii && row.netValueDate ? (
                           <span
@@ -419,18 +435,18 @@ export function FundList({
                   <div
                     className={cn(
                       'font-mono text-[13px] font-semibold tabular-nums',
-                      pctClass(cumPnl),
+                      quotePending ? 'text-muted' : pctClass(cumPnl),
                     )}
                   >
-                    {privacyMode ? '****' : formatMoney(cumPnl)}
+                    {quotePending ? '--' : privacyMode ? '****' : formatMoney(cumPnl)}
                   </div>
                   <div
                     className={cn(
                       'font-mono text-[11px] tabular-nums',
-                      pctClass(cumPnlPercent),
+                      quotePending ? 'text-muted' : pctClass(cumPnlPercent),
                     )}
                   >
-                    {formatPct(cumPnlPercent)}
+                    {quotePending ? '--' : formatPct(cumPnlPercent)}
                   </div>
                 </Table.Cell>
 
@@ -495,6 +511,7 @@ export function FundList({
         privacyMode={privacyMode}
       />
     </Table.Root>
+    </div>
     </div>
   )
 }

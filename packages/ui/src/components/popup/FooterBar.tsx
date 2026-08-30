@@ -9,6 +9,7 @@ export function FooterBar({
   pnlPercent,
   up,
   down,
+  quotePending = false,
   privacyMode = false,
   onEditHoldings,
 }: {
@@ -17,6 +18,8 @@ export function FooterBar({
   pnlPercent: number | null
   up: number
   down: number
+  /** 行情快照未就绪（列表骨架已渲染）：金额/收益显示 -- */
+  quotePending?: boolean
   /** 隐私模式：持仓金额 / 当日收益额显示为 **** */
   privacyMode?: boolean
   /** 打开设置页并定位到「持仓」tab（Chrome 端由 popup 注入实现） */
@@ -28,18 +31,18 @@ export function FooterBar({
         <div className="flex items-baseline gap-1.5">
           <span className="shrink-0 text-xs text-muted">持仓金额</span>
           <span className="font-mono text-lg font-semibold tabular-nums">
-            {privacyMode ? '****' : `¥${formatAmount(amount)}`}
+            {privacyMode ? '****' : quotePending ? '--' : `¥${formatAmount(amount)}`}
           </span>
         </div>
         <div className="flex items-baseline gap-1.5 border-l border-line/50 pl-3">
           <span className="shrink-0 text-xs text-muted">当日收益</span>
           <span className={cn('font-mono font-semibold tabular-nums', pctClass(pnl))}>
-            {privacyMode ? '****' : formatMoney(pnl)}
+            {privacyMode ? '****' : quotePending ? '--' : formatMoney(pnl)}
           </span>
           <span
             className={cn('font-mono text-xs tabular-nums', pctClass(pnlPercent))}
           >
-            {formatPct(pnlPercent)}
+            {quotePending ? '--' : formatPct(pnlPercent)}
           </span>
         </div>
         <div className="flex items-center gap-2.5 border-l border-line/50 pl-3 font-mono text-xs tabular-nums">

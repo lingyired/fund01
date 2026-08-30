@@ -360,15 +360,16 @@ fn merge_stale_estimate(quotes: &mut [FundQuote], cached_list: &[FundQuoteRow]) 
     }
 }
 
-/// 日盘数据：基金持仓 + A 股指数
+/// 日盘数据：基金持仓 + A 股指数。
+///
+/// 两条分支**并发拉取、各自独立广播**（tokio::join! 同任务内交替轮询）：
+/// 谁先完成谁先推 quote-update，互不阻塞 —— 指数（单次批量请求，秒级）不再被
+/// 串行的基金拉取（fund123 全程串行 + 全局互斥锁，可能长达数十秒）拖住，
+/// popup 打开时指数与持仓骨架各自独立就绪。broadcast 内部会与上一份快照合并，
+/// 两半广播各自携带另一半的旧值，前端两个字段互不覆盖。
 async fn refresh_day(app: &AppHandle, force: bool) {
-    let state = app.state::<AppState>();
-    let config = state.config.read().unwrap().clone();
+    let config = app.state::<AppState>().config.read().unwrap().clone();
     let now = chrono::Local::now();
-
-    let mut holdings_payload: Option<HoldingsPayload> = None;
-    let mut indices: Option<Vec<IndexItem>> = None;
-    let mut patches: Vec<PersistPatch> = Vec::new();
 
     let source_str = config
         .settings
@@ -378,8 +379,15 @@ async fn refresh_day(app: &AppHandle, force: bool) {
         .to_string();
     let source = QuoteSource::from_str(&source_str);
 
-    // ---------------- 基金（仅持仓） ----------------
-    if force || calendar::should_refresh_fund(&now) {
+    let funds_due = force || calendar::should_refresh_fund(&now);
+    let indices_due = force || calendar::should_refresh_a_share_market(&now);
+
+    // ---------------- 基金（仅持仓）：拉取 → 计算 → 独立广播 ----------------
+    let funds_fut = async {
+        if !funds_due {
+            return;
+        }
+        let state = app.state::<AppState>();
         // 手动刷新（force）时清空自算估值缓存，强制本轮实时拉取行情，
         // 使「点击刷新 = 点击时刻的最新估算值」（与 Chrome SW force=true 时
         // clearFundEstimateCaches() 对齐）。否则手动刷新会命中 5min CALC_GSZZL_CACHE，
@@ -441,19 +449,24 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                 .clone()
                 .unwrap_or_default();
             let (payload, p) = calc_holdings(&holdings_funds, &quotes, &excluded_groups);
-            holdings_payload = Some(payload);
-            patches.extend(p);
+            // 记录本轮基金刷新使用的数据源（供下次合并做同源判断；切源即失效，下次跳过合并）
+            *state.last_quote_source.write().unwrap() = Some(source_str.clone());
+            // 仅广播持仓半边（indices=None → broadcast 回退上一份快照的指数，不覆盖）
+            broadcast(app, Some(payload), None, p).await;
         } else if force {
             // 持仓全空（重置 / 清空后 force 刷新）：显式广播空快照，
             // 否则 broadcast 会回退旧 state.quote，popup / menubar 浮窗仍显示旧持仓。
-            holdings_payload = Some(HoldingsPayload::default());
+            broadcast(app, Some(HoldingsPayload::default()), None, Vec::new()).await;
+            *state.last_quote_source.write().unwrap() = Some(source_str.clone());
         }
-        // 记录本轮基金刷新使用的数据源（供下次合并做同源判断；切源即失效，下次跳过合并）
-        *state.last_quote_source.write().unwrap() = Some(source_str.clone());
-    }
+    };
 
-    // ---------------- A 股指数 ----------------
-    if force || calendar::should_refresh_a_share_market(&now) {
+    // ---------------- A 股指数：拉取 → 独立广播 ----------------
+    let indices_fut = async {
+        if !indices_due {
+            return;
+        }
+        let state = app.state::<AppState>();
         // 与缓存中的美股指数合并，避免覆盖另一市场
         let prev_us = state
             .quote
@@ -465,10 +478,11 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             .unwrap_or_default();
         let mut merged = crate::market::get_a_share_indices().await;
         merged.extend(prev_us);
-        indices = Some(merged);
-    }
+        // 仅广播指数半边（holdings=None → broadcast 回退上一份快照的持仓，不覆盖）
+        broadcast(app, None, Some(merged), Vec::new()).await;
+    };
 
-    broadcast(app, holdings_payload, indices, patches).await;
+    tokio::join!(funds_fut, indices_fut);
 }
 
 /// 夜盘数据：美股指数（任一数据源不在窗口或未配置时不拉、不广播）
