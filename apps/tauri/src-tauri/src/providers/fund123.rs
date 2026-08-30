@@ -20,7 +20,10 @@ static FUND123_IO_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 const CSRF_TTL: Duration = Duration::from_secs(10 * 60);
 
 async fn fund123_io() -> tokio::sync::MutexGuard<'static, ()> {
-    FUND123_IO_LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
+    FUND123_IO_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
 }
 
 async fn ensure_csrf(force: bool) -> Result<String, String> {
@@ -111,7 +114,11 @@ pub struct SearchFundResult {
 pub async fn search_fund(code: &str) -> Result<SearchFundResult, String> {
     let padded = pad6(code);
     let data = fund123_post("/api/fund/searchFund", &json!({"fundCode": padded})).await?;
-    if !data.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if !data
+        .get("success")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         let msg = data
             .get("message")
             .and_then(|v| v.as_str())
@@ -121,10 +128,26 @@ pub async fn search_fund(code: &str) -> Result<SearchFundResult, String> {
     }
     let info = data.get("fundInfo").cloned().unwrap_or(Value::Null);
     Ok(SearchFundResult {
-        code: info.get("fundCode").and_then(|v| v.as_str()).unwrap_or(&padded).to_string(),
-        name: info.get("fundName").and_then(|v| v.as_str()).unwrap_or(&padded).to_string(),
-        fund_key: info.get("key").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        net_value: info.get("netValue").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite()),
+        code: info
+            .get("fundCode")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&padded)
+            .to_string(),
+        name: info
+            .get("fundName")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&padded)
+            .to_string(),
+        fund_key: info
+            .get("key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        net_value: info
+            .get("netValue")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|n| n.is_finite()),
         day_growth: parse_pct(info.get("dayOfGrowth")),
     })
 }
@@ -146,12 +169,19 @@ pub async fn search_funds_by_keyword(keyword: &str) -> Vec<(String, String)> {
     .await
     {
         Ok(data) => {
-            let rows = data.get("Datas").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let rows = data
+                .get("Datas")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             rows.iter()
                 .filter_map(|r| {
                     let code = r.get("CODE").and_then(|v| v.as_str()).unwrap_or("");
                     let name = r.get("NAME").and_then(|v| v.as_str()).unwrap_or("");
-                    if code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()) && !name.is_empty() {
+                    if code.len() == 6
+                        && code.chars().all(|c| c.is_ascii_digit())
+                        && !name.is_empty()
+                    {
                         Some((code.to_string(), name.to_string()))
                     } else {
                         None
@@ -197,15 +227,25 @@ pub async fn get_fund_matiaria(code: &str) -> Result<MatiariaResult, String> {
             s.parse::<f64>().ok().filter(|n| n.is_finite())
         }
     });
-    let net_value = grab(r#"netValue":"([^"]+)"#).and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite());
+    let net_value = grab(r#"netValue":"([^"]+)"#)
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|n| n.is_finite());
     let raw_date = grab(r#"netValueDate":"([^"]+)"#).unwrap_or_default();
-    let net_value_date = crate::calendar::normalize_net_value_date(&raw_date, &chrono::Local::now());
+    let net_value_date =
+        crate::calendar::normalize_net_value_date(&raw_date, &chrono::Local::now());
     let name = grab(r#"fundName":"([^"]+)"#).unwrap_or_default();
-    Ok(MatiariaResult { name, day_growth, net_value, net_value_date })
+    Ok(MatiariaResult {
+        name,
+        day_growth,
+        net_value,
+        net_value_date,
+    })
 }
 
 /// 盘中分时走势（fund123 POST）
-pub async fn get_fund_estimate_intraday(fund_key: &str) -> Result<(Vec<TrendPoint>, Option<TrendPoint>), String> {
+pub async fn get_fund_estimate_intraday(
+    fund_key: &str,
+) -> Result<(Vec<TrendPoint>, Option<TrendPoint>), String> {
     if fund_key.is_empty() {
         return Ok((vec![], None));
     }
@@ -220,7 +260,11 @@ pub async fn get_fund_estimate_intraday(fund_key: &str) -> Result<(Vec<TrendPoin
         "source": "WEALTHBFFWEB",
     });
     let data = fund123_post("/api/fund/queryFundEstimateIntraday", &body).await?;
-    let list = data.get("list").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let list = data
+        .get("list")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     let mut points = Vec::with_capacity(list.len());
     for p in list {
         let time_raw = p.get("time").and_then(|v| v.as_str()).unwrap_or("");
@@ -251,7 +295,10 @@ fn parse_time_hm(t: &str) -> String {
     if t.len() >= 16 && t.as_bytes()[10] == b'T' {
         return t[11..16].to_string();
     }
-    let digits: String = t.chars().filter(|c| c.is_ascii_digit() || *c == ':').collect();
+    let digits: String = t
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == ':')
+        .collect();
     digits.chars().take(5).collect()
 }
 
@@ -376,7 +423,8 @@ pub async fn get_fund_quote(fund: &FundQuoteInput) -> FundQuote {
     };
 
     // 6. 板块刷新
-    let sectors = crate::providers::fundmnfinfo::refresh_sectors_if_needed(&code, &name, &fund.sectors).await;
+    let sectors =
+        crate::providers::fundmnfinfo::refresh_sectors_if_needed(&code, &name, &fund.sectors).await;
 
     FundQuote {
         code: code.clone(),
@@ -469,7 +517,10 @@ mod tests {
     async fn probe_concurrent_post_serialized() {
         // 验证全局互斥 + 串行化后，10 只基金并发 fund123_post 不再触发风控 403
         let mut handles = Vec::new();
-        for code in ["161725", "110022", "001594", "003095", "005827", "012414", "011102", "001714", "004231", "005968"] {
+        for code in [
+            "161725", "110022", "001594", "003095", "005827", "012414", "011102", "001714",
+            "004231", "005968",
+        ] {
             handles.push(tokio::spawn(async move {
                 fund123_post("/api/fund/searchFund", &json!({"fundCode": code})).await
             }));

@@ -164,6 +164,8 @@ pub fn run() {
         match event {
             // macOS：进程常驻时用户再次点击 Dock / 启动台 / Finder 双击 app，
             // 系统把「重新打开」发给现有进程（不走 setup）→ 打开当前进程的设置界面。
+            // RunEvent::Reopen 仅 macOS 提供，Windows 下该 arm 不编译（落入 _ 兜底）。
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
                 eprintln!("[fund01] 重新打开 app → 打开设置界面");
                 window::open_settings_window(app, None, None);

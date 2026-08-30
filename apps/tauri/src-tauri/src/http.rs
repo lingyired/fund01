@@ -89,7 +89,9 @@ pub async fn http_get_json(
         final_url.push_str(&qs);
     }
     let res = send(&final_url, &headers(ua, referer), timeout).await?;
-    res.json::<Value>().await.map_err(|e| format!("JSON 解析失败({url}): {e}"))
+    res.json::<Value>()
+        .await
+        .map_err(|e| format!("JSON 解析失败({url}): {e}"))
 }
 
 pub async fn http_get_text(
@@ -110,7 +112,9 @@ pub async fn http_get_text(
         final_url.push_str(&qs);
     }
     let res = send(&final_url, &headers(ua, referer), timeout).await?;
-    res.text().await.map_err(|e| format!("读取响应失败({url}): {e}"))
+    res.text()
+        .await
+        .map_err(|e| format!("读取响应失败({url}): {e}"))
 }
 
 pub async fn http_post_json(
@@ -121,7 +125,10 @@ pub async fn http_post_json(
 ) -> Result<Value, String> {
     let mut h = HeaderMap::new();
     h.insert(USER_AGENT, HeaderValue::from_static(DESKTOP_UA));
-    h.insert(reqwest::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(
+        reqwest::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     for (k, v) in extra_headers {
         let hv = HeaderValue::from_str(v).map_err(|_| "非法 header".to_string())?;
         let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
@@ -142,7 +149,9 @@ pub async fn http_post_json(
         let preview: String = body.chars().take(300).collect();
         return Err(format!("HTTP {code} {url} body={preview}"));
     }
-    res.json::<Value>().await.map_err(|e| format!("JSON 解析失败({url}): {e}"))
+    res.json::<Value>()
+        .await
+        .map_err(|e| format!("JSON 解析失败({url}): {e}"))
 }
 
 /// 东财 host fallback：依次尝试 hosts，全部失败抛错
@@ -154,7 +163,15 @@ pub async fn eastmoney_get(
     let mut last_err: Option<String> = None;
     for host in hosts {
         let url = format!("{host}{path}");
-        match http_get_json(&url, query, DESKTOP_UA, Some("https://quote.eastmoney.com/"), Duration::from_secs(12)).await {
+        match http_get_json(
+            &url,
+            query,
+            DESKTOP_UA,
+            Some("https://quote.eastmoney.com/"),
+            Duration::from_secs(12),
+        )
+        .await
+        {
             Ok(v) => return Ok(v),
             Err(e) => {
                 crate::err_log!("eastmoney_get 失败 host={host} path={path} err={e}");

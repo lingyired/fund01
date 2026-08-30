@@ -25,12 +25,20 @@ pub fn compute_badge(mode: &str, total_pnl_percent: f64, total_pnl: f64) -> Badg
     if mode == "amount" {
         return BadgeComputed {
             text: format_short_amount(total_pnl, MAX_BADGE_LEN),
-            color: if total_pnl >= 0.0 { BADGE_RISE.to_string() } else { BADGE_FALL.to_string() },
+            color: if total_pnl >= 0.0 {
+                BADGE_RISE.to_string()
+            } else {
+                BADGE_FALL.to_string()
+            },
         };
     }
     // percent（默认）
     BadgeComputed {
         text: format_short_percent(total_pnl_percent, MAX_BADGE_LEN),
-        color: if total_pnl_percent >= 0.0 { BADGE_RISE.to_string() } else { BADGE_FALL.to_string() },
+        color: if total_pnl_percent >= 0.0 {
+            BADGE_RISE.to_string()
+        } else {
+            BADGE_FALL.to_string()
+        },
     }
 }

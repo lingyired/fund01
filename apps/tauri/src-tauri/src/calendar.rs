@@ -108,7 +108,11 @@ pub fn should_show_confirmed_updated_badge(
     if nav_day.is_empty() {
         return false;
     }
-    let anchor = if is_qdii { next_trading_day(&nav_day, now) } else { nav_day };
+    let anchor = if is_qdii {
+        next_trading_day(&nav_day, now)
+    } else {
+        nav_day
+    };
     let next = next_trading_day(&anchor, now);
     !is_trading_day_started(&next, now)
 }
@@ -242,7 +246,11 @@ pub fn is_confirmed_session_active(
     if nav_day.is_empty() {
         return false;
     }
-    let anchor = if delayed_disclosure { next_trading_day(&nav_day, now) } else { nav_day };
+    let anchor = if delayed_disclosure {
+        next_trading_day(&nav_day, now)
+    } else {
+        nav_day
+    };
     let next = next_trading_day(&anchor, now);
     !is_trading_day_started(&next, now)
 }

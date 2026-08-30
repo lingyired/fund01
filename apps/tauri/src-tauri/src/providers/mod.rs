@@ -82,7 +82,9 @@ pub fn pad6(code: &str) -> String {
 /// 通用并发执行器：把 per-fund 任务按 concurrency 并发，保持输入顺序
 pub async fn run_quotes_concurrent(
     funds: &[FundQuoteInput],
-    worker: impl Fn(FundQuoteInput) -> std::pin::Pin<Box<dyn std::future::Future<Output = FundQuote> + Send>>,
+    worker: impl Fn(
+        FundQuoteInput,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = FundQuote> + Send>>,
     concurrency: usize,
 ) -> Vec<FundQuote> {
     let mut results = Vec::with_capacity(funds.len());
@@ -97,7 +99,10 @@ pub async fn run_quotes_concurrent(
 
 /// 东财 fundmobapi 公共请求（对应 eastmoneyFundGet）：
 /// MOBILE_UA + 固定参数 + 3 次指数退避重试，返回 Datas 数组
-pub async fn eastmoney_fund_get(path: &str, extra: &HashMap<String, String>) -> Result<Value, String> {
+pub async fn eastmoney_fund_get(
+    path: &str,
+    extra: &HashMap<String, String>,
+) -> Result<Value, String> {
     let mut p = http::params(&[
         ("deviceid", "Wap"),
         ("plat", "Wap"),
@@ -125,7 +130,11 @@ pub async fn eastmoney_fund_get(path: &str, extra: &HashMap<String, String>) -> 
                         Duration::from_secs(12),
                     )
                     .await?;
-                    if data.get("Success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if data
+                        .get("Success")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
                         Ok(data.get("Datas").cloned().unwrap_or(Value::Array(vec![])))
                     } else {
                         Err(data

@@ -43,7 +43,8 @@ pub fn resolve_nav_pair(q: &FundQuote) -> (Option<f64>, Option<f64>) {
     let prev = q.prev_net_value.filter(|n| *n > 0.0);
     let estimate_nav = latest_estimate_nav(q);
 
-    if q.percent_source.as_deref() == Some("confirmed") && confirmed_nav.is_some() && prev.is_some() {
+    if q.percent_source.as_deref() == Some("confirmed") && confirmed_nav.is_some() && prev.is_some()
+    {
         (prev, confirmed_nav)
     } else if estimate_nav.is_some() {
         (prev.or(confirmed_nav), estimate_nav)
@@ -84,7 +85,10 @@ pub fn calc_holdings(
     let now = chrono::Local::now();
 
     for raw in local_funds {
-        let q = quote_map.get(raw.code.as_str()).copied().unwrap_or(&EMPTY_QUOTE);
+        let q = quote_map
+            .get(raw.code.as_str())
+            .copied()
+            .unwrap_or(&EMPTY_QUOTE);
         // percent 只认 provider 的展示口径（confirmed/estimate/兜底已由 provider 决定）。
         // ⚠️ 不回退到 q.day_growth：QDII 未披露日 provider 有意给 percent=None（当日收益
         // 显示「-」），回退 day_growth 会把东财 hist 滞后净值日涨幅冒充「当日」（fund123 源
@@ -122,7 +126,11 @@ pub fn calc_holdings(
                 .map(|(_, s)| s)
                 .sum()
         };
-        let overview_ratio = if shares > 0.0 { overview_shares / shares } else { 0.0 };
+        let overview_ratio = if shares > 0.0 {
+            overview_shares / shares
+        } else {
+            0.0
+        };
         let mut overview_cost_row = total_cost_row;
         if !excluded_set.is_empty() {
             overview_cost_row = 0.0;
@@ -142,7 +150,8 @@ pub fn calc_holdings(
         let overview_has_cost = overview_cost_row > 0.0;
 
         let using_estimate = q.percent_source.as_deref() == Some("estimate")
-            || (q.percent_source.as_deref() != Some("confirmed") && latest_estimate_nav(q).is_some());
+            || (q.percent_source.as_deref() != Some("confirmed")
+                && latest_estimate_nav(q).is_some());
 
         let mut pnl: Option<f64> = None;
         if shares > 0.0 && prev_nav.is_some() && curr_nav.is_some() {
@@ -200,7 +209,10 @@ pub fn calc_holdings(
             vec![]
         };
 
-        let mut patch = PersistPatch { code: raw.code.clone(), sectors: None };
+        let mut patch = PersistPatch {
+            code: raw.code.clone(),
+            sectors: None,
+        };
         if raw.sectors.is_empty() && !sectors.is_empty() {
             patch.sectors = Some(sectors.clone());
             persist_patches.push(patch);
@@ -208,7 +220,11 @@ pub fn calc_holdings(
 
         let confirmed_updated = should_show_confirmed_updated_badge(
             q.percent_source.as_deref(),
-            Some(if nav_day.is_empty() { q.net_value_date.as_str() } else { nav_day.as_str() }),
+            Some(if nav_day.is_empty() {
+                q.net_value_date.as_str()
+            } else {
+                nav_day.as_str()
+            }),
             &now,
             q.is_qdii.unwrap_or(false),
         );
@@ -230,7 +246,11 @@ pub fn calc_holdings(
             percent_source: q.percent_source.clone(),
             estimate_growth: q.estimate_growth,
             day_growth: q.day_growth,
-            net_value_date: Some(if nav_day.is_empty() { q.net_value_date.clone() } else { nav_day }),
+            net_value_date: Some(if nav_day.is_empty() {
+                q.net_value_date.clone()
+            } else {
+                nav_day
+            }),
             net_value: q.net_value,
             estimate_net_value: latest_estimate_nav(q),
             prev_net_value: prev_nav,
@@ -241,9 +261,15 @@ pub fn calc_holdings(
             pnl,
             confirmed_updated: Some(confirmed_updated),
             total_cost: Some(round2(total_cost_row)),
-            total_cum_pnl: if has_cost { Some(round2(live_amount - total_cost_row)) } else { None },
+            total_cum_pnl: if has_cost {
+                Some(round2(live_amount - total_cost_row))
+            } else {
+                None
+            },
             total_cum_pnl_percent: if has_cost && total_cost_row > 0.0 {
-                Some(round2(((live_amount - total_cost_row) / total_cost_row) * 100.0))
+                Some(round2(
+                    ((live_amount - total_cost_row) / total_cost_row) * 100.0,
+                ))
             } else {
                 None
             },
@@ -263,15 +289,31 @@ pub fn calc_holdings(
 
     bod_total = round2(bod_total);
 
-    rows.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));
+    rows.sort_by(|a, b| {
+        b.amount
+            .partial_cmp(&a.amount)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let summary = HoldingsSummary {
         total_amount: round2(total_amount),
         bod_total: Some(bod_total),
         total_pnl: round2(total_pnl),
-        total_pnl_percent: if bod_total > 0.0 { round2((total_pnl / bod_total) * 100.0) } else { 0.0 },
-        total_cost: if has_any_cost { Some(round2(total_cost)) } else { Some(0.0) },
-        total_cum_pnl: if has_any_cost { Some(round2(total_cum_pnl)) } else { None },
+        total_pnl_percent: if bod_total > 0.0 {
+            round2((total_pnl / bod_total) * 100.0)
+        } else {
+            0.0
+        },
+        total_cost: if has_any_cost {
+            Some(round2(total_cost))
+        } else {
+            Some(0.0)
+        },
+        total_cum_pnl: if has_any_cost {
+            Some(round2(total_cum_pnl))
+        } else {
+            None
+        },
         total_cum_pnl_percent: if has_any_cost && total_cost > 0.0 {
             Some(round2((total_cum_pnl / total_cost) * 100.0))
         } else {
@@ -279,7 +321,13 @@ pub fn calc_holdings(
         },
     };
 
-    (HoldingsPayload { summary, list: rows }, persist_patches)
+    (
+        HoldingsPayload {
+            summary,
+            list: rows,
+        },
+        persist_patches,
+    )
 }
 
 static EMPTY_QUOTE: FundQuote = FundQuote {

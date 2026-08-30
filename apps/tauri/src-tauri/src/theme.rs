@@ -10,8 +10,22 @@ use tokio::sync::Mutex;
 use crate::providers::{eastmoney_fund_get, pad6};
 
 const COARSE_SECTORS: &[&str] = &[
-    "有色金属", "化学制药", "医药生物", "食品饮料", "公用事业", "通信设备", "元件",
-    "银行", "非银金融", "房地产", "电子", "计算机", "机械设备", "基础化工", "混业", "综合",
+    "有色金属",
+    "化学制药",
+    "医药生物",
+    "食品饮料",
+    "公用事业",
+    "通信设备",
+    "元件",
+    "银行",
+    "非银金融",
+    "房地产",
+    "电子",
+    "计算机",
+    "机械设备",
+    "基础化工",
+    "混业",
+    "综合",
 ];
 
 fn is_coarse(s: &str) -> bool {
@@ -27,13 +41,20 @@ pub fn sectors_need_refresh(sectors: &[String], name: &str) -> bool {
     if sectors.iter().any(|s| s == "有色金属") {
         return true;
     }
-    if sectors.iter().any(|s| s.contains("医药") || s == "化学制药") && n.contains("创新药") {
+    if sectors
+        .iter()
+        .any(|s| s.contains("医药") || s == "化学制药")
+        && n.contains("创新药")
+    {
         return true;
     }
-    if sectors.iter().any(|s| s == "半导体") && (n.contains("半导体材料") || n.contains("半导体设备")) {
+    if sectors.iter().any(|s| s == "半导体")
+        && (n.contains("半导体材料") || n.contains("半导体设备"))
+    {
         return true;
     }
-    if sectors.iter().any(|s| s == "电力") && (n.contains("绿色电力") || n.contains("绿电")) {
+    if sectors.iter().any(|s| s == "电力") && (n.contains("绿色电力") || n.contains("绿电"))
+    {
         return true;
     }
     if sectors.iter().any(|s| s == "食品饮料") && n.contains("白酒") {
@@ -49,17 +70,19 @@ fn theme_from_index_name(index_name: &str) -> Vec<String> {
         return vec![];
     }
     for _ in 0..3 {
-        let next = strip_prefix_any(&s, &["中证", "国证", "沪深", "上证", "深证", "标普", "恒生", "MSCI", "富时", "全指"]);
+        let next = strip_prefix_any(
+            &s,
+            &[
+                "中证", "国证", "沪深", "上证", "深证", "标普", "恒生", "MSCI", "富时", "全指",
+            ],
+        );
         if next == s {
             break;
         }
         s = next;
     }
     let cleaned = s
-        .replace(
-            "交易型开放式指数证券投资基金",
-            "",
-        )
+        .replace("交易型开放式指数证券投资基金", "")
         .replace("全收益指数", "")
         .replace("净收益指数", "")
         .replace("价格指数", "")
@@ -102,35 +125,60 @@ fn finalize_themes(list: Vec<String>) -> Vec<String> {
         }
     }
     // 粗类被细类覆盖
-    let keep: Vec<bool> = out.iter().map(|a| {
-        if a == "半导体" && out.iter().any(|x| x != a && x.contains("半导体")) {
-            return false;
-        }
-        if a == "半导体设备" && out.iter().any(|x| x.contains("半导体材料")) {
-            return false;
-        }
-        if a == "医药" && out.contains(&"创新药".to_string()) {
-            return false;
-        }
-        if a == "电力" && out.contains(&"绿色电力".to_string()) {
-            return false;
-        }
-        if a == "新能源" && out.iter().any(|x| ["锂矿", "光伏", "储能", "绿色电力"].contains(&x.as_str())) {
-            return false;
-        }
-        if is_coarse(a) && out.iter().any(|x| !is_coarse(x)) {
-            return false;
-        }
-        true
-    }).collect();
-    out = out.into_iter().zip(keep).filter(|(_, k)| *k).map(|(a, _)| a).collect();
+    let keep: Vec<bool> = out
+        .iter()
+        .map(|a| {
+            if a == "半导体" && out.iter().any(|x| x != a && x.contains("半导体")) {
+                return false;
+            }
+            if a == "半导体设备" && out.iter().any(|x| x.contains("半导体材料")) {
+                return false;
+            }
+            if a == "医药" && out.contains(&"创新药".to_string()) {
+                return false;
+            }
+            if a == "电力" && out.contains(&"绿色电力".to_string()) {
+                return false;
+            }
+            if a == "新能源"
+                && out
+                    .iter()
+                    .any(|x| ["锂矿", "光伏", "储能", "绿色电力"].contains(&x.as_str()))
+            {
+                return false;
+            }
+            if is_coarse(a) && out.iter().any(|x| !is_coarse(x)) {
+                return false;
+            }
+            true
+        })
+        .collect();
+    out = out
+        .into_iter()
+        .zip(keep)
+        .filter(|(_, k)| *k)
+        .map(|(a, _)| a)
+        .collect();
     // 短词（≤4）覆盖其长词超集
-    let shorts: Vec<String> = out.iter().filter(|s| s.chars().count() <= 4).cloned().collect();
+    let shorts: Vec<String> = out
+        .iter()
+        .filter(|s| s.chars().count() <= 4)
+        .cloned()
+        .collect();
     if !shorts.is_empty() {
-        let keep2: Vec<bool> = out.iter().map(|s| {
-            !(s.chars().count() > 4 && shorts.iter().any(|sh| s != sh && s.contains(sh.as_str())))
-        }).collect();
-        out = out.into_iter().zip(keep2).filter(|(_, k)| *k).map(|(a, _)| a).collect();
+        let keep2: Vec<bool> = out
+            .iter()
+            .map(|s| {
+                !(s.chars().count() > 4
+                    && shorts.iter().any(|sh| s != sh && s.contains(sh.as_str())))
+            })
+            .collect();
+        out = out
+            .into_iter()
+            .zip(keep2)
+            .filter(|(_, k)| *k)
+            .map(|(a, _)| a)
+            .collect();
     }
     out.truncate(3);
     out
@@ -145,7 +193,10 @@ fn infer_specific_themes_from_text(text: &str) -> Vec<String> {
         (re(r"创新药"), "创新药"),
         (re(r"白酒"), "白酒"),
         (re(r"锂矿|锂业|碳酸锂|锂盐|盐湖提锂"), "锂矿"),
-        (re(r"半导体材料|半导体设备|芯片设备|半导体材料设备"), "半导体设备"),
+        (
+            re(r"半导体材料|半导体设备|芯片设备|半导体材料设备"),
+            "半导体设备",
+        ),
         (re(r"绿色电力|绿电"), "绿色电力"),
         (re(r"光伏|太阳能"), "光伏"),
         (re(r"储能"), "储能"),
@@ -177,14 +228,22 @@ fn infer_specific_themes_from_text(text: &str) -> Vec<String> {
         ("周期", &["锂矿"]),
         ("食品饮料", &["白酒"]),
     ];
-    let keep: Vec<bool> = out.iter().map(|label| {
-        let pair = drop_if_finer.iter().find(|(coarse, _)| coarse == label);
-        match pair {
-            Some((_, finer)) => !finer.iter().any(|f| out.contains(f)),
-            None => true,
-        }
-    }).collect();
-    out = out.into_iter().zip(keep).filter(|(_, k)| *k).map(|(a, _)| a).collect();
+    let keep: Vec<bool> = out
+        .iter()
+        .map(|label| {
+            let pair = drop_if_finer.iter().find(|(coarse, _)| coarse == label);
+            match pair {
+                Some((_, finer)) => !finer.iter().any(|f| out.contains(f)),
+                None => true,
+            }
+        })
+        .collect();
+    out = out
+        .into_iter()
+        .zip(keep)
+        .filter(|(_, k)| *k)
+        .map(|(a, _)| a)
+        .collect();
     out.into_iter().map(|s| s.to_string()).collect()
 }
 
@@ -204,7 +263,11 @@ async fn infer_themes_from_holdings(code: &str) -> Vec<String> {
         Ok(v) => v,
         Err(_) => return vec![],
     };
-    let stocks = data.get("fundStocks").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let stocks = data
+        .get("fundStocks")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     let texts: String = stocks
         .iter()
         .take(10)
@@ -215,11 +278,20 @@ async fn infer_themes_from_holdings(code: &str) -> Vec<String> {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let etf_name = data.get("ETFSHORTNAME").and_then(|v| v.as_str()).unwrap_or("");
+    let etf_name = data
+        .get("ETFSHORTNAME")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let hay = format!("{texts} {etf_name}");
     let rules: &[(Regex, &str)] = &[
-        (re(r"锂|盐湖|赣锋|天齐|雅化|中矿|永兴材料|西藏矿业|西藏珠峰|天华新能|盛新锂能"), "锂矿"),
-        (re(r"创新药|药明|百济|信达|恒瑞|科伦|复星医药|君实|康方"), "创新药"),
+        (
+            re(r"锂|盐湖|赣锋|天齐|雅化|中矿|永兴材料|西藏矿业|西藏珠峰|天华新能|盛新锂能"),
+            "锂矿",
+        ),
+        (
+            re(r"创新药|药明|百济|信达|恒瑞|科伦|复星医药|君实|康方"),
+            "创新药",
+        ),
         (re(r"茅台|五粮液|泸州老窖|汾酒|洋河|白酒"), "白酒"),
         (re(r"宁德时代|比亚迪|理想|小鹏|蔚来|新能源车"), "汽车"),
         (re(r"隆基|通威|阳光电源|晶澳|光伏"), "光伏"),
@@ -234,7 +306,11 @@ async fn infer_themes_from_holdings(code: &str) -> Vec<String> {
     }
     let mut sorted: Vec<(&str, u32)> = votes.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    sorted.iter().take(2).map(|(label, _)| label.to_string()).collect()
+    sorted
+        .iter()
+        .take(2)
+        .map(|(label, _)| label.to_string())
+        .collect()
 }
 
 /// 板块推断主入口（对应 fetchFundSectors）

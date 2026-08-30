@@ -15,9 +15,7 @@ use serde_json::json;
 
 use crate::http::{self, MOBILE_UA};
 use crate::model::FundQuote;
-use crate::providers::{
-    fundmnfinfo, pad6, run_quotes_concurrent, FundQuoteInput, QuoteProvider,
-};
+use crate::providers::{fundmnfinfo, pad6, run_quotes_concurrent, FundQuoteInput, QuoteProvider};
 
 // ----------------------------- 缓存 -----------------------------
 
@@ -59,10 +57,10 @@ async fn load_xiaobei_detail(code: &str) -> Option<(String, Option<f64>)> {
         .and_then(|v| v.as_f64())
         .map(|raw| (raw * 10000.0).round() / 100.0);
     if daily_yield.is_some() {
-        cache()
-            .lock()
-            .unwrap()
-            .insert(code.to_string(), (name.clone(), daily_yield, Instant::now()));
+        cache().lock().unwrap().insert(
+            code.to_string(),
+            (name.clone(), daily_yield, Instant::now()),
+        );
     }
     Some((name, daily_yield))
 }
@@ -86,12 +84,9 @@ impl QuoteProvider for XiaobeiQuoteProvider {
         if funds.is_empty() {
             return vec![];
         }
-        let mut results = run_quotes_concurrent(
-            funds,
-            |f| Box::pin(async move { fetch_one(&f).await }),
-            10,
-        )
-        .await;
+        let mut results =
+            run_quotes_concurrent(funds, |f| Box::pin(async move { fetch_one(&f).await }), 10)
+                .await;
         // 降级：小倍失败 / 无估值的基金 → FundMNFInfo（其内部含自算 / fund123 兜底链）
         let failed_idx: Vec<usize> = results
             .iter()
@@ -175,7 +170,8 @@ async fn fetch_one(fund: &FundQuoteInput) -> FundQuote {
     let estimate_net_value = net_value
         .filter(|n| *n > 0.0)
         .map(|n| fundmnfinfo::round4(n * (1.0 + daily_yield / 100.0)));
-    let has_estimate = estimate_net_value.is_some() || percent_source.as_deref() == Some("estimate");
+    let has_estimate =
+        estimate_net_value.is_some() || percent_source.as_deref() == Some("estimate");
     let prev_net_value = if percent_source.as_deref() == Some("confirmed") {
         hist.get((hist_idx + 1) as usize).and_then(|h| h.net_value)
     } else if has_estimate {
@@ -197,7 +193,11 @@ async fn fetch_one(fund: &FundQuoteInput) -> FundQuote {
 
     FundQuote {
         code,
-        name: if name.is_empty() { fund.code.clone() } else { name },
+        name: if name.is_empty() {
+            fund.code.clone()
+        } else {
+            name
+        },
         fund_key: String::new(),
         day_growth,
         estimate_growth: Some(daily_yield),

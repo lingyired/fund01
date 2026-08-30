@@ -5,8 +5,12 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use crate::calendar::confirmed_session_active_now;
-use crate::fundname::{is_loose_same_fund_name, is_same_fund_name, pick_fund_by_name, loose_fund_name};
-use crate::model::{FundHistoryPayload, FundHistoryPoint, NameMismatch, ResolveFundPayload, CodeCorrected};
+use crate::fundname::{
+    is_loose_same_fund_name, is_same_fund_name, loose_fund_name, pick_fund_by_name,
+};
+use crate::model::{
+    CodeCorrected, FundHistoryPayload, FundHistoryPoint, NameMismatch, ResolveFundPayload,
+};
 use crate::providers::fund123::{search_fund, search_funds_by_keyword};
 use crate::providers::{eastmoney_fund_get, pad6};
 
@@ -21,10 +25,15 @@ fn round4(n: f64) -> f64 {
 }
 
 fn map_his_net_rows(list: &Value) -> Vec<HistRow> {
-    let Some(rows) = list.as_array() else { return vec![] };
+    let Some(rows) = list.as_array() else {
+        return vec![];
+    };
     rows.iter()
         .filter_map(|r| {
-            let net_value = r.get("DWJZ").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok());
+            let net_value = r
+                .get("DWJZ")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok());
             let day_growth = r.get("JZZZL").and_then(|v| v.as_str()).and_then(|s| {
                 let s = s.replace('%', "");
                 if s.is_empty() || s == "--" {
@@ -33,11 +42,17 @@ fn map_his_net_rows(list: &Value) -> Vec<HistRow> {
                     s.parse::<f64>().ok().filter(|n| n.is_finite())
                 }
             });
-            let date = r.get("FSRQ").and_then(|v| v.as_str()).map(|s| {
-                crate::calendar::normalize_net_value_date(s, &chrono::Local::now())
-            }).unwrap_or_default();
+            let date = r
+                .get("FSRQ")
+                .and_then(|v| v.as_str())
+                .map(|s| crate::calendar::normalize_net_value_date(s, &chrono::Local::now()))
+                .unwrap_or_default();
             if net_value.is_some_and(|n| n.is_finite()) && !date.is_empty() {
-                Some(HistRow { date, net_value, day_growth })
+                Some(HistRow {
+                    date,
+                    net_value,
+                    day_growth,
+                })
             } else {
                 None
             }
@@ -46,7 +61,11 @@ fn map_his_net_rows(list: &Value) -> Vec<HistRow> {
 }
 
 /// 分页拉历史净值（对应 fetchFundNavHistory）
-pub async fn fetch_fund_nav_history(code: &str, page_size: u32, page_index: u32) -> Result<Vec<HistRow>, String> {
+pub async fn fetch_fund_nav_history(
+    code: &str,
+    page_size: u32,
+    page_index: u32,
+) -> Result<Vec<HistRow>, String> {
     let data = eastmoney_fund_get(
         "FundMNHisNetList",
         &HashMap::from([
@@ -68,7 +87,9 @@ async fn fetch_fund_nav_history_paged(
 ) -> Vec<HistRow> {
     let mut all: Vec<HistRow> = Vec::new();
     for page_index in 1..=max_pages {
-        let rows = fetch_fund_nav_history(code, page_size, page_index).await.unwrap_or_default();
+        let rows = fetch_fund_nav_history(code, page_size, page_index)
+            .await
+            .unwrap_or_default();
         if rows.is_empty() {
             break;
         }
@@ -95,7 +116,10 @@ fn filter_fund_nav_by_range(rows_asc: Vec<HistRow>, range: &str) -> Vec<HistRow>
     let Some(days) = days else { return rows_asc };
     let start = chrono::Local::now().date_naive() - chrono::Days::new(days as u64);
     let start_str = start.format("%Y-%m-%d").to_string();
-    rows_asc.into_iter().filter(|p| p.date >= start_str).collect()
+    rows_asc
+        .into_iter()
+        .filter(|p| p.date >= start_str)
+        .collect()
 }
 
 /// 降采样：点数超过 max 时按比例均匀抽取（保留首尾），控制序列化体积与前端渲染量。
@@ -105,7 +129,9 @@ fn downsample<T: Clone>(points: &[T], max: usize) -> Vec<T> {
         return points.to_vec();
     }
     let step = (points.len() - 1) as f64 / (max - 1) as f64;
-    (0..max).map(|i| points[(i as f64 * step).round() as usize].clone()).collect()
+    (0..max)
+        .map(|i| points[(i as f64 * step).round() as usize].clone())
+        .collect()
 }
 
 /// 基金历史净值（对应 getFundHistory）
@@ -120,8 +146,12 @@ pub async fn get_fund_history(code: &str, range: &str) -> Result<FundHistoryPayl
         // 老基金才需要继续翻页，避免所有基金都串行拉满 40 页
         "since" => fetch_fund_nav_history_paged(&padded, 500, 40, 2000).await,
         "3y" => fetch_fund_nav_history_paged(&padded, 500, 3, 900).await,
-        "1y" => fetch_fund_nav_history(&padded, 320, 1).await.unwrap_or_default(),
-        _ => fetch_fund_nav_history(&padded, 120, 1).await.unwrap_or_default(),
+        "1y" => fetch_fund_nav_history(&padded, 320, 1)
+            .await
+            .unwrap_or_default(),
+        _ => fetch_fund_nav_history(&padded, 120, 1)
+            .await
+            .unwrap_or_default(),
     };
     if desc.is_empty() {
         return Err(format!("暂无基金 {padded} 历史净值"));
@@ -134,12 +164,13 @@ pub async fn get_fund_history(code: &str, range: &str) -> Result<FundHistoryPayl
     }
     let base = asc[0].net_value;
     let points: Vec<FundHistoryPoint> = downsample(
-        &asc
-            .iter()
+        &asc.iter()
             .map(|p| FundHistoryPoint {
                 date: p.date.clone(),
                 net_value: p.net_value.unwrap_or(0.0),
-                percent: base.filter(|b| b.is_finite()).map(|b| round4((p.net_value.unwrap_or(0.0) - b) / b * 100.0)),
+                percent: base
+                    .filter(|b| b.is_finite())
+                    .map(|b| round4((p.net_value.unwrap_or(0.0) - b) / b * 100.0)),
             })
             .collect::<Vec<_>>(),
         1200,
@@ -163,13 +194,23 @@ async fn verify_code_by_name(
 ) -> Result<VerifyResult, String> {
     let input = input_name.unwrap_or("").trim().to_string();
     if input.is_empty() {
-        return Ok(VerifyResult { code: code.to_string(), name_mismatch: None, code_corrected: None });
+        return Ok(VerifyResult {
+            code: code.to_string(),
+            name_mismatch: None,
+            code_corrected: None,
+        });
     }
     let match_any = official_names.iter().any(|n| {
-        !n.is_empty() && (is_same_fund_name(Some(&input), Some(n)) || is_loose_same_fund_name(Some(&input), Some(n)))
+        !n.is_empty()
+            && (is_same_fund_name(Some(&input), Some(n))
+                || is_loose_same_fund_name(Some(&input), Some(n)))
     });
     if match_any {
-        return Ok(VerifyResult { code: code.to_string(), name_mismatch: None, code_corrected: None });
+        return Ok(VerifyResult {
+            code: code.to_string(),
+            name_mismatch: None,
+            code_corrected: None,
+        });
     }
 
     // 用关键词搜索并校验
@@ -186,12 +227,18 @@ async fn verify_code_by_name(
         if candidates.iter().any(|(c, _)| c == code) {
             return Some(VerifyStep::Ok);
         }
-        if let Some(((hit_code, hit_name), matched_by)) = pick_fund_by_name(&candidates, Some(input)) {
+        if let Some(((hit_code, hit_name), matched_by)) =
+            pick_fund_by_name(&candidates, Some(input))
+        {
             if hit_code != code {
                 return Some(VerifyStep::Corrected(CodeCorrected {
                     from: code.to_string(),
                     to: hit_code,
-                    from_name: official_names.iter().find(|n| !n.is_empty()).cloned().unwrap_or_default(),
+                    from_name: official_names
+                        .iter()
+                        .find(|n| !n.is_empty())
+                        .cloned()
+                        .unwrap_or_default(),
                     to_name: hit_name,
                     matched_by: matched_by.to_string(),
                 }));
@@ -203,8 +250,16 @@ async fn verify_code_by_name(
     // 1) 原始名
     if let Some(step) = search_and_verify(&input, code, &input, official_names).await {
         return Ok(match step {
-            VerifyStep::Ok => VerifyResult { code: code.to_string(), name_mismatch: None, code_corrected: None },
-            VerifyStep::Corrected(c) => VerifyResult { code: c.to.clone(), name_mismatch: None, code_corrected: Some(c) },
+            VerifyStep::Ok => VerifyResult {
+                code: code.to_string(),
+                name_mismatch: None,
+                code_corrected: None,
+            },
+            VerifyStep::Corrected(c) => VerifyResult {
+                code: c.to.clone(),
+                name_mismatch: None,
+                code_corrected: Some(c),
+            },
         });
     }
     // 2) 宽松名兜底
@@ -212,13 +267,25 @@ async fn verify_code_by_name(
     if loose.chars().count() >= 4 {
         if let Some(step) = search_and_verify(&loose, code, &input, official_names).await {
             return Ok(match step {
-                VerifyStep::Ok => VerifyResult { code: code.to_string(), name_mismatch: None, code_corrected: None },
-                VerifyStep::Corrected(c) => VerifyResult { code: c.to.clone(), name_mismatch: None, code_corrected: Some(c) },
+                VerifyStep::Ok => VerifyResult {
+                    code: code.to_string(),
+                    name_mismatch: None,
+                    code_corrected: None,
+                },
+                VerifyStep::Corrected(c) => VerifyResult {
+                    code: c.to.clone(),
+                    name_mismatch: None,
+                    code_corrected: Some(c),
+                },
             });
         }
     }
 
-    let officials = official_names.iter().filter(|n| !n.is_empty()).cloned().collect();
+    let officials = official_names
+        .iter()
+        .filter(|n| !n.is_empty())
+        .cloned()
+        .collect();
     Ok(VerifyResult {
         code: code.to_string(),
         name_mismatch: Some(NameMismatch { input, officials }),
@@ -238,7 +305,9 @@ struct VerifyResult {
 }
 
 /// 解析基金（对应 resolveFund）
-pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<ResolveFundPayload, String> {
+pub async fn resolve_fund(
+    payload: &crate::model::ResolveFundRequest,
+) -> Result<ResolveFundPayload, String> {
     let mut code = payload.code.trim().to_string();
     let mut meta: Option<SearchMeta> = None;
     match search_fund(&code).await {
@@ -284,10 +353,15 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
         names
     }
 
-    let meta_code = meta.as_ref().map(|m| m.code.clone()).unwrap_or_else(|| code.clone());
+    let meta_code = meta
+        .as_ref()
+        .map(|m| m.code.clone())
+        .unwrap_or_else(|| code.clone());
     if payload.name.is_some() {
-        let official_names = collect_official_names(meta.as_ref().map(|m| m.name.as_str()), &meta_code).await;
-        let verified = verify_code_by_name(&meta_code, &official_names, payload.name.as_deref()).await?;
+        let official_names =
+            collect_official_names(meta.as_ref().map(|m| m.name.as_str()), &meta_code).await;
+        let verified =
+            verify_code_by_name(&meta_code, &official_names, payload.name.as_deref()).await?;
         name_mismatch = verified.name_mismatch;
         code_corrected = verified.code_corrected;
         if verified.code != meta_code {
@@ -316,7 +390,10 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
     let mut prev_net_value_date = String::new();
     let mut net_value_date = String::new();
     if payload.fund_type.as_deref().unwrap_or("watch") == "hold" {
-        let hist_code = meta.as_ref().map(|m| m.code.clone()).unwrap_or_else(|| code.clone());
+        let hist_code = meta
+            .as_ref()
+            .map(|m| m.code.clone())
+            .unwrap_or_else(|| code.clone());
         if let Ok(hist) = fetch_fund_nav_history(&hist_code, 5, 1).await {
             if !hist.is_empty() {
                 net_value = hist[0].net_value;
@@ -339,16 +416,38 @@ pub async fn resolve_fund(payload: &crate::model::ResolveFundRequest) -> Result<
     };
 
     Ok(ResolveFundPayload {
-        code: meta.as_ref().map(|m| m.code.clone()).unwrap_or_else(|| code.clone()),
-        name: if !official_name.is_empty() { official_name.clone() } else { payload.name.clone().unwrap_or_else(|| code.clone()) },
-        fund_key: meta.as_ref().map(|m| m.fund_key.clone()).unwrap_or_default(),
+        code: meta
+            .as_ref()
+            .map(|m| m.code.clone())
+            .unwrap_or_else(|| code.clone()),
+        name: if !official_name.is_empty() {
+            official_name.clone()
+        } else {
+            payload.name.clone().unwrap_or_else(|| code.clone())
+        },
+        fund_key: meta
+            .as_ref()
+            .map(|m| m.fund_key.clone())
+            .unwrap_or_default(),
         sectors,
         net_value,
         prev_net_value,
-        prev_net_value_date: if prev_net_value_date.is_empty() { None } else { Some(prev_net_value_date) },
-        net_value_date: if net_value_date.is_empty() { None } else { Some(net_value_date) },
+        prev_net_value_date: if prev_net_value_date.is_empty() {
+            None
+        } else {
+            Some(prev_net_value_date)
+        },
+        net_value_date: if net_value_date.is_empty() {
+            None
+        } else {
+            Some(net_value_date)
+        },
         confirmed_session,
-        official_name: if official_name.is_empty() { None } else { Some(official_name) },
+        official_name: if official_name.is_empty() {
+            None
+        } else {
+            Some(official_name)
+        },
         name_mismatch,
         code_corrected,
     })

@@ -48,10 +48,11 @@ objc2-foundation = "0.3"
 block2 = "0.6"
 
 # Windows 任务栏多行分组插件：仅 windows 目标编译，macOS 构建完全不带。
-# 插件尚无 tag，先 pin rev（2026-08-29 main），插件发版后换成 tag
-#（见 docs/tauri-plugin-multiline-taskband-适配说明.md）。
+# GitHub tag v1.0.0（2026-08-30 首个 stable tag）：相对 9597d41 仅 Windows 渲染修复
+#（TrafficMonitor 风格整格背景带 + DT_VCENTER 垂直居中，字形顶部不再被裁切）与 demo 改动，
+# Rust/JS API 无变化（见 docs/tauri-plugin-multiline-taskband-适配说明.md）。
 [target.'cfg(target_os = "windows")'.dependencies]
-tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", rev = "9597d41ec5fbc87a95c32aa2fd8b2439e6a6ee3e" }
+tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", tag = "v1.0.0" }
 
 [profile.release]
 strip = true

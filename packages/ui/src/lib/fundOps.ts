@@ -15,6 +15,8 @@ import {
   MENUBAR_OVERVIEW_KEY,
   normalizeConfig,
   normalizeFund,
+  normalizeMenubarEdgeMargins,
+  normalizeMenubarGroupSides,
   normalizeNetValueDate,
   todayDateStr,
 } from '@fund01/core'
@@ -660,6 +662,26 @@ export async function updateSettings(
       }
     }
     config.settings.menubarGroupColors = next
+  }
+  if (
+    patch.menubarGroupSides &&
+    typeof patch.menubarGroupSides === 'object'
+  ) {
+    // 整体替换 menubarGroupSides：仅保留 ''(未分组)、总览或现有分组名，value 校验 'left'|'right'
+    //（与 Rust normalize_config 的 menubarGroupSides 白名单口径一致）
+    config.settings.menubarGroupSides = normalizeMenubarGroupSides(
+      patch.menubarGroupSides,
+      config.settings.holdingGroups || [],
+    )
+  }
+  if (
+    patch.menubarEdgeMargins &&
+    typeof patch.menubarEdgeMargins === 'object'
+  ) {
+    // 整体替换 menubarEdgeMargins：clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]，非法回落 0
+    config.settings.menubarEdgeMargins = normalizeMenubarEdgeMargins(
+      patch.menubarEdgeMargins,
+    )
   }
   if (typeof patch.menubarRiseColor === 'string') {
     config.settings.menubarRiseColor = patch.menubarRiseColor

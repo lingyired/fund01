@@ -8,7 +8,8 @@
 //!   用 desired 顺序：总览 0 → 分组按 holdingGroups 序 → 未分组最后，总览最靠右/最靠左缘起点）
 //!   + 全局 `set_edge_margins`（左右缘留白，物理像素，避开开始按钮/其他图标）。
 //! - **少三个能力**：无 `set_layout`（固定上下两行，字号直接用布局 0 的上行/下行字段）、
-//!   无 `set_tooltip`、无 ⌘-拖出的 `//remove` 事件（Windows 隐藏分组只能走设置页开关）。
+//!   无 `set_tooltip`、无 ⌘-拖出的 `//remove` 事件（Windows 隐藏分组走右键菜单「隐藏」项
+//!   或设置页开关，见 hide_group_from_menu；总览不可隐藏，两入口口径一致）。
 //! - **`quit` 不是插件保留 id**：菜单事件经 muda → Tauri 全局 `on_menu_event`（插件内部 handler
 //!   另发 `multiline-taskband://{id}//menu`，宿主不监听），`open-settings`/`quit` 都由本模块处理，
 //!   `quit` 直接 `app.exit(0)`（Windows 无 macOS trackMouse 收尾问题，无需延迟退出）。
@@ -236,29 +237,38 @@ fn apply_taskband_style(app: &AppHandle, config: &AppConfig, desired: &[Instance
     }
 }
 
-/// 标准右键菜单（每个实例一份）：打开设置 + 退出（与 macOS 相同的菜单结构）。
+/// 标准右键菜单（每个实例一份）：打开设置 + 隐藏该分组（仅分组/未分组）+ 退出。
+/// 「隐藏」语义 = 设置页取消勾选（写 menubarHiddenGroups，见 hide_group_from_menu）；
+/// 总览不挂该项——设置页里总览开关恒锁定为显示，右键保持同一口径（也保证
+/// menubar_all_hidden 在 Windows 恒 false，任务栏永不全空）。
 /// ⚠️ taskband 的 Item 字段是 `enabled`（menubar 是 `disabled`），语义相反勿混。
 /// 退出项 id 仍用 "quit"：**插件不保留该 id**（与 menubar v1.6.1 不同），事件会以
 /// `{instance}::quit` 形态到达全局 on_menu_event，由本模块负责 app.exit(0)（见模块头注释）。
 fn set_standard_menu(app: &AppHandle, id: &str) {
-    let _ = app.multiline_taskband().set_menu(
-        id.to_string(),
-        Some(vec![
-            MenuItemDescriptor::Item {
-                id: "open-settings".to_string(),
-                text: "打开设置…".to_string(),
-                accelerator: None,
-                enabled: None,
-            },
-            MenuItemDescriptor::Separator,
-            MenuItemDescriptor::Item {
-                id: "quit".to_string(),
-                text: "退出 fund01".to_string(),
-                accelerator: None,
-                enabled: None,
-            },
-        ]),
-    );
+    let mut items = vec![MenuItemDescriptor::Item {
+        id: "open-settings".to_string(),
+        text: "打开设置…".to_string(),
+        accelerator: None,
+        enabled: None,
+    }];
+    if id != INSTANCE_OVERVIEW {
+        items.push(MenuItemDescriptor::Item {
+            id: "hide-group".to_string(),
+            text: format!("隐藏「{}」", instance_label(id)),
+            accelerator: None,
+            enabled: None,
+        });
+    }
+    items.push(MenuItemDescriptor::Separator);
+    items.push(MenuItemDescriptor::Item {
+        id: "quit".to_string(),
+        text: "退出 fund01".to_string(),
+        accelerator: None,
+        enabled: None,
+    });
+    let _ = app
+        .multiline_taskband()
+        .set_menu(id.to_string(), Some(items));
 }
 
 /// 应用启动 / 配置变更：收敛实例集合与显隐（+ 右键菜单 + 边距 + 文字/样式）
@@ -292,13 +302,7 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     } else {
         config.settings.menubar_show_amount.unwrap_or(false)
     };
-    // 颜色：上行固定色（默认白色，⚠️ Windows 浅色任务栏下对比度差，见 docs 已知限制）；
-    // 下行按涨跌（涨色/跌色/平色均可配置）
-    let top_color = config
-        .settings
-        .menubar_top_color
-        .clone()
-        .unwrap_or_else(|| COLOR_TOP_DEFAULT.to_string());
+    // 颜色：下行按涨跌（涨色/跌色/平色均可配置）；上行颜色解析链见 top_color_style
     let rise_color = config
         .settings
         .menubar_rise_color
@@ -330,7 +334,6 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
             &config,
             spec,
             show_amount,
-            &top_color,
             &rise_color,
             &fall_color,
             &flat_color,
@@ -339,12 +342,35 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     }
 }
 
+/// 上行颜色解析链（Windows）：分组自定义色（menubarGroupColors）→ 全局自定义上行色
+/// （menubarTopColor，等于默认白 #ffffff 视为未自定义——设置页「重置为系统默认」写回该值）。
+/// 都未开启自定义颜色时下发 `ColorStyle::Default`：跟随系统任务栏文字色、深浅色模式自适应
+/// （修复浅色任务栏下白色对比度差的已知限制；macOS menubar 不走此链，仍恒回落白色）。
+fn top_color_style(config: &AppConfig, id: &str) -> ColorStyle {
+    if let Some(c) = group_key_of(id).and_then(|k| {
+        config
+            .settings
+            .menubar_group_colors
+            .as_ref()
+            .and_then(|m| m.get(&k))
+    }) {
+        return ColorStyle::Solid { value: c.clone() };
+    }
+    match config.settings.menubar_top_color.as_deref().map(str::trim) {
+        Some(v) if !v.is_empty() && !v.eq_ignore_ascii_case(COLOR_TOP_DEFAULT) => {
+            ColorStyle::Solid {
+                value: v.to_string(),
+            }
+        }
+        _ => ColorStyle::Default,
+    }
+}
+
 /// 对单个实例下发颜色（⚠️ 插件无 set_tooltip，跳过 macOS 的 tooltip 步骤）。
 fn apply_colors_one(
     config: &AppConfig,
     spec: &InstanceSpec,
     show_amount: bool,
-    top_color_default: &str,
     rise: &str,
     fall: &str,
     flat: &str,
@@ -355,23 +381,10 @@ fn apply_colors_one(
     } else {
         color_for(spec.pct, rise, fall, flat)
     };
-    // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
-    // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''
-    let instance_top_color = group_key_of(&spec.id)
-        .and_then(|k| {
-            config
-                .settings
-                .menubar_group_colors
-                .as_ref()
-                .and_then(|m| m.get(&k))
-        })
-        .cloned()
-        .unwrap_or_else(|| top_color_default.to_string());
+    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid
     let _ = app.multiline_taskband().set_colors(
         spec.id.clone(),
-        ColorStyle::Solid {
-            value: instance_top_color,
-        },
+        top_color_style(config, &spec.id),
         ColorStyle::Solid { value: color },
     );
 }
@@ -383,12 +396,18 @@ fn apply_colors_one(
 /// - 托盘菜单（tray.rs）：菜单项 id 就是裸的 action id。
 /// 故先剥 `{instance}::` 前缀（实例 id 只含 hex/固定字符，`split_once("::")` 无歧义）再匹配。
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
-    let action = match item_id.split_once("::") {
-        Some((_instance, action)) => action,
-        None => item_id,
+    let (instance, action) = match item_id.split_once("::") {
+        Some((instance, action)) => (Some(instance), action),
+        None => (None, item_id),
     };
     match action {
         "open-settings" => open_settings_window(app, None, None),
+        // 实例右键菜单「隐藏该分组」：托盘菜单无此项（裸 id 无实例可归属），仅带前缀时处理
+        "hide-group" => {
+            if let Some(id) = instance {
+                hide_group_from_menu(app, id);
+            }
+        }
         // taskband 插件不保留 quit id（与 macOS menubar 插件 v1.6.1 不同）：
         // Windows 无 NSMenu trackMouse 收尾问题，直接同步退出即可。
         "quit" => {
@@ -397,6 +416,38 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
         }
         _ => {}
     }
+}
+
+/// 右键菜单「隐藏该分组」→ 语义与设置页取消勾选完全一致：把分组 key 写进
+/// `menubar_hidden_groups`（key 约定同 group_key_of：''=未分组、其余=分组名），
+/// 持久化 + 广播 config-change（设置页开关实时同步置灰），再 rebuild 收敛显隐——
+/// 该实例在 desired 里变 visible=false → set_visible(false)，实例保留、重新勾选原位复活
+/// （对齐 macOS ⌘-拖出的处理路径 menubar.rs::ensure_remove_listener）。
+fn hide_group_from_menu(app: &AppHandle, id: &str) {
+    // 总览恒显不可隐藏（与设置页一致；菜单层已不挂该项，此处防御性兜底）
+    if id == INSTANCE_OVERVIEW {
+        return;
+    }
+    let Some(group) = group_key_of(id) else {
+        return;
+    };
+    let state = app.state::<crate::state::AppState>();
+    let snapshot = {
+        let mut cfg = state.config.write().unwrap();
+        let hidden = cfg
+            .settings
+            .menubar_hidden_groups
+            .get_or_insert_with(Vec::new);
+        if !hidden.iter().any(|h| h == &group) {
+            hidden.push(group.clone());
+        }
+        cfg.clone()
+    };
+    let quote = state.quote.read().unwrap().clone();
+    // 持久化 + 广播 config-change（设置页开着时实时同步）+ 收敛显隐（幂等）
+    crate::commands::persist_config(app, &snapshot);
+    rebuild_taskbar(app, &snapshot, quote.as_ref());
+    eprintln!("[fund01] 右键菜单「隐藏」→ 分组「{group}」已隐藏（menubarHiddenGroups 已同步）");
 }
 
 /// 供 refresh 后调用（避免与 config 锁死）

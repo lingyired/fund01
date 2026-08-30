@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::http::{self, MOBILE_UA};
 use crate::model::{FundQuote, TrendPoint};
 use crate::providers::{
-    pad6, run_quotes_concurrent, eastmoney_fund_get, FundQuoteInput, QuoteProvider,
+    eastmoney_fund_get, pad6, run_quotes_concurrent, FundQuoteInput, QuoteProvider,
 };
 
 const MNFINFO_DEVICEID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
@@ -23,7 +23,11 @@ const MNFINFO_DEVICEID: &str = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
     let mut out = HashMap::new();
     for chunk in codes.chunks(200) {
-        crate::dbg_log!("FundMNFInfo 请求 chunk={} codes={}", chunk.len(), chunk.join(","));
+        crate::dbg_log!(
+            "FundMNFInfo 请求 chunk={} codes={}",
+            chunk.len(),
+            chunk.join(",")
+        );
         let query = http::params(&[
             ("pageIndex", "1"),
             ("pageSize", "200"),
@@ -79,7 +83,9 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
             } else {
                 crate::err_log!(
                     "FundMNFInfo 响应无 Datas 字段（Success={}，原始前 120 字: {}）",
-                    data.get("Success").map(|x| x.to_string()).unwrap_or_default(),
+                    data.get("Success")
+                        .map(|x| x.to_string())
+                        .unwrap_or_default(),
                     data.to_string().chars().take(120).collect::<String>()
                 );
             }
@@ -87,24 +93,60 @@ async fn fetch_fund_mnfinfo(codes: &[String]) -> HashMap<String, Value> {
             crate::err_log!("FundMNFInfo chunk 全部尝试失败（网络层）");
         }
     }
-    crate::dbg_log!("FundMNFInfo 总命中 {} / 请求 {}（唯一 code）", out.len(), codes.len());
+    crate::dbg_log!(
+        "FundMNFInfo 总命中 {} / 请求 {}（唯一 code）",
+        out.len(),
+        codes.len()
+    );
     out
 }
 
 /// 解析单条 FundMNFInfo item（三态口径，对应 parseFundMNFInfoItem）
 fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
-    let nav = item.get("NAV").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
-    let nav_chg_rt = item.get("NAVCHGRT").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
-    let gsz = item.get("GSZ").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
-    let gszzl = item.get("GSZZL").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
-    let pdate = item.get("PDATE").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let gztime = item.get("GZTIME").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let nav = item
+        .get("NAV")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .parse::<f64>()
+        .ok();
+    let nav_chg_rt = item
+        .get("NAVCHGRT")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .parse::<f64>()
+        .ok();
+    let gsz = item
+        .get("GSZ")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .parse::<f64>()
+        .ok();
+    let gszzl = item
+        .get("GSZZL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .parse::<f64>()
+        .ok();
+    let pdate = item
+        .get("PDATE")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let gztime = item
+        .get("GZTIME")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     let nav_valid = nav.is_some_and(|n| n > 0.0);
     let nav_chg_rt_valid = nav_chg_rt.is_some();
     let gsz_valid = gsz.is_some_and(|g| g > 0.0);
 
-    let gztime_day = if gztime.len() >= 10 { gztime[..10].to_string() } else { String::new() };
+    let gztime_day = if gztime.len() >= 10 {
+        gztime[..10].to_string()
+    } else {
+        String::new()
+    };
     let now = chrono::Local::now();
     // has_replace：当日净值已披露（估值时间 == 净值日期）。
     // ⚠️ GZTIME 已对全部场外基金停返（实测恒 null，2026-08-07）→ 原判定恒 false，
@@ -120,7 +162,8 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
         pdate != "--" && !pdate.is_empty() && pdate == gztime_day
     } else {
         let nav_day = crate::calendar::normalize_net_value_date(&pdate, &now);
-        !nav_day.is_empty() && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
+        !nav_day.is_empty()
+            && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
     };
     crate::dbg_log!(
         "parse item code={} name={} pdate={} gztime_day={} qdii={} has_replace={}",
@@ -131,10 +174,15 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
         nav_qdii,
         has_replace
     );
-    let estimate_stale = !gztime_day.is_empty() && !pdate.is_empty() && pdate != "--" && gztime_day < pdate;
+    let estimate_stale =
+        !gztime_day.is_empty() && !pdate.is_empty() && pdate != "--" && gztime_day < pdate;
 
     let mut parsed = ParsedMnf {
-        name: item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        name: item
+            .get("SHORTNAME")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         confirmed: false,
         day_growth: None,
         estimate_growth: None,
@@ -151,7 +199,8 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
         parsed.confirmed = true;
         parsed.net_value = if nav_valid { nav } else { None };
         if nav_valid && nav_chg_rt_valid {
-            parsed.prev_net_value = Some(round4(nav.unwrap() / (1.0 + nav_chg_rt.unwrap() / 100.0)));
+            parsed.prev_net_value =
+                Some(round4(nav.unwrap() / (1.0 + nav_chg_rt.unwrap() / 100.0)));
         }
         parsed.day_growth = nav_chg_rt;
     } else if gsz_valid && !estimate_stale {
@@ -213,7 +262,10 @@ pub fn clear_calc_caches() {
 
 async fn fetch_fund_top_holdings(code: &str) -> Vec<Value> {
     {
-        let cache = HOLDINGS_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+        let cache = HOLDINGS_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap();
         if let Some((stocks, exp)) = cache.get(code) {
             if Instant::now() < *exp {
                 return stocks.clone();
@@ -229,7 +281,11 @@ async fn fetch_fund_top_holdings(code: &str) -> Vec<Value> {
         Ok(v) => v,
         Err(_) => return vec![],
     };
-    let mut stocks = data.get("fundStocks").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let mut stocks = data
+        .get("fundStocks")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     // 联接基金无直接持仓：取 ETFCODE 再查对应 ETF 的重仓股
     if stocks.is_empty() {
         if let Some(etf) = data.get("ETFCODE").and_then(|v| v.as_str()) {
@@ -239,12 +295,22 @@ async fn fetch_fund_top_holdings(code: &str) -> Vec<Value> {
             )
             .await
             {
-                stocks = etf_data.get("fundStocks").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                stocks = etf_data
+                    .get("fundStocks")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
             }
         }
     }
-    let mut cache = HOLDINGS_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
-    cache.insert(code.to_string(), (stocks.clone(), Instant::now() + HOLDINGS_TTL));
+    let mut cache = HOLDINGS_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap();
+    cache.insert(
+        code.to_string(),
+        (stocks.clone(), Instant::now() + HOLDINGS_TTL),
+    );
     stocks
 }
 
@@ -262,19 +328,29 @@ async fn fetch_stock_pct_changes(secids: &[String]) -> HashMap<String, f64> {
         ("fltt", "2"),
         ("secids", &secids.join(",")),
     ]);
-    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, crate::market::PUSH_HOSTS).await {
+    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, crate::market::PUSH_HOSTS)
+        .await
+    {
         Ok(v) => v,
         Err(e) => {
             crate::err_log!("fetchStockPctChanges 失败: {e}");
             return out;
         }
     };
-    if let Some(diff) = data.get("data").and_then(|d| d.get("diff")).and_then(|d| d.as_array()) {
+    if let Some(diff) = data
+        .get("data")
+        .and_then(|d| d.get("diff"))
+        .and_then(|d| d.as_array())
+    {
         for row in diff {
             let f3 = row.get("f3").and_then(|v| v.as_f64()).or_else(|| {
-                row.get("f3").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok())
+                row.get("f3")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse::<f64>().ok())
             });
-            let Some(pct) = f3.filter(|p| p.is_finite()) else { continue };
+            let Some(pct) = f3.filter(|p| p.is_finite()) else {
+                continue;
+            };
             let f12 = row.get("f12").and_then(|v| v.as_str()).unwrap_or("");
             let f13 = row.get("f13").and_then(|v| v.as_str()).unwrap_or("");
             if !f12.is_empty() {
@@ -289,10 +365,18 @@ async fn fetch_stock_pct_changes(secids: &[String]) -> HashMap<String, f64> {
 }
 
 /// Σ(股票涨跌幅 × 该股占比 / 总占比)，对应 calcFundEstimateChange
-fn calc_fund_estimate_change(stocks: &[Value], quote_by_secid: &HashMap<String, f64>) -> Option<f64> {
+fn calc_fund_estimate_change(
+    stocks: &[Value],
+    quote_by_secid: &HashMap<String, f64>,
+) -> Option<f64> {
     let mut total_weight = 0.0f64;
     for s in stocks {
-        let w = s.get("JZBL").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
+        let w = s
+            .get("JZBL")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .parse::<f64>()
+            .ok();
         if w.is_some_and(|w| w > 0.0) {
             total_weight += w.unwrap();
         }
@@ -303,7 +387,12 @@ fn calc_fund_estimate_change(stocks: &[Value], quote_by_secid: &HashMap<String, 
     let mut weighted = 0.0f64;
     let mut matched = 0u32;
     for s in stocks {
-        let w = s.get("JZBL").and_then(|v| v.as_str()).unwrap_or("").parse::<f64>().ok();
+        let w = s
+            .get("JZBL")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .parse::<f64>()
+            .ok();
         if !w.is_some_and(|w| w > 0.0) {
             continue;
         }
@@ -342,7 +431,10 @@ fn calc_fund_estimate_change(stocks: &[Value], quote_by_secid: &HashMap<String, 
 pub async fn get_calc_gszzl(code: &str) -> Option<f64> {
     let padded = pad6(code);
     {
-        let cache = CALC_GSZZL_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+        let cache = CALC_GSZZL_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap();
         if let Some((v, exp)) = cache.get(&padded) {
             if Instant::now() < *exp {
                 return Some(*v);
@@ -371,7 +463,10 @@ pub async fn get_calc_gszzl(code: &str) -> Option<f64> {
     let quote_map = fetch_stock_pct_changes(&secids).await;
     let value = calc_fund_estimate_change(&stocks, &quote_map);
     if let Some(v) = value {
-        let mut cache = CALC_GSZZL_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+        let mut cache = CALC_GSZZL_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap();
         cache.insert(padded, (v, Instant::now() + CALC_GSZZL_TTL));
     }
     value
@@ -418,7 +513,9 @@ async fn fill_hist_aligned(
     net_value_date: &mut String,
     with_prev: bool,
 ) {
-    let Ok(hist) = crate::history::fetch_fund_nav_history(code, 5, 1).await else { return };
+    let Ok(hist) = crate::history::fetch_fund_nav_history(code, 5, 1).await else {
+        return;
+    };
     if hist.is_empty() {
         return;
     }
@@ -586,7 +683,11 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
 
     FundQuote {
         code,
-        name: if name.is_empty() { fund.code.clone() } else { name },
+        name: if name.is_empty() {
+            fund.code.clone()
+        } else {
+            name
+        },
         fund_key: String::new(),
         day_growth,
         estimate_growth,
@@ -620,10 +721,7 @@ pub(crate) fn is_qdii_name(name: &str) -> bool {
 /// ⚠️ 仅限非 QDII 基金调用（QDII 由调用方用 is_qdii_name 过滤）。
 /// ⚠️ 单向兜底（防循环）：本函数内部只调 fund123（searchFund / queryFundEstimateIntraday），
 /// 不得再回调 FundMNFInfo 或触发其他数据源 fallback；每个基金最多走一次兜底。
-async fn fund123_estimate_fallback(
-    code: &str,
-    fund: &FundQuoteInput,
-) -> Option<(f64, f64)> {
+async fn fund123_estimate_fallback(code: &str, fund: &FundQuoteInput) -> Option<(f64, f64)> {
     use crate::providers::fund123;
     // 1. 确保 fund_key（config 已存则直接用，否则 searchFund 补查）
     let mut fund_key = fund.fund_key.clone().unwrap_or_default();
@@ -652,7 +750,8 @@ async fn fund123_estimate_fallback(
 }
 
 // 供 fund123 provider 复用（getFundQuote 需要板块推断）
-pub async fn refresh_sectors_if_needed(code: &str, name: &str, sectors: &[String]) -> Vec<String> {    let mut out = sectors.to_vec();
+pub async fn refresh_sectors_if_needed(code: &str, name: &str, sectors: &[String]) -> Vec<String> {
+    let mut out = sectors.to_vec();
     if crate::theme::sectors_need_refresh(&out, name) {
         let next = crate::theme::fetch_fund_sectors_queued(code, name).await;
         if !next.is_empty() {

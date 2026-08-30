@@ -123,11 +123,13 @@ pub struct AppSettings {
     /// 菜单栏下行文字水平对齐：0=左对齐(默认) 1=居中 2=右对齐（插件 v1.5.0+ set_alignment）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_align: Option<u8>,
-    /// 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）
+    /// 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）。
+    /// Windows taskband：None 或等于默认白 → 视为「未自定义」，下发 ColorStyle::Default
+    /// 跟随系统任务栏文字色（见 taskband.rs top_color_style）；macOS menubar 恒回落白色。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_color: Option<String>,
     /// 各持仓分组自定义的上行文字颜色（key=分组名，''=未分组；value=hex）。
-    /// 未配置的分组回落 menubar_top_color（全局）
+    /// 未配置的分组回落 menubar_top_color（全局），全局也未自定义时 Windows 跟随系统色
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_group_colors: Option<HashMap<String, String>>,
     /// 菜单栏下行涨色（hex，默认 #FF4F44）

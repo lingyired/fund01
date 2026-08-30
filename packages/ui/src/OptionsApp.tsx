@@ -3772,7 +3772,8 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 分组自定义上行颜色：开启时若无值则先取全局色作为初始，关闭则删除该分组颜色（回落全局） */
+  /** 分组自定义上行颜色：开启时若无值则先取全局色作为初始，关闭则删除该分组颜色
+   * （回落全局上行色；Windows 下全局也未自定义时跟随系统任务栏文字色） */
   async function toggleGroupColor(g: string, on: boolean) {
     const next = {...groupColors}
     if (on) {
@@ -3835,7 +3836,7 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
             value={groupSides[key] ?? 'right'}
             onValueChange={(v) => void commitGroupSide(key, v as MenubarGroupSide)}
           >
-            <Select.Trigger aria-label={`${label} 停靠位置`} className="w-24" />
+            <Select.Trigger aria-label={`${label} 停靠位置`} />
             <Select.Content>
               <Select.Item value="right">右侧</Select.Item>
               <Select.Item value="left">左侧</Select.Item>
@@ -3874,7 +3875,7 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
           {isWindows
-            ? '任务栏分组默认停靠在任务栏右侧（靠近通知区域），可在「位置」中改为左侧（靠近开始按钮一侧）；「显示」控制分组是否出现在任务栏。「总览」默认始终显示、不可在本页关闭。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色。'
+            ? '任务栏分组默认停靠在任务栏右侧（靠近通知区域），可在「位置」中改为左侧（靠近开始按钮一侧）；「显示」控制分组是否出现在任务栏。「总览」默认始终显示、不可在本页关闭。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随系统任务栏文字色（深浅色自适应，「颜色」中已自定义上行颜色时跟随全局）。'
             : '菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色；「显示」控制分组实例是否出现在菜单栏。「总览」默认始终显示、不可在本页关闭；若在菜单栏被按住 ⌘ 拖出，可在此重新开启（开启后恢复始终显示）。'}
         </p>
         <table className="w-full pt-1 text-sm">
@@ -4235,7 +4236,10 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">颜色</div>
         <p className="text-xs text-muted">
-          上行（分组名/总览）固定色默认白色（Windows 浅色任务栏下如不清晰可自行调深）；下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759、平色默认 #8e8e93。
+          {isWindows
+            ? '上行（分组名/总览）固定色默认跟随系统任务栏文字色（深浅色模式自适应），自定义「上行颜色」或分组「自定义颜色」后改为固定色；'
+            : '上行（分组名/总览）固定色默认白色；'}
+          下行数值随涨跌变色，涨色默认 #FF4F44、跌色默认 #34C759、平色默认 #8e8e93。
         </p>
         <div className="space-y-1.5 pt-1">
           {(

@@ -14,7 +14,10 @@ fn main() {
 
 fn link_clang_rt() {
     // 定位 clang 可执行文件 → toolchain 根 → lib/clang/<ver>/lib/darwin/libclang_rt.osx.a
-    let Ok(out) = std::process::Command::new("xcrun").args(["--find", "clang"]).output() else {
+    let Ok(out) = std::process::Command::new("xcrun")
+        .args(["--find", "clang"])
+        .output()
+    else {
         return;
     };
     if !out.status.success() {
@@ -24,9 +27,13 @@ fn link_clang_rt() {
     let toolchain_usr = std::path::Path::new(&clang_path)
         .parent() // bin
         .and_then(|p| p.parent()); // usr
-    let Some(toolchain_usr) = toolchain_usr else { return };
+    let Some(toolchain_usr) = toolchain_usr else {
+        return;
+    };
     let clang_dir = toolchain_usr.join("lib/clang");
-    let Ok(entries) = std::fs::read_dir(&clang_dir) else { return };
+    let Ok(entries) = std::fs::read_dir(&clang_dir) else {
+        return;
+    };
     for e in entries.flatten() {
         if !e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             continue;

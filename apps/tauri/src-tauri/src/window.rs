@@ -306,9 +306,9 @@ fn position_below(app: &AppHandle, win: &WebviewWindow, rect: (f64, f64, f64, f6
             let p = m.position();
             let s = m.size();
             cx >= p.x as f64
-                && cx < (p.x + s.width) as f64
+                && cx < (p.x + s.width as i32) as f64
                 && cy >= p.y as f64
-                && cy < (p.y + s.height) as f64
+                && cy < (p.y + s.height as i32) as f64
         })
         .or_else(|| app.primary_monitor().ok().flatten());
     let (mx, my, mw, mh) = monitor

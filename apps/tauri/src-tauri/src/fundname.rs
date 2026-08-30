@@ -40,14 +40,38 @@ fn is_bracket(c: char) -> bool {
 fn is_separator(c: char) -> bool {
     matches!(
         c,
-        ' ' | '\t' | '\n' | '\r' | '-' | '—' | '–' | '_' | '·' | '•' | '、' | ',' | '，' | '.'
-            | '。' | ':' | '：' | ';' | '；' | '\'' | '"' | '“' | '”' | '‘' | '’'
+        ' ' | '\t'
+            | '\n'
+            | '\r'
+            | '-'
+            | '—'
+            | '–'
+            | '_'
+            | '·'
+            | '•'
+            | '、'
+            | ','
+            | '，'
+            | '.'
+            | '。'
+            | ':'
+            | '：'
+            | ';'
+            | '；'
+            | '\''
+            | '"'
+            | '“'
+            | '”'
+            | '‘'
+            | '’'
     )
 }
 
 /// 基础归一化（严格匹配用）
 pub fn normalize_fund_name(name: Option<&str>) -> String {
-    let Some(name) = name else { return String::new() };
+    let Some(name) = name else {
+        return String::new();
+    };
     let s = to_half_width(name.trim());
     let s: String = s.chars().filter(|c| !is_invisible(*c)).collect();
     let s: String = s.chars().filter(|c| !is_bracket(*c)).collect();
@@ -115,7 +139,10 @@ pub fn is_loose_same_fund_name(a: Option<&str>, b: Option<&str>) -> bool {
 pub type FundNameCandidate = (String, String); // (code, name)
 
 /// 从搜索候选里挑出与 inputName 对应的那一只（严格唯一 → 宽松唯一 → null）
-pub fn pick_fund_by_name(candidates: &[FundNameCandidate], input_name: Option<&str>) -> Option<(FundNameCandidate, &'static str)> {
+pub fn pick_fund_by_name(
+    candidates: &[FundNameCandidate],
+    input_name: Option<&str>,
+) -> Option<(FundNameCandidate, &'static str)> {
     if candidates.is_empty() {
         return None;
     }
@@ -154,14 +181,26 @@ mod tests {
 
     #[test]
     fn strict_matching() {
-        assert!(is_same_fund_name(Some("嘉实创新先锋混合C"), Some("嘉实创新先锋混合C")));
-        assert!(is_same_fund_name(Some(" 嘉实创新先锋 混合C "), Some("嘉实创新先锋混合C")));
-        assert!(!is_same_fund_name(Some("嘉实创新先锋混合C"), Some("嘉实创新先锋混合A")));
+        assert!(is_same_fund_name(
+            Some("嘉实创新先锋混合C"),
+            Some("嘉实创新先锋混合C")
+        ));
+        assert!(is_same_fund_name(
+            Some(" 嘉实创新先锋 混合C "),
+            Some("嘉实创新先锋混合C")
+        ));
+        assert!(!is_same_fund_name(
+            Some("嘉实创新先锋混合C"),
+            Some("嘉实创新先锋混合A")
+        ));
     }
 
     #[test]
     fn loose_matching() {
-        assert!(is_loose_same_fund_name(Some("嘉实创新先锋C"), Some("嘉实创新先锋混合C")));
+        assert!(is_loose_same_fund_name(
+            Some("嘉实创新先锋C"),
+            Some("嘉实创新先锋混合C")
+        ));
     }
 
     #[test]
