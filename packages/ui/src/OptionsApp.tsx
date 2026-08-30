@@ -3275,10 +3275,13 @@ function AboutSection({
               )}
             </div>
           ) : null}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-muted">构建</span>
-            <span>{buildInfo.sha}</span>
-          </div>
+          {/* 构建环境拿不到 git 信息时 sha 为空串，整行隐藏（不显示无效的「构建 unknown」） */}
+          {buildInfo.sha ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted">构建</span>
+              <span>{buildInfo.sha}</span>
+            </div>
+          ) : null}
           {buildInfo.time ? (
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted">时间</span>
@@ -3837,7 +3840,8 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
             onValueChange={(v) => void commitGroupSide(key, v as MenubarGroupSide)}
           >
             <Select.Trigger aria-label={`${label} 停靠位置`} />
-            <Select.Content>
+            {/* popper：按内容自适应高度；默认 item-aligned 会把面板拉伸到接近整屏 */}
+            <Select.Content position="popper">
               <Select.Item value="right">右侧</Select.Item>
               <Select.Item value="left">左侧</Select.Item>
             </Select.Content>
