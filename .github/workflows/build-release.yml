@@ -153,20 +153,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 手动触发且指定了单架构时只跑那一个，否则两个都跑。
-        # 注意：过滤只能写在 matrix 定义处 —— job 级 `if` 不能引用 matrix 上下文
-        # （GitHub 会报 Unrecognized named-value: 'matrix'）。
-        arch: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.arch != 'all' && github.event.inputs.arch != '') && format('["{0}"]', github.event.inputs.arch) || '["x64", "arm64"]') }}
-        # include 里与 arch 同名的条目会自动补上其余属性（target / label / experimental）
-        include:
-          - arch: x64
-            label: x64 (Intel/AMD)
-            target: x86_64-pc-windows-msvc
-            experimental: false
-          - arch: arm64
-            label: Windows on ARM
-            target: aarch64-pc-windows-msvc
-            experimental: true
+        # 单架构过滤直接作用在 include（唯一组合来源）。
+        # 坑（2026-08-31 实测）：不能写成「arch 列表 + 静态 include」两段式 ——
+        # GitHub 的 include 语义是「未匹配到现有组合的条目会作为新组合追加」，
+        # 单架构时另一个架构会被 include 补回来（-f arch=x64 时 arm64 照样跑）。
+        # 手动触发且指定单架构 → 只用对应架构条目；否则（push tag / all）两个都跑。
+        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.arch == 'x64') && '[{"arch":"x64","label":"x64 (Intel/AMD)","target":"x86_64-pc-windows-msvc","experimental":false}]' || (github.event_name == 'workflow_dispatch' && github.event.inputs.arch == 'arm64') && '[{"arch":"arm64","label":"Windows on ARM","target":"aarch64-pc-windows-msvc","experimental":true}]' || '[{"arch":"x64","label":"x64 (Intel/AMD)","target":"x86_64-pc-windows-msvc","experimental":false},{"arch":"arm64","label":"Windows on ARM","target":"aarch64-pc-windows-msvc","experimental":true}]') }}
 
     steps:
       - uses: actions/checkout@v5
