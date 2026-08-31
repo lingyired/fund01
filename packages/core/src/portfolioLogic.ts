@@ -9,7 +9,8 @@ export const DEFAULT_REFRESH_INTERVAL: RefreshInterval = {trading: 60, nonTradin
 export const MIN_REFRESH_INTERVAL: RefreshInterval = {trading: 30, nonTrading: 300}
 
 /** 菜单栏展示自定义项默认值（core 导出，UI 与 normalize 共用）：
- * 上行/下行默认系统字体（留空=系统字体）；上行默认白色不加粗，下行默认加粗，
+ * 上行/下行默认系统字体（留空=系统字体）；上行色默认 #ffffff（=未自定义，
+ * 桌面端跟随系统菜单栏/任务栏文字色，深浅色自适应）且不加粗，下行默认加粗，
  * 下行涨色 #FF4F44 / 跌色 #34C759 / 平色 #8e8e93。 */
 export const MENUBAR_DEFAULTS: {
   topFont: string

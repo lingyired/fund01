@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "fund01-tauri"
-version = "1.5.1"
+version = "1.5.0"
 dependencies = [
  "block2",
  "chrono",
@@ -3805,8 +3805,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-multiline-menubar"
-version = "1.6.1"
-source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.6.1#9682464a8686b7397e1e1cb25edea6e689e053db"
+version = "1.7.0"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.7.0#80317f5ab93e1acf71447a63a3df5683d0c6613c"
 dependencies = [
  "cc",
  "muda",

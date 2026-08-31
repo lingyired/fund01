@@ -124,12 +124,15 @@ pub struct AppSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_bottom_align: Option<u8>,
     /// 菜单栏上行（分组名/总览）固定文字颜色（hex，默认 #ffffff）。
-    /// Windows taskband：None 或等于默认白 → 视为「未自定义」，下发 ColorStyle::Default
-    /// 跟随系统任务栏文字色（见 taskband.rs top_color_style）；macOS menubar 恒回落白色。
+    /// 两端口径一致：None 或等于默认白 → 视为「未自定义」，下发 ColorStyle::Default
+    /// 跟随系统文字色、深浅色模式自适应（Windows 见 taskband.rs::top_color_style；
+    /// macOS 见 menubar.rs::top_color_style，multiline-menubar v1.7.0 起绘制时解析
+    /// NSColor.labelColor 并在深浅色切换时自动重绘）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_color: Option<String>,
     /// 各持仓分组自定义的上行文字颜色（key=分组名，''=未分组；value=hex）。
-    /// 未配置的分组回落 menubar_top_color（全局），全局也未自定义时 Windows 跟随系统色
+    /// 未配置的分组回落 menubar_top_color（全局），全局也未自定义时两端都跟随系统色
+    ///（见 menubar.rs / taskband.rs 的 top_color_style）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_group_colors: Option<HashMap<String, String>>,
     /// 菜单栏下行涨色（hex，默认 #FF4F44）

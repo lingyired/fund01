@@ -183,7 +183,7 @@ fn sync_instances(app: &AppHandle, desired: &[InstanceSpec]) {
         let is_new = tracked().lock().unwrap().insert(spec.id.clone());
         if is_new {
             let _ = mb.create(spec.id.clone());
-            // 实例创建即挂标准右键菜单（版本/打开设置/退出）——覆盖 update_menubar 路径新建的实例，
+            // 实例创建即挂标准右键菜单（打开设置/隐藏分组/退出）——覆盖 update_menubar 路径新建的实例，
             // 保证任何实例都可不依赖「总览」在场右键退出 app（总览可被 ⌘-拖出）。
             set_standard_menu(app, &spec.id);
             eprintln!(
@@ -246,16 +246,7 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
         // 设置页对应分组的「显示」开关随之置灰。实例保留，重新勾选即原位复活。
         // 总览默认恒显不可隐藏，但 macOS 允许 ⌘-拖出 → 写入 __overview__ 标记，设置页解锁为可重新开启；
         // 未分组 id 对应隐藏列表中的 ''。
-        let group = if instance_id == "menubar-ungrouped" {
-            Some(String::new())
-        } else if instance_id == INSTANCE_OVERVIEW {
-            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
-        } else {
-            instance_id
-                .strip_prefix("menubar-group-")
-                .map(crate::menubar_common::decode_group_id)
-                .filter(|n| !n.is_empty())
-        };
+        let group = group_key_of(&instance_id);
         if let Some(g) = group {
             let state = app_listener.state::<crate::state::AppState>();
             let mut cfg = state.config.write().unwrap();
@@ -296,7 +287,7 @@ pub fn rebuild_menubar(
     let desired = desired_instances(config, quote);
     sync_instances(app, &desired);
 
-    // 2. 设置右键菜单（打开设置 + 退出）——**每个实例一份**，不只总览。
+    // 2. 设置右键菜单（打开设置 + 隐藏该分组（仅分组/未分组） + 退出）——**每个实例一份**，不只总览。
     //    插件 set_menu 是按实例的 API（payload 带 id），原生层对任意实例 NSStatusItem 挂 NSMenu，
     //    右键即弹出；菜单事件经 muda 全局 handler → Tauri on_menu_event（lib.rs 注册一次，与实例无关），
     //    "quit" 由插件在 Rust 侧直接 app.exit(0)。总览被 ⌘-拖出（隐藏）后，任一其他实例仍可右键退出 app。
@@ -309,11 +300,24 @@ pub fn rebuild_menubar(
     update_menubar(app, quote);
 }
 
-/// 标准右键菜单（每个实例一份）：打开设置 + 退出。
+/// 「隐藏该分组」菜单项 id 前缀：`hide-group::{instance_id}`。
+/// ⚠️ item id 必须按实例唯一：macOS 插件把 muda 菜单项 id **原样**上抛给宿主全局
+/// `on_menu_event`（不附来源实例），共享 id 无法区分是哪个实例的菜单被点击；
+/// 带上实例 id 后事件自含归属，宿主剥前缀即得（Windows taskband 插件强制同款
+/// `{instance}::{action}` 约定，两端口径一致）。实例 id 只含字母数字与 `-`，
+/// `::` 分隔无歧义。
+const HIDE_GROUP_ITEM_PREFIX: &str = "hide-group::";
+
+/// 标准右键菜单（每个实例一份）：打开设置 + 隐藏该分组（仅分组/未分组）+ 退出。
 /// 幂等；由 sync_instances 创建实例时挂载 + rebuild_menubar 对全集重挂，
 /// 两条路径共用，保证任何创建途径的实例都带右键菜单。
 /// ⚠️ 不放版本号行：① 版本在设置窗口/浮窗头部都有显示（v{version}），菜单里重复且无用；
 /// ② disabled 置灰首行在部分 macOS 版本下会渲染成带展开箭头的怪异样子（用户反馈 2026-08-16）。
+///
+/// 「隐藏」语义 = 设置页取消勾选（写 menubarHiddenGroups，见 hide_group_from_menu）；
+/// 总览不挂该项——macOS 隐藏总览的唯一入口仍是 ⌘-拖出（ensure_remove_listener），
+/// 右键与 Windows 保持同一口径（对齐 taskband.rs::set_standard_menu）。
+/// Item 字段用 `enabled`（插件 v1.7.0 起与 taskband 对齐；旧字段 `disabled` 仍接受但已弃用）。
 ///
 /// ⚠️ 退出项使用插件保留 id `quit`：插件 v1.6.1 起对该 id **延迟 ~200ms 异步** `app.exit(0)`
 /// （native 侧补发 rightMouseUp 让 button 外层 trackMouse 收尾），不再挂起。
@@ -321,24 +325,31 @@ pub fn rebuild_menubar(
 /// （v1.6.0 的同步退出缺陷 + fund01 的 quit-fund01/process::exit workaround 已于 1.0.47 撤下，
 /// 回退指南见 docs/插件v1.6.1-右键退出workaround回退指南.md。）
 fn set_standard_menu(app: &AppHandle, id: &str) {
-    let _ = app.multiline_menubar().set_menu(
-        id.to_string(),
-        vec![
-            MenuItemDescriptor::Item {
-                id: "open-settings".to_string(),
-                text: "打开设置…".to_string(),
-                accelerator: None,
-                disabled: None,
-            },
-            MenuItemDescriptor::Separator,
-            MenuItemDescriptor::Item {
-                id: "quit".to_string(),
-                text: "退出 fund01".to_string(),
-                accelerator: None,
-                disabled: None,
-            },
-        ],
-    );
+    let mut items = vec![MenuItemDescriptor::Item {
+        id: "open-settings".to_string(),
+        text: "打开设置…".to_string(),
+        accelerator: None,
+        enabled: None,
+        disabled: None, // 弃用字段占位（enabled 存在时被插件忽略）
+    }];
+    if id != INSTANCE_OVERVIEW {
+        items.push(MenuItemDescriptor::Item {
+            id: format!("{HIDE_GROUP_ITEM_PREFIX}{id}"),
+            text: format!("隐藏「{}」", instance_label(id)),
+            accelerator: None,
+            enabled: None,
+            disabled: None, // 弃用字段占位（enabled 存在时被插件忽略）
+        });
+    }
+    items.push(MenuItemDescriptor::Separator);
+    items.push(MenuItemDescriptor::Item {
+        id: "quit".to_string(),
+        text: "退出 fund01".to_string(),
+        accelerator: None,
+        enabled: None,
+        disabled: None, // 弃用字段占位（enabled 存在时被插件忽略）
+    });
+    let _ = app.multiline_menubar().set_menu(id.to_string(), items);
 }
 
 /// 每次刷新后：更新全部实例的文字与颜色，并收敛实例集合（不依赖过期快照）。
@@ -357,12 +368,8 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     } else {
         config.settings.menubar_show_amount.unwrap_or(false)
     };
-    // 颜色：上行固定色（默认白色）；下行按涨跌（涨色/跌色/平色均可配置）
-    let top_color = config
-        .settings
-        .menubar_top_color
-        .clone()
-        .unwrap_or_else(|| COLOR_TOP_DEFAULT.to_string());
+    // 颜色：上行解析链见 top_color_style（未自定义 → 跟随系统色）；下行按涨跌
+    //（涨色/跌色/平色均可配置）
     let rise_color = config
         .settings
         .menubar_rise_color
@@ -404,7 +411,6 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
             &config,
             spec,
             show_amount,
-            &top_color,
             &rise_color,
             &fall_color,
             &flat_color,
@@ -413,12 +419,37 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     }
 }
 
+/// 上行颜色解析链（macOS，与 taskband.rs::top_color_style 两端口径一致）：分组自定义色
+///（menubarGroupColors，key 见 group_key_of）→ 全局自定义上行色（menubarTopColor，等于默认白
+/// #ffffff 视为未自定义——设置页「重置为系统默认」写回该值）→ `ColorStyle::Default`。
+/// Default 由插件在**绘制时**解析 `NSColor.labelColor` 并随深浅色模式自动重绘（插件 v1.7.0：
+/// native 层 KVO effectiveAppearance，切换即重绘，无需宿主干预）。此前 macOS 未自定义恒回落
+/// 白色 Solid，系统未开「暗色菜单栏」（浅色菜单栏）时白字对比度差。
+fn top_color_style(config: &crate::model::AppConfig, group_key: Option<&str>) -> ColorStyle {
+    if let Some(c) = group_key.and_then(|k| {
+        config
+            .settings
+            .menubar_group_colors
+            .as_ref()
+            .and_then(|m| m.get(k))
+    }) {
+        return ColorStyle::Solid { value: c.clone() };
+    }
+    match config.settings.menubar_top_color.as_deref().map(str::trim) {
+        Some(v) if !v.is_empty() && !v.eq_ignore_ascii_case(COLOR_TOP_DEFAULT) => {
+            ColorStyle::Solid {
+                value: v.to_string(),
+            }
+        }
+        _ => ColorStyle::Default,
+    }
+}
+
 /// 对单个实例下发颜色与 tooltip（不影响 view 高度测量，可与文本分离）。
 fn apply_colors_tooltip_one(
     config: &crate::model::AppConfig,
     spec: &InstanceSpec,
     show_amount: bool,
-    top_color_default: &str,
     rise: &str,
     fall: &str,
     flat: &str,
@@ -431,41 +462,21 @@ fn apply_colors_tooltip_one(
     } else {
         color_for(spec.pct, rise, fall, flat)
     };
-    // 上行颜色：实例对应分组自定义色（menubarGroupColors）→ 未配置回落全局 topColor。
-    // 总览 key=__overview__（可自定义，同分组语义）；未分组 key=''
-    let group_key = if spec.id == INSTANCE_OVERVIEW {
-        Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
-    } else if spec.id == "menubar-ungrouped" {
-        Some(String::new())
-    } else {
-        spec.id
-            .strip_prefix("menubar-group-")
-            .map(crate::menubar_common::decode_group_id)
-            .filter(|n| !n.is_empty())
-    };
-    let instance_top_color = group_key
-        .and_then(|k| {
-            config
-                .settings
-                .menubar_group_colors
-                .as_ref()
-                .and_then(|m| m.get(&k))
-        })
-        .cloned()
-        .unwrap_or_else(|| top_color_default.to_string());
+    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid
     let _ = mb.set_colors(
         spec.id.clone(),
-        ColorStyle::Solid {
-            value: instance_top_color,
-        },
+        top_color_style(config, group_key_of(&spec.id).as_deref()),
         ColorStyle::Solid { value: color },
     );
     let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
 }
 
-/// 菜单事件分发（open-settings 等）。
+/// 菜单事件分发（open-settings / hide-group）。
 /// lib.rs 注册的 `on_menu_event` 是 Tauri 全局菜单事件：所有实例的右键菜单项都汇聚到这里，
 /// 与来源实例无关（item_id 相同则行为一致），因此每个实例的「打开设置…」行为完全等价。
+///
+/// 「隐藏该分组」例外：item id 按实例唯一（`hide-group::{instance_id}`，见 set_standard_menu），
+/// 事件自含来源实例，剥前缀即知该隐藏哪个分组。
 ///
 /// `quit` 由插件处理（QUIT_ITEM_IDS，v1.6.1 起延迟 ~200ms 异步 app.exit），宿主不监听；
 /// **勿在此处加 quit/quit2 分支**，否则会与插件异步退出竞争（如直接 process::exit 会抢先
@@ -475,6 +486,64 @@ fn apply_colors_tooltip_one(
 pub fn on_menu_event(app: &AppHandle, item_id: &str) {
     if item_id == "open-settings" {
         open_settings_window(app, None, None);
+        return;
+    }
+    if let Some(instance_id) = item_id.strip_prefix(HIDE_GROUP_ITEM_PREFIX) {
+        hide_group_from_menu(app, instance_id);
+    }
+}
+
+/// 实例 id → 分组 key（menubarHiddenGroups / menubarGroupColors 同 key 约定）：
+/// 总览 → `__overview__`；未分组 → `''`；menubar-group-{hex} → 分组名。
+/// （与 taskband.rs::group_key_of 语义一致，Windows 侧因插件 id 强制带实例前缀而独立成文。）
+fn group_key_of(id: &str) -> Option<String> {
+    if id == INSTANCE_OVERVIEW {
+        Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+    } else if id == "menubar-ungrouped" {
+        Some(String::new())
+    } else {
+        id.strip_prefix("menubar-group-")
+            .map(crate::menubar_common::decode_group_id)
+            .filter(|n| !n.is_empty())
+    }
+}
+
+/// 右键菜单「隐藏该分组」→ 语义与设置页取消勾选完全一致：把分组 key 写进
+/// `menubar_hidden_groups`（key 约定同 group_key_of：''=未分组、其余=分组名），
+/// 持久化 + 广播 config-change（设置页开关实时同步置灰），再 rebuild 收敛显隐——
+/// 该实例在 desired 里变 visible=false → set_visible(false)，实例保留、重新勾选原位复活
+/// （对齐 ⌘-拖出的处理路径 ensure_remove_listener；Windows 同款实现在 taskband.rs）。
+fn hide_group_from_menu(app: &AppHandle, id: &str) {
+    // 总览不经右键隐藏（菜单层已不挂该项，此处防御性兜底；macOS 隐藏总览的唯一入口是 ⌘-拖出）
+    if id == INSTANCE_OVERVIEW {
+        return;
+    }
+    let Some(group) = group_key_of(id) else {
+        return;
+    };
+    let state = app.state::<crate::state::AppState>();
+    let snapshot = {
+        let mut cfg = state.config.write().unwrap();
+        let hidden = cfg
+            .settings
+            .menubar_hidden_groups
+            .get_or_insert_with(Vec::new);
+        if !hidden.iter().any(|h| h == &group) {
+            hidden.push(group.clone());
+        }
+        cfg.clone()
+    };
+    let quote = state.quote.read().unwrap().clone();
+    // 持久化 + 广播 config-change（设置页开着时实时同步）+ 收敛显隐（幂等）
+    crate::commands::persist_config(app, &snapshot);
+    rebuild_menubar(app, &snapshot, quote.as_ref());
+    eprintln!("[fund01] 右键菜单「隐藏」→ 分组「{group}」已隐藏（menubarHiddenGroups 已同步）");
+    // 总览已被 ⌘-拖出的前提下，右键隐藏最后一个可见分组 → menubar 全空且无窗口（全静默）
+    // → 自动打开 popup-tab 独立页展示 banner（「恢复菜单栏」/ 关窗即退出），与 ⌘-拖出同款兜底。
+    // 有窗口（设置页开着）时不弹——banner 已在窗口内，等用户关掉最后一个窗口即退出。
+    if menubar_all_hidden(&snapshot) && !crate::window::has_main_window(app) {
+        eprintln!("[fund01] menubar 全空且无窗口 → 自动打开 popup-tab");
+        crate::window::open_popup_tab_window(app);
     }
 }
 
@@ -485,3 +554,47 @@ pub fn update_menubar_with(app: &AppHandle, quote: &Option<QuoteUpdate>) {
 
 #[allow(dead_code)]
 fn _unused(_: &Value) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// group_key_of 四分支：总览 → __overview__、未分组 → ''、分组 → 原名、非法 id → None。
+    /// key 即 menubarHiddenGroups / menubarGroupColors 的写入 key（hide_group_from_menu /
+    /// ensure_remove_listener / apply_colors_tooltip_one 共用），口径错了会隐藏错分组。
+    #[test]
+    fn group_key_of_maps_instance_ids_to_setting_keys() {
+        assert_eq!(
+            group_key_of(INSTANCE_OVERVIEW),
+            Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+        );
+        assert_eq!(group_key_of("menubar-ungrouped"), Some(String::new()));
+        assert_eq!(
+            group_key_of(&format!(
+                "menubar-group-{}",
+                crate::menubar_common::encode_group_id("科技仓")
+            )),
+            Some("科技仓".to_string())
+        );
+        assert_eq!(group_key_of("menubar-group-"), None);
+        assert_eq!(group_key_of("unknown-prefix"), None);
+    }
+
+    /// 「隐藏该分组」菜单项 id 约定：`hide-group::{instance_id}` 剥前缀必须还原出实例 id，
+    /// 且与总览/未分组等固定 id 无 `::` 歧义（on_menu_event 的解析依赖这一点）。
+    #[test]
+    fn hide_group_item_id_roundtrip() {
+        let instance_id = format!(
+            "menubar-group-{}",
+            crate::menubar_common::encode_group_id("消费 组")
+        );
+        let item_id = format!("{HIDE_GROUP_ITEM_PREFIX}{instance_id}");
+        assert_eq!(
+            item_id.strip_prefix(HIDE_GROUP_ITEM_PREFIX),
+            Some(instance_id.as_str())
+        );
+        // 固定 id 不会误入 hide-group 前缀分支
+        assert_eq!("open-settings".strip_prefix(HIDE_GROUP_ITEM_PREFIX), None);
+        assert_eq!("quit".strip_prefix(HIDE_GROUP_ITEM_PREFIX), None);
+    }
+}

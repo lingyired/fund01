@@ -37,7 +37,7 @@
 - **外边距**：`menubarEdgeMargins` `{left,right}`（物理像素）→ `set_edge_margins`（全局 API）。
 - 每次刷新路径（refresh → `status_bar::update_with`）与保存配置路径（save_config → `status_bar::rebuild`）都会全量幂等下发文本/颜色/样式/侧/序。
 
-## 二、与 multiline-menubar 的 API 对照（v1.6.1 ↔ taskband v1.0.0）
+## 二、与 multiline-menubar 的 API 对照（menubar v1.7.0 ↔ taskband v1.0.0）
 
 ### 等价（fund01 直接沿用同一配置字段）
 
@@ -81,8 +81,10 @@
    `on_menu_event` handler 解析后另发 `multiline-taskband://{id}//menu`。fund01 的全局
    handler 会收到**带前缀的原始 id**，因此 `taskband::on_menu_event` 用 `split_once("::")`
    剥前缀再匹配（托盘菜单是裸 id，两种形态都要兼容）。应用**不要**再监听 `//menu` 事件（会双路径重复处理）。
-2. **MenuItemDescriptor 字段名**：taskband 的 `Item` 变体是 `enabled: Option<bool>`，
-   menubar 是 `disabled: Option<bool>`，语义相反，拷贝菜单构造代码时必须改名。
+2. **MenuItemDescriptor 字段名**：~~taskband 的 `Item` 变体是 `enabled: Option<bool>`，
+   menubar 是 `disabled: Option<bool>`，语义相反~~ **（menubar v1.7.0 已对齐）**：两插件
+   `Item` 均为 `enabled: Option<bool>`（menubar 的 `disabled` 保留但弃用，`enabled` 存在时被忽略），
+   拷贝菜单构造代码不再需要改名。
 3. **rect 坐标系**：click rect / `rect()` 均为**物理像素、top-left 原点**（macOS 版是 points、
    bottom-left 原点）；浮窗定位（`window.rs` 非 macOS 分支）按物理像素处理并 clamp 到目标显示器。
 4. **权限**：插件 `default.toml` 不含 `set-popup-window`/`open-popup`/`close-popup`/`toggle-popup`/`remove`/`set-menu`。
@@ -119,7 +121,9 @@ macOS 与 Windows 本就是两种形态（菜单栏 vs 任务栏），行为存�
   **（v1.0.0 已解决，2026-08-30）**：上行颜色未自定义时改发 `ColorStyle::Default`
   （跟随系统任务栏文字色，深浅色模式自适应），解析链见 `taskband.rs top_color_style`：
   分组自定义色（menubarGroupColors）→ 全局上行色（menubarTopColor ≠ 默认白才算自定义）→
-  `ColorStyle::Default`。macOS menubar 不走此链，仍恒回落白色（两平台上行色默认值自此分叉）。
+  `ColorStyle::Default`。macOS menubar 插件升级 v1.7.0（系统色跟随：绘制时解析
+  `NSColor.labelColor` + KVO effectiveAppearance 深浅色自动重绘）后采用同款解析链，
+  见 `menubar.rs top_color_style`（两端口径重新对齐，2026-08-31）。
 - 任务栏自动隐藏、explorer 重启重布局、多屏异 DPI、竖直任务栏：插件层能力，未在 mac 侧验证。
 - 浮窗（popup）680×600 逻辑尺寸、失焦隐藏、闲置 5 分钟销毁与 macOS 完全一致；
   Windows 上依赖 `Focused(false)`（无 macOS 的全局点击 monitor，理论上够用——

@@ -241,7 +241,7 @@ fn apply_taskband_style(app: &AppHandle, config: &AppConfig, desired: &[Instance
 /// 「隐藏」语义 = 设置页取消勾选（写 menubarHiddenGroups，见 hide_group_from_menu）；
 /// 总览不挂该项——设置页里总览开关恒锁定为显示，右键保持同一口径（也保证
 /// menubar_all_hidden 在 Windows 恒 false，任务栏永不全空）。
-/// ⚠️ taskband 的 Item 字段是 `enabled`（menubar 是 `disabled`），语义相反勿混。
+/// 两插件 Item 字段均为 `enabled`（menubar 插件 v1.7.0 起对齐；其旧字段 `disabled` 仍接受但已弃用）。
 /// 退出项 id 仍用 "quit"：**插件不保留该 id**（与 menubar v1.6.1 不同），事件会以
 /// `{instance}::quit` 形态到达全局 on_menu_event，由本模块负责 app.exit(0)（见模块头注释）。
 fn set_standard_menu(app: &AppHandle, id: &str) {
@@ -345,7 +345,8 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
 /// 上行颜色解析链（Windows）：分组自定义色（menubarGroupColors）→ 全局自定义上行色
 /// （menubarTopColor，等于默认白 #ffffff 视为未自定义——设置页「重置为系统默认」写回该值）。
 /// 都未开启自定义颜色时下发 `ColorStyle::Default`：跟随系统任务栏文字色、深浅色模式自适应
-/// （修复浅色任务栏下白色对比度差的已知限制；macOS menubar 不走此链，仍恒回落白色）。
+/// （修复浅色任务栏下白色对比度差的已知限制；macOS menubar 插件 v1.7.0 起同款解析链，
+/// 见 menubar.rs::top_color_style）。
 fn top_color_style(config: &AppConfig, id: &str) -> ColorStyle {
     if let Some(c) = group_key_of(id).and_then(|k| {
         config
