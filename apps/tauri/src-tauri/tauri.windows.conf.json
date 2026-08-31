@@ -4,7 +4,8 @@
     "targets": ["nsis"],
     "windows": {
       "webviewInstallMode": {
-        "type": "downloadBootstrapper"
+        "type": "offlineInstaller",
+        "path": "./webview2/MicrosoftEdgeWebView2Setup.exe"
       }
     }
   }
