@@ -26,6 +26,22 @@ pub struct CheckUpdateResult {
     pub download_url: Option<String>,
 }
 
+/// 当前平台查询参数：`os` = windows / macos，`arch` = x64 / arm64。
+/// 服务端可据此按平台分发下载地址 / 统计客户端分布；未知平台原样透传不造假。
+fn platform_query_params() -> Vec<(&'static str, &'static str)> {
+    let os = match std::env::consts::OS {
+        "macos" => "macos",
+        "windows" => "windows",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    vec![("os", os), ("arch", arch)]
+}
+
 /// 解析 x.y.z 三段数字版本号；任一段非数字 → None（视为非法）
 fn parse_version(s: &str) -> Option<(u32, u32, u32)> {
     let mut parts = s.trim().split('.');
@@ -72,7 +88,8 @@ fn parse_check_result(v: &serde_json::Value) -> Option<CheckUpdateResult> {
 }
 
 /// 检查是否有新版本：缓存命中直接返回；否则请求远端 JSON。
-/// 请求带 `v=当前版本号` 查询参数（服务端可据此统计客户端版本分布 / 兼容判断）。
+/// 请求带 `v=当前版本号`、`os=macos/windows`、`arch=x64/arm64` 查询参数
+/// （服务端可据此统计客户端版本分布 / 按平台分发下载地址）。
 /// `force = true`（「关于」页手动点击）时跳过 1h 内存缓存，真正请求远端一次。
 /// Ok(None) = 已是最新（前端静默）；Err = 网络/解析失败（前端静默）。
 pub async fn check_update(
@@ -89,9 +106,11 @@ pub async fn check_update(
             }
         }
     }
+    let mut url_params: Vec<(&str, &str)> = vec![("v", env!("CARGO_PKG_VERSION"))];
+    url_params.extend(platform_query_params());
     let v = http::http_get_json(
         UPDATE_URL,
-        &http::params(&[("v", env!("CARGO_PKG_VERSION"))]),
+        &http::params(&url_params),
         http::DESKTOP_UA,
         None,
         Duration::from_secs(10),
