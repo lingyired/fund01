@@ -36,7 +36,7 @@ node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 pnpm --filter @fund01/tauri tauri:build:release:all   # ⭐ 发 GitHub Release 专用：双架构签名构建 + create-dmg 打 DMG（见「双架构发布产物」）
 ```
 
-**Windows 安装包不在 macOS 上构建**（见「Windows 发布产物」）：本地跑 `node scripts/build-release-windows.mjs` 会被脚本的平台校验挡下；要走 GitHub Actions `.github/workflows/build-windows.yml`（windows-latest runner 原生构建）。
+**Windows 安装包不在 macOS 上构建**（见「Windows 发布产物」）：本地跑 `node scripts/build-release-windows.mjs` 会被脚本的平台校验挡下；要走 GitHub Actions `.github/workflows/build-release.yml`（windows-latest runner 原生构建）。macOS 的 release 包也可选择交给该 workflow（macos-15 runner + Fund01 证书签名，见「发布 workflow」）。
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
@@ -119,10 +119,19 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 ### Windows 发布产物（2026-08-31 定，macOS 本机无法交叉构建）
 - **为什么不能在 macOS 上打**：链接需要 MSVC 的 `link.exe` + Windows SDK 导入库（kernel32.lib / user32.lib 等微软专有文件），打包还需要 `makensis`(NSIS)。rustup 虽可装 `x86_64-pc-windows-msvc` 的 std，但缺链接器与 SDK，交叉不可行；GNU(`-pc-windows-gnu` + mingw) 路径 Tauri 未正式支持，webview2 / windows-rs 大概率链接失败。
-- **⭐ 走 GitHub Actions**：`.github/workflows/build-windows.yml`（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`）。触发 = 手动 `workflow_dispatch`（可选 all / x64 / arm64）或 push tag `v*`；产物**只上传 artifact**（30 天保留），**不自动建 Release**——下载校验后手动建，或另接 `softprops/action-gh-release`。
+- **⭐ 走 GitHub Actions**：`.github/workflows/build-release.yml` 的 **windows job**（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`，见下方「发布 workflow」）。
+- **产物来源标识（2026-08-31 定）**：CI 构建注入 `FUND01_EXE_SUFFIX=-ci`，归档名 `Fund01_<ver>_<arch>-ci-setup.exe`；本机打包不设该变量维持原名 `Fund01_<ver>_<arch>-setup.exe`。两者同目录混放也不会混淆。tauri 原始产物名不变，`SHA256SUMS.txt` 的 `-setup.exe` 过滤天然兼容。
 - **matrix 设计**：x64 必成；arm64 依赖 VS 的 ARM64 交叉工具（`x64_arm64`，runner 镜像可能未带该组件）→ 标 `continue-on-error: true` + `fail-fast: false`，单架构可用也好过全红，summary 会标出结果。
 - 脚本本身的前置与坑见 `scripts/build-release-windows.mjs` 头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
 - 历史产物留在 `release-windows/`（v1.4.0 双架构 exe + SHA256SUMS.txt），由用户在 Windows 端本地构建产出。
+
+### 发布 workflow（2026-08-31 定，统一 build-release.yml）
+- 唯一入口 `.github/workflows/build-release.yml`，含 **macos** 与 **windows** 两个 job，取代早先的 build-windows.yml。
+- **macos job**：runs-on `macos-15`（arm64 runner）→ 导入仓库 secret 的 Fund01 证书（`MACOS_CERT_P12` / `MACOS_CERT_PASSWORD`，2026-08-31 从本机登录钥匙串导出 p12 存入）→ 跑 `node scripts/build-release-all.mjs`（双架构：arm64 原生 + x86_64 交叉；`--arch x86_64|arm64` 可单架构）→ create-dmg 打 DMG → 上传 artifact `Fund01-macos`（含 SHA256SUMS.txt）。产物签名与本机一致（`Authority=Fund01`）。
+- **windows job**：同原 build-windows.yml 逻辑（matrix x64/arm64 + `FUND01_EXE_SUFFIX=-ci`）。
+- 触发 = 手动 `workflow_dispatch`（可选 platform: all/macos/windows × arch: all/x64/arm64）或 push tag `v*`；产物**只上传 artifact**（30 天保留），**不自动建 Release**——下载校验后手动建，或另接 `softprops/action-gh-release`。
+- 手动触发时 arch 过滤写在 matrix 定义处（`fromJSON(...)` 生成架构列表）——**job 级 `if` 不能引用 matrix 上下文**（GitHub 报 `Unrecognized named-value: 'matrix'`，2026-08-31 踩过）。
+- 证书维护：Fund01 自签名证书有效期至 2036-08（本机钥匙串）；secret 里的 p12 失效时重新 `security export -t identities -P <pw>` 导出并 `gh secret set`（注意 p12 内含 Apple Development 证书，需用 openssl 拆分仅留 CN=Fund01——详见 2026-08-31 工作日志）。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 

@@ -1,0 +1,221 @@
+name: Build release installers
+
+# 三端发布构建（macOS + Windows；Chrome 包 tiny、固定本机打，不进 CI）。
+# 背景：Windows 无法从 macOS 交叉构建（链接需 MSVC link.exe + Windows SDK 导入库，
+# 打包需 makensis），因此两条路都走 GitHub runner：
+#   - macOS  job → macos-15 (arm64) 上跑 scripts/build-release-all.mjs
+#     （build-tauri-all 双架构：arm64 原生 + x86_64 交叉 → build-dmg 打 DMG），
+#     签名用仓库 secret MACOS_CERT_P12（Fund01 证书 p12）+ MACOS_CERT_PASSWORD 导入临时钥匙串。
+#   - Windows job → windows-latest 上跑 scripts/build-release-windows.mjs（MSVC + NSIS），
+#     FUND01_EXE_SUFFIX=-ci 让归档名带来源标识，与本机产物区分。
+# 产物只上传 artifact（30 天），不建 GitHub Release。
+# 触发：手动 workflow_dispatch（可选 platform / arch），或 push tag v*。
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '目标平台（默认全打）'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
+      arch:
+        description: '目标架构（默认都打；macOS: arm64+x86_64，Windows: x64+arm64）'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x64
+          - arm64
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  macos:
+    name: macOS build
+    runs-on: macos-15
+    # 手动触发按 platform 过滤；push tag 无 inputs，总是跑
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'macos'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        # 版本读根 package.json 的 packageManager 字段（pnpm@9.15.0）
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # arm64（host 原生）+ x86_64（交叉，clang 支持双架构）
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tauri/src-tauri
+          key: macos
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fund01 自签名证书（登录钥匙串导出）导入临时钥匙串：tauri 的 codesign
+      # 按名字 "Fund01" 查找签名身份，与本机产物签名一致（Authority=Fund01）。
+      - name: Install signing certificate
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euxo pipefail
+          echo "$MACOS_CERT_P12" | base64 --decode > /tmp/fund01-cert.p12
+          security create-keychain -p "$MACOS_CERT_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MACOS_CERT_PASSWORD" build.keychain
+          security import /tmp/fund01-cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          # 允许 codesign 无弹窗访问私钥（CI 无 UI，缺了会挂起）
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERT_PASSWORD" build.keychain
+          security find-identity -v -p codesigning
+
+      - name: Build macOS installers + DMG
+        # 单架构时透传 --arch（x64 → x86_64，macOS 脚本的命名）；否则双架构全打。
+        # APPLE_SIGNING_IDENTITY 默认 Fund01
+        env:
+          APPLE_SIGNING_IDENTITY: Fund01
+        run: |
+          ARCH_FLAG=""
+          if [[ "${{ github.event.inputs.arch }}" == "x64" ]]; then
+            ARCH_FLAG="--arch x86_64"
+          elif [[ "${{ github.event.inputs.arch }}" == "arm64" ]]; then
+            ARCH_FLAG="--arch arm64"
+          fi
+          node scripts/build-release-all.mjs $ARCH_FLAG
+
+      - name: Generate checksums
+        working-directory: release-macos
+        run: shasum -a 256 Fund01_*.dmg > SHA256SUMS.txt
+
+      - name: Upload DMG
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-macos
+          path: |
+            release-macos/*.dmg
+            release-macos/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  windows:
+    name: Build ${{ matrix.label }}
+    runs-on: windows-latest
+    # arm64 依赖 VS 的 ARM64 交叉工具（x64_arm64），runner 镜像可能未带该组件；
+    # 失败不阻塞 x64 —— 单架构可用也比全红好，日志里会明确标出。
+    continue-on-error: ${{ matrix.experimental }}
+    # 手动触发按 platform 过滤（与 macos job 同理）；push tag 总是跑
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'windows'
+    strategy:
+      fail-fast: false
+      matrix:
+        # 手动触发且指定了单架构时只跑那一个，否则两个都跑。
+        # 注意：过滤只能写在 matrix 定义处 —— job 级 `if` 不能引用 matrix 上下文
+        # （GitHub 会报 Unrecognized named-value: 'matrix'）。
+        arch: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.arch != 'all' && github.event.inputs.arch != '') && format('["{0}"]', github.event.inputs.arch) || '["x64", "arm64"]') }}
+        # include 里与 arch 同名的条目会自动补上其余属性（target / label / experimental）
+        include:
+          - arch: x64
+            label: x64 (Intel/AMD)
+            target: x86_64-pc-windows-msvc
+            experimental: false
+          - arch: arm64
+            label: Windows on ARM
+            target: aarch64-pc-windows-msvc
+            experimental: true
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        # 版本读根 package.json 的 packageManager 字段（pnpm@9.15.0）
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # host(x86_64-pc-windows-msvc) 由 action 默认安装；arm64 用 vcvarsall 的
+          # x64_arm64 交叉，只需额外补装 target 的 std。
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/tauri/src-tauri
+          # 两个 matrix 架构的 target 目录分开缓存，避免互相覆盖
+          key: ${{ matrix.arch }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # GitHub 的 windows 镜像通常预装 NSIS，但版本/路径会随镜像漂移；
+      # 找不到 makensis 才装，装在默认路径下 tauri 能自动定位。
+      - name: Ensure NSIS is available
+        shell: pwsh
+        run: |
+          if (Get-Command makensis -ErrorAction SilentlyContinue) {
+            Write-Host "makensis: $((Get-Command makensis).Source)"
+          } else {
+            Write-Host "未找到 makensis，安装 NSIS..."
+            choco install nsis -y --no-progress
+          }
+
+      - name: Build ${{ matrix.label }} installer
+        id: build
+        # FUND01_EXE_SUFFIX=-ci：归档名带来源标识（Fund01_<ver>_<arch>-ci-setup.exe），
+        # 与本机打包（无后缀）区分，避免测试时拿错包。
+        env:
+          FUND01_EXE_SUFFIX: -ci
+        run: node scripts/build-release-windows.mjs --arch ${{ matrix.arch }}
+
+      - name: Upload installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-windows-${{ matrix.arch }}
+          path: release-windows/*.exe
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload checksums
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-windows-${{ matrix.arch }}-sha256
+          path: release-windows/SHA256SUMS.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          $status = if ('${{ steps.build.outcome }}' -eq 'success') { '✅ 成功' } else { '❌ 失败（查看上方日志）' }
+          Add-Content $env:GITHUB_STEP_SUMMARY "${{ matrix.label }}: $status"
