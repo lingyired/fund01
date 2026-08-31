@@ -74,19 +74,32 @@ jobs:
 
       # Fund01 自签名证书（登录钥匙串导出）导入临时钥匙串：tauri 的 codesign
       # 按名字 "Fund01" 查找签名身份，与本机产物签名一致（Authority=Fund01）。
+      #
+      # 注意（2026-08-31 首次 CI 验证卡死排查）：codesign 访问私钥时若钥匙串
+      # ACL 未放行，无头 runner 会静默挂起——始终停在 "replacing existing
+      # signature"，等一个不存在的 GUI 授权弹窗，直到 job 超时。修复要点：
+      #   - import 用 -A（允许任意应用访问私钥，临时钥匙串专用，可接受），
+      #     不要只 -T /usr/bin/codesign（tauri 内部嵌入调用的 codesign 路径
+      #     不在白名单时授权失败即挂起）
+      #   - set-key-partition-list 只对新解锁的临时钥匙串生效，且必须
+      #     default-keychain 指到它，codesign 才找得到 Fund01
+      #   - build 步骤前再 unlock 一次（跨步骤解锁状态不保证持久）
       - name: Install signing certificate
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
           set -euxo pipefail
-          echo "$MACOS_CERT_P12" | base64 --decode > /tmp/fund01-cert.p12
-          security create-keychain -p "$MACOS_CERT_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$MACOS_CERT_PASSWORD" build.keychain
-          security import /tmp/fund01-cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          # 允许 codesign 无弹窗访问私钥（CI 无 UI，缺了会挂起）
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERT_PASSWORD" build.keychain
+          KEYCHAIN="$RUNNER_TEMP/fund01-build.keychain"
+          echo "KEYCHAIN_PATH=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/fund01-cert.p12"
+          security create-keychain -p "$MACOS_CERT_PASSWORD" "$KEYCHAIN"
+          # 钥匙串自动锁定超时设 6 小时：codesign 中途不会被锁绊住（CI 无 UI 解锁会挂起）
+          security set-keychain-settings -t 21600 "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p "$MACOS_CERT_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/fund01-cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERT_PASSWORD" "$KEYCHAIN"
           security find-identity -v -p codesigning
 
       - name: Build macOS installers + DMG
@@ -95,6 +108,9 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: Fund01
         run: |
+          set -euxo pipefail
+          # 构建前再次解锁临时钥匙串（跨步骤解锁状态不保证持久，卡死元凶之一）
+          security unlock-keychain -p "${{ secrets.MACOS_CERT_PASSWORD }}" "$KEYCHAIN_PATH"
           ARCH_FLAG=""
           if [[ "${{ github.event.inputs.arch }}" == "x64" ]]; then
             ARCH_FLAG="--arch x86_64"
