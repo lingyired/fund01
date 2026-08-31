@@ -185,6 +185,18 @@ jobs:
           # 两个 matrix 架构的 target 目录分开缓存，避免互相覆盖
           key: ${{ matrix.arch }}
 
+      # 缓存 tauri 打包工具目录（%LOCALAPPDATA%\tauri）：内含 NSIS 工具集与
+      # WebView2 bootstrapper（MicrosoftEdgeWebview2Setup.exe），tauri 检测到
+      # 文件已存在就跳过下载（源码 util.rs: `if !file_path.exists()`）。
+      # 首次构建仍需从 GitHub/微软拉一次，之后 7 天内从 Actions cache 恢复，
+      # 避免每次打 Windows 包都撞微软/tauri CDN（实测 os error 10054 偶发失败）。
+      # 两个架构共享同一份缓存（key 不带 matrix.arch）。
+      - name: Cache tauri tools (%LOCALAPPDATA%\tauri)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LOCALAPPDATA }}\tauri
+          key: tauri-tools-win
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
