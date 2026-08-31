@@ -191,10 +191,12 @@ jobs:
       # 首次构建仍需从 GitHub/微软拉一次，之后 7 天内从 Actions cache 恢复，
       # 避免每次打 Windows 包都撞微软/tauri CDN（实测 os error 10054 偶发失败）。
       # 两个架构共享同一份缓存（key 不带 matrix.arch）。
+      # actions/cache 的 path 支持 ~ 展开（Windows 上 ~ = %USERPROFILE%，
+      # LOCALAPPDATA 即 %USERPROFILE%\AppData\Local）。
       - name: Cache tauri tools (%LOCALAPPDATA%\tauri)
         uses: actions/cache@v4
         with:
-          path: ${{ env.LOCALAPPDATA }}\tauri
+          path: ~\AppData\Local\tauri
           key: tauri-tools-win
 
       - name: Install dependencies
