@@ -130,8 +130,9 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 - Windows 专属脚本 `scripts/build-release-windows.mjs` 的前置与坑见其头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
 - 历史产物留在 `release-windows/`：v1.4.0 双架构 exe 为 Windows 端构建；v1.5.0 双架构 exe 为 macOS 交叉编译产出（2026-08-31 已验证，NSIS 安装器外壳为 x86，arm64 机走 x86 仿真层安装、本体仍是 ARM64）。
 
-### 发布 workflow（2026-08-31 定，统一 build-release.yml）
-- 唯一入口 `.github/workflows/build-release.yml`，含 **macos** 与 **windows** 两个 job，取代早先的 build-windows.yml。
+### 发布 workflow（2026-08-31 定，统一 build-release.yml，三端全覆盖）
+- 唯一入口 `.github/workflows/build-release.yml`，含 **macos / windows / chrome** 三个 job，取代早先的 build-windows.yml。
+- **命名约定（2026-08-31 定）**：**所有 CI 产物统一带 `-ci` 后缀**，与本机产物区分——macOS=`Fund01_<ver>_<arch>-ci.dmg`、Windows=`Fund01_<ver>_<arch>-ci-setup.exe`、Chrome=`Fund01_<ver>_chrome-ci.zip`。实现：三个脚本各自支持环境变量（`FUND01_DMG_SUFFIX` / `FUND01_EXE_SUFFIX` / `FUND01_ZIP_SUFFIX`），workflow 各 job 注入 `-ci`；本机打包不设变量。两个版本同目录混放不冲突。
 - **macos job**：runs-on `macos-15`（arm64 runner）→ 导入仓库 secret 的 Fund01 证书（`MACOS_CERT_P12` / `MACOS_CERT_PASSWORD`，2026-08-31 从本机登录钥匙串导出 p12 存入）→ 跑 `node scripts/build-release-all.mjs`（双架构：arm64 原生 + x86_64 交叉；`--arch x86_64|arm64` 可单架构）→ create-dmg 打 DMG → 上传 artifact `Fund01-macos`（含 SHA256SUMS.txt）。产物签名与本机一致（`Authority=Fund01`）。
 - **⚠️ macOS CI 签名卡死坑（2026-08-31 首发实战，勿回退）**：首验时 tauri 签名阶段 codesign 停在 `replacing existing signature` 无限等待 90+ 分钟（不是慢，是挂起）。根因：无头 runner 上 codesign 访问私钥时钥匙串 ACL 不放行 → 等一个不存在的 GUI 授权弹窗。**修复要点（缺一不可）**：
   - `security import` 用 **`-A`（允许任意应用访问私钥）**，不要只 `-T /usr/bin/codesign`——tauri 内部嵌入调用的 codesign 不在白名单时授权失败即挂起
@@ -141,8 +142,9 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
   - 本地复现验证方法：临时钥匙串 `-A` 导入后 `codesign --sign "Fund01" testbin --keychain <kc>` 应静默成功（`Authority=Fund01`）
   - `find-identity -v` 看不见 Fund01 属正常（自签名 NOT_TRUSTED），匹配模式可见
 - **windows job**：同原 build-windows.yml 逻辑（matrix x64/arm64 + `FUND01_EXE_SUFFIX=-ci`）。
-- 触发 = 手动 `workflow_dispatch`（可选 platform: all/macos/windows × arch: all/x64/arm64）或 push tag `v*`；产物**只上传 artifact**（30 天保留），**不自动建 Release**——下载校验后手动建，或另接 `softprops/action-gh-release`。
-- **三端一次发版姿势（2026-08-31 打通）**：`gh workflow run build-release.yml --ref main -f platform=all -f arch=all` → 三端全出（macOS 双 DMG + Windows 双 exe），11 分钟级别。也可以 `-f platform=macos -f arch=arm64` 单端单架构。跑完 `gh run download <id> -D <dir>` 下载 artifact 验证归档。
+- **chrome job**：runs-on `ubuntu-latest`（纯前端打包，快，~20s）→ `pnpm --filter @fund01/chrome build` + `zip`（注入 `FUND01_ZIP_SUFFIX=-ci`）→ artifact `Fund01-chrome`（含 SHA256SUMS.txt）。
+- 触发 = 手动 `workflow_dispatch`（可选 platform: all/macos/windows/chrome × arch: all/x64/arm64）或 push tag `v*`；产物**只上传 artifact**（30 天保留），**不自动建 Release**——下载校验后手动建，或另接 `softprops/action-gh-release`。
+- **三端一次发版姿势（2026-08-31 打通）**：`gh workflow run build-release.yml --ref main -f platform=all -f arch=all` → 三端全出（macOS 双 DMG + Windows 双 exe + Chrome zip），11 分钟级别（Chrome 端秒级）。也可以 `-f platform=macos -f arch=arm64` 单端单架构。跑完 `gh run download <id> -D <dir>` 下载 artifact 验证归档。
 - **性能**：首次冷编译慢（macOS ~40min），`Swatinem/rust-cache`（per-arch key）生效后同架构二次构建 6-11 分钟；GitHub 缓存约 7 天未命中会清除，发版间隔太大会退回冷编译。CI 产物 DMG 与本机同名产物哈希不同是 hdiutil 卷元数据所致（正常），以 `Authority=Fund01` 签名一致为准。
 - 手动触发时 arch 过滤写在 matrix 定义处（`fromJSON(...)` 生成架构列表）——**job 级 `if` 不能引用 matrix 上下文**（GitHub 报 `Unrecognized named-value: 'matrix'`，2026-08-31 踩过）。
 - 证书维护：Fund01 自签名证书有效期至 2036-08（本机钥匙串）；secret 里的 p12 失效时重新 `security export -t identities -P <pw>` 导出并 `gh secret set`（注意 p12 内含 Apple Development 证书，需用 openssl 拆分仅留 CN=Fund01——详见 2026-08-31 工作日志）。
