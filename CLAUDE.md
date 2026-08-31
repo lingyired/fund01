@@ -28,7 +28,7 @@
 pnpm install          # 安装依赖
 pnpm dev:chrome       # 启动 Chrome 扩展开发模式（rsbuild --watch）
 pnpm build:chrome     # 构建生产版本到 apps/chrome/dist/
-pnpm zip:chrome       # 打包 Chrome 扩展为可上传 Web Store 的 zip
+pnpm zip:chrome       # 打包 Chrome 扩展为可上传 Web Store 的 zip，并同步重命名副本到 release-chrome/（Fund01_{version}.zip）
 pnpm typecheck        # 全仓库递归 TypeScript 类型检查
 node scripts/build-tauri-all.mjs            # 双架构 Tauri 打包（arm64 + x86_64，见「双架构发布产物」）
 node scripts/build-tauri-all.mjs --arch arm64   # 仅 Apple Silicon 版

@@ -1,4 +1,4 @@
-import {existsSync, rmSync} from 'node:fs'
+import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync} from 'node:fs'
 import path from 'node:path'
 import {execSync} from 'node:child_process'
 
@@ -24,3 +24,11 @@ try {
   console.error('zip 命令失败，请手动压缩 dist/ 目录')
   process.exit(1)
 }
+
+// 同步一份重命名副本到 release-chrome/（与 release-macos / release-windows 归档惯例一致）
+const version = JSON.parse(readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8')).version
+const releaseDir = path.resolve(process.cwd(), '..', '..', 'release-chrome')
+mkdirSync(releaseDir, {recursive: true})
+const releaseZip = path.join(releaseDir, `Fund01_${version}.zip`)
+copyFileSync(zipPath, releaseZip)
+console.log(`✓ 已归档: ${releaseZip}`)

@@ -21,9 +21,10 @@ coverage/
 # 临时文件（截图等工具偶发生成）
 _tmp_*
 
-# Tauri 打包产物副本（本地测试用，不入库）
+# 打包产物副本（本地测试用，不入库）
 release-macos/
 release-windows/
+release-chrome/
 
 # AI 助手工具本地数据目录
 .zcode/
