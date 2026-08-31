@@ -7,7 +7,7 @@ settings:
 importers:
 
   .:
-    devDependencies:
+    optionalDependencies:
       create-dmg:
         specifier: ^8.1.0
         version: 8.1.0
@@ -2800,9 +2800,11 @@ snapshots:
     optionalDependencies:
       '@rspack/core': 2.1.7(@swc/helpers@0.5.23)
 
-  '@sec-ant/readable-stream@0.4.1': {}
+  '@sec-ant/readable-stream@0.4.1':
+    optional: true
 
-  '@sindresorhus/merge-streams@4.0.0': {}
+  '@sindresorhus/merge-streams@4.0.0':
+    optional: true
 
   '@swc/helpers@0.5.23':
     dependencies:
@@ -2895,9 +2897,11 @@ snapshots:
     dependencies:
       csstype: 3.2.3
 
-  '@xmldom/xmldom@0.9.11': {}
+  '@xmldom/xmldom@0.9.11':
+    optional: true
 
-  ansi-regex@6.3.0: {}
+  ansi-regex@6.3.0:
+    optional: true
 
   appdmg@0.6.6:
     dependencies:
@@ -2912,36 +2916,45 @@ snapshots:
       parse-color: 1.0.0
       path-exists: 4.0.0
       repeat-string: 1.6.1
+    optional: true
 
   aria-hidden@1.2.6:
     dependencies:
       tslib: 2.8.1
 
-  async@1.5.2: {}
+  async@1.5.2:
+    optional: true
 
   base32-encode@1.2.0:
     dependencies:
       to-data-view: 1.1.0
+    optional: true
 
-  base64-js@1.5.1: {}
+  base64-js@1.5.1:
+    optional: true
 
   bplist-creator@0.0.8:
     dependencies:
       stream-buffers: 2.2.0
+    optional: true
 
-  chalk@5.6.2: {}
+  chalk@5.6.2:
+    optional: true
 
   classnames@2.5.1: {}
 
   cli-cursor@5.0.0:
     dependencies:
       restore-cursor: 5.1.0
+    optional: true
 
-  cli-spinners@3.4.0: {}
+  cli-spinners@3.4.0:
+    optional: true
 
   clsx@2.1.1: {}
 
-  color-convert@0.5.3: {}
+  color-convert@0.5.3:
+    optional: true
 
   create-dmg@8.1.0:
     dependencies:
@@ -2952,6 +2965,7 @@ snapshots:
       ora: 9.4.1
       plist: 3.1.1
       tempy: 3.2.0
+    optional: true
 
   cross-spawn@6.0.6:
     dependencies:
@@ -2960,16 +2974,19 @@ snapshots:
       semver: 5.7.2
       shebang-command: 1.2.0
       which: 1.3.1
+    optional: true
 
   cross-spawn@7.0.6:
     dependencies:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+    optional: true
 
   crypto-random-string@4.0.0:
     dependencies:
       type-fest: 1.4.0
+    optional: true
 
   csstype@3.2.3: {}
 
@@ -2980,6 +2997,7 @@ snapshots:
       bplist-creator: 0.0.8
       macos-alias: 0.2.12
       tn1150: 0.1.0
+    optional: true
 
   echarts-for-react@3.0.6(echarts@6.1.0)(react@19.2.8):
     dependencies:
@@ -2993,11 +3011,13 @@ snapshots:
       tslib: 2.3.0
       zrender: 6.1.0
 
-  encode-utf8@1.0.3: {}
+  encode-utf8@1.0.3:
+    optional: true
 
   end-of-stream@1.4.5:
     dependencies:
       once: 1.4.0
+    optional: true
 
   esbuild@0.28.1:
     optionalDependencies:
@@ -3037,6 +3057,7 @@ snapshots:
       p-finally: 1.0.0
       signal-exit: 3.0.7
       strip-eof: 1.0.0
+    optional: true
 
   execa@9.6.1:
     dependencies:
@@ -3052,22 +3073,27 @@ snapshots:
       signal-exit: 4.1.0
       strip-final-newline: 4.0.0
       yoctocolors: 2.2.0
+    optional: true
 
   fast-deep-equal@3.1.3: {}
 
   figures@6.1.0:
     dependencies:
       is-unicode-supported: 2.1.0
+    optional: true
 
   fmix@0.1.0:
     dependencies:
       imul: 1.0.1
+    optional: true
 
   fs-temp@1.2.1:
     dependencies:
       random-path: 0.1.2
+    optional: true
 
-  fs-xattr@0.3.1: {}
+  fs-xattr@0.3.1:
+    optional: true
 
   fsevents@2.3.3:
     optional: true
@@ -3075,35 +3101,46 @@ snapshots:
   generate-function@2.3.1:
     dependencies:
       is-property: 1.0.2
+    optional: true
 
   generate-object-property@1.2.0:
     dependencies:
       is-property: 1.0.2
+    optional: true
 
-  get-east-asian-width@1.6.0: {}
+  get-east-asian-width@1.6.0:
+    optional: true
 
   get-nonce@1.0.1: {}
 
   get-stream@4.1.0:
     dependencies:
       pump: 3.0.4
+    optional: true
 
   get-stream@9.0.1:
     dependencies:
       '@sec-ant/readable-stream': 0.4.1
       is-stream: 4.0.1
+    optional: true
 
-  human-signals@8.0.1: {}
+  human-signals@8.0.1:
+    optional: true
 
-  icns-lib@1.0.1: {}
+  icns-lib@1.0.1:
+    optional: true
 
-  image-size@0.7.5: {}
+  image-size@0.7.5:
+    optional: true
 
-  imul@1.0.1: {}
+  imul@1.0.1:
+    optional: true
 
-  is-interactive@2.0.0: {}
+  is-interactive@2.0.0:
+    optional: true
 
-  is-my-ip-valid@1.0.1: {}
+  is-my-ip-valid@1.0.1:
+    optional: true
 
   is-my-json-valid@2.20.6:
     dependencies:
@@ -3112,27 +3149,37 @@ snapshots:
       is-my-ip-valid: 1.0.1
       jsonpointer: 5.0.1
       xtend: 4.0.2
+    optional: true
 
-  is-plain-obj@4.1.0: {}
+  is-plain-obj@4.1.0:
+    optional: true
 
-  is-property@1.0.2: {}
+  is-property@1.0.2:
+    optional: true
 
-  is-stream@1.1.0: {}
+  is-stream@1.1.0:
+    optional: true
 
-  is-stream@3.0.0: {}
+  is-stream@3.0.0:
+    optional: true
 
-  is-stream@4.0.1: {}
+  is-stream@4.0.1:
+    optional: true
 
-  is-unicode-supported@2.1.0: {}
+  is-unicode-supported@2.1.0:
+    optional: true
 
-  isexe@2.0.0: {}
+  isexe@2.0.0:
+    optional: true
 
-  jsonpointer@5.0.1: {}
+  jsonpointer@5.0.1:
+    optional: true
 
   log-symbols@7.0.1:
     dependencies:
       is-unicode-supported: 2.1.0
       yoctocolors: 2.2.0
+    optional: true
 
   lucide-react@1.28.0(react@19.2.8):
     dependencies:
@@ -3141,41 +3188,52 @@ snapshots:
   macos-alias@0.2.12:
     dependencies:
       nan: 2.28.0
+    optional: true
 
-  meow@14.1.0: {}
+  meow@14.1.0:
+    optional: true
 
-  mimic-function@5.0.1: {}
+  mimic-function@5.0.1:
+    optional: true
 
-  minimist@1.2.8: {}
+  minimist@1.2.8:
+    optional: true
 
   murmur-32@0.2.0:
     dependencies:
       encode-utf8: 1.0.3
       fmix: 0.1.0
       imul: 1.0.1
+    optional: true
 
-  nan@2.28.0: {}
+  nan@2.28.0:
+    optional: true
 
   nanoid@3.3.16: {}
 
-  nice-try@1.0.5: {}
+  nice-try@1.0.5:
+    optional: true
 
   npm-run-path@2.0.2:
     dependencies:
       path-key: 2.0.1
+    optional: true
 
   npm-run-path@6.0.0:
     dependencies:
       path-key: 4.0.0
       unicorn-magic: 0.3.0
+    optional: true
 
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+    optional: true
 
   onetime@7.0.0:
     dependencies:
       mimic-function: 5.0.1
+    optional: true
 
   ora@9.4.1:
     dependencies:
@@ -3187,22 +3245,30 @@ snapshots:
       log-symbols: 7.0.1
       stdin-discarder: 0.3.2
       string-width: 8.2.2
+    optional: true
 
-  p-finally@1.0.0: {}
+  p-finally@1.0.0:
+    optional: true
 
   parse-color@1.0.0:
     dependencies:
       color-convert: 0.5.3
+    optional: true
 
-  parse-ms@4.0.0: {}
+  parse-ms@4.0.0:
+    optional: true
 
-  path-exists@4.0.0: {}
+  path-exists@4.0.0:
+    optional: true
 
-  path-key@2.0.1: {}
+  path-key@2.0.1:
+    optional: true
 
-  path-key@3.1.1: {}
+  path-key@3.1.1:
+    optional: true
 
-  path-key@4.0.0: {}
+  path-key@4.0.0:
+    optional: true
 
   picocolors@1.1.1: {}
 
@@ -3211,6 +3277,7 @@ snapshots:
       '@xmldom/xmldom': 0.9.11
       base64-js: 1.5.1
       xmlbuilder: 15.1.1
+    optional: true
 
   postcss@8.5.25:
     dependencies:
@@ -3221,11 +3288,13 @@ snapshots:
   pretty-ms@9.3.0:
     dependencies:
       parse-ms: 4.0.0
+    optional: true
 
   pump@3.0.4:
     dependencies:
       end-of-stream: 1.4.5
       once: 1.4.0
+    optional: true
 
   radix-ui@1.6.7(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
@@ -3294,6 +3363,7 @@ snapshots:
     dependencies:
       base32-encode: 1.2.0
       murmur-32: 0.2.0
+    optional: true
 
   react-dom@19.2.8(react@19.2.8):
     dependencies:
@@ -3331,57 +3401,73 @@ snapshots:
 
   react@19.2.8: {}
 
-  repeat-string@1.6.1: {}
+  repeat-string@1.6.1:
+    optional: true
 
   restore-cursor@5.1.0:
     dependencies:
       onetime: 7.0.0
       signal-exit: 4.1.0
+    optional: true
 
   scheduler@0.27.0: {}
 
-  semver@5.7.2: {}
+  semver@5.7.2:
+    optional: true
 
   shebang-command@1.2.0:
     dependencies:
       shebang-regex: 1.0.0
+    optional: true
 
   shebang-command@2.0.0:
     dependencies:
       shebang-regex: 3.0.0
+    optional: true
 
-  shebang-regex@1.0.0: {}
+  shebang-regex@1.0.0:
+    optional: true
 
-  shebang-regex@3.0.0: {}
+  shebang-regex@3.0.0:
+    optional: true
 
-  signal-exit@3.0.7: {}
+  signal-exit@3.0.7:
+    optional: true
 
-  signal-exit@4.1.0: {}
+  signal-exit@4.1.0:
+    optional: true
 
   size-sensor@1.0.3: {}
 
   source-map-js@1.2.1: {}
 
-  stdin-discarder@0.3.2: {}
+  stdin-discarder@0.3.2:
+    optional: true
 
-  stream-buffers@2.2.0: {}
+  stream-buffers@2.2.0:
+    optional: true
 
   string-width@8.2.2:
     dependencies:
       get-east-asian-width: 1.6.0
       strip-ansi: 7.2.0
+    optional: true
 
   strip-ansi@7.2.0:
     dependencies:
       ansi-regex: 6.3.0
+    optional: true
 
-  strip-eof@1.0.0: {}
+  strip-eof@1.0.0:
+    optional: true
 
-  strip-final-newline@4.0.0: {}
+  strip-final-newline@4.0.0:
+    optional: true
 
   tailwind-merge@3.6.0: {}
 
-  temp-dir@3.0.0: {}
+  temp-dir@3.0.0:
+    optional: true
 
   tempy@3.2.0:
     dependencies:
@@ -3389,12 +3475,15 @@ snapshots:
       temp-dir: 3.0.0
       type-fest: 2.19.0
       unique-string: 3.0.0
+    optional: true
 
   tn1150@0.1.0:
     dependencies:
       unorm: 1.6.0
+    optional: true
 
-  to-data-view@1.1.0: {}
+  to-data-view@1.1.0:
+    optional: true
 
   tslib@2.3.0: {}
 
@@ -3406,21 +3495,26 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  type-fest@1.4.0: {}
+  type-fest@1.4.0:
+    optional: true
 
-  type-fest@2.19.0: {}
+  type-fest@2.19.0:
+    optional: true
 
   typescript@6.0.3: {}
 
   undici-types@7.18.2: {}
 
-  unicorn-magic@0.3.0: {}
+  unicorn-magic@0.3.0:
+    optional: true
 
   unique-string@3.0.0:
     dependencies:
       crypto-random-string: 4.0.0
+    optional: true
 
-  unorm@1.6.0: {}
+  unorm@1.6.0:
+    optional: true
 
   use-callback-ref@1.3.3(@types/react@19.2.17)(react@19.2.8):
     dependencies:
@@ -3440,18 +3534,24 @@ snapshots:
   which@1.3.1:
     dependencies:
       isexe: 2.0.0
+    optional: true
 
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
+    optional: true
 
-  wrappy@1.0.2: {}
+  wrappy@1.0.2:
+    optional: true
 
-  xmlbuilder@15.1.1: {}
+  xmlbuilder@15.1.1:
+    optional: true
 
-  xtend@4.0.2: {}
+  xtend@4.0.2:
+    optional: true
 
-  yoctocolors@2.2.0: {}
+  yoctocolors@2.2.0:
+    optional: true
 
   zrender@6.1.0:
     dependencies:
