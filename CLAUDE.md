@@ -34,11 +34,11 @@ node scripts/build-tauri-all.mjs            # 双架构 Tauri 打包（arm64 + x
 node scripts/build-tauri-all.mjs --arch arm64   # 仅 Apple Silicon 版
 node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 pnpm --filter @fund01/tauri tauri:build:release:all   # ⭐ 发 GitHub Release 专用：双架构签名构建 + create-dmg 打 DMG（见「双架构发布产物」）
-node scripts/build-release-windows-cross.mjs            # macOS 本机交叉编译 Windows NSIS 包（x64+arm64，见「Windows 发布产物」）
-node scripts/build-release-windows-cross.mjs --arch x64     # 仅 x64；--arch arm64 仅 arm64
+pnpm --filter @fund01/tauri tauri:build:windows:cross:all        # macOS 本机交叉编译 Windows NSIS 包（x64+arm64，见「Windows 发布产物」）
+pnpm --filter @fund01/tauri tauri:build:windows:cross -- --arch x64      # 仅 x64；--arch arm64 仅 arm64
 ```
 
-**Windows 安装包构建**（见「Windows 发布产物」）：`scripts/build-release-windows.mjs` 是 Windows 专属（非 win32 会被平台校验挡下）；macOS 本机可用交叉编译脚本 `node scripts/build-release-windows-cross.mjs` 打 NSIS 包（cargo-xwin）。正式发版仍建议走 GitHub Actions `.github/workflows/build-release.yml`（windows-latest runner 原生构建）。macOS 的 release 包也可选择交给该 workflow（macos-15 runner + Fund01 证书签名，见「发布 workflow」）。
+**Windows 安装包构建**（见「Windows 发布产物」）：`scripts/build-release-windows.mjs` 是 Windows 专属（非 win32 会被平台校验挡下）；macOS 本机可用 `pnpm --filter @fund01/tauri tauri:build:windows:cross` 交叉编译打 NSIS 包（cargo-xwin）。正式发版仍建议走 GitHub Actions `.github/workflows/build-release.yml`（windows-latest runner 原生构建）。macOS 的 release 包也可选择交给该 workflow（macos-15 runner + Fund01 证书签名，见「发布 workflow」）。
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
@@ -121,7 +121,7 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 ### Windows 发布产物（2026-08-31 定，macOS 本机 NSIS 交叉编译可行）
 - **⭐ GitHub Actions（正式发版）**：`.github/workflows/build-release.yml` 的 **windows job**（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`，见下方「发布 workflow」）。真 Windows 环境、测试最充分，NSIS/MSI 皆可。
-- **macOS 本机交叉编译（日常出包 / 快速验证）**：`node scripts/build-release-windows-cross.mjs`（默认 x64+arm64；`--arch x64|arm64` 单架构）。原理：cargo-xwin 用 clang/lld 链接官方下载的 MSVC CRT + Windows SDK 交叉编译 `*-pc-windows-msvc` target，产物用本机 `makensis`（Homebrew）打 NSIS 安装包。
+- **macOS 本机交叉编译（日常出包 / 快速验证）**：`pnpm --filter @fund01/tauri tauri:build:windows:cross:all`（默认 x64+arm64 双架构）；单架构用 `tauri:build:windows:cross -- --arch x64|arm64`。原理：cargo-xwin 用 clang/lld 链接官方下载的 MSVC CRT + Windows SDK 交叉编译 `*-pc-windows-msvc` target，产物用本机 `makensis`（Homebrew）打 NSIS 安装包。
   - **能力边界**：仅 **NSIS** 可交叉编译——MSI（WiX）只能在 Windows 上打；且官方标 experimental，适合自测兜底，正式发版仍建议 CI。
   - **前置依赖**：`brew install nsis llvm lld`、`rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc`、`cargo install --locked cargo-xwin`。
   - **arm64 必须配 clang shim（2026-08-31 实战）**：cc-rs 对 aarch64-msvc 调普通 `clang`，不认 cargo-xwin CFLAGS 里的 clang-cl 风格 `/imsvc` 参数 → `clang: error: no such file or directory: '/imsvc'`（ring 编译必挂，x64 无此问题）。修复 = `scripts/xwin-clang-shim/` 的 `clang`/`clang++` 包装脚本（强制 `--driver-mode=cl`，社区 soldr 方案），`build-release-windows-cross.mjs` 自动置 PATH 最前并导出 `LLVM_BIN`。
