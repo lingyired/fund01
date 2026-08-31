@@ -92,6 +92,10 @@ jobs:
 
       - name: Build ${{ matrix.label }} installer
         id: build
+        # FUND01_EXE_SUFFIX=-ci：归档名带来源标识（Fund01_<ver>_<arch>-ci-setup.exe），
+        # 与本机打包（无后缀）区分，避免测试时拿错包。
+        env:
+          FUND01_EXE_SUFFIX: -ci
         run: node scripts/build-release-windows.mjs --arch ${{ matrix.arch }}
 
       - name: Upload installer

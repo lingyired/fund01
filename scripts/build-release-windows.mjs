@@ -11,6 +11,8 @@
 //   node scripts/build-release-windows.mjs --arch x64    # 仅 x64（别名 x86_64）
 // 可选环境变量：
 //   FUND01_RELEASE_DIR  归档目录（默认 <repo>/release-windows，与 release-macos/ 对应）
+//   FUND01_EXE_SUFFIX   归档文件名后缀（如 -ci：Fund01_1.5.0_x64-ci-setup.exe），
+//                       用于区分构建来源（CI / 本机）。默认空，保持 Fund01_<ver>_<arch>-setup.exe
 //   LLVM_BIN            追加到 PATH 的 LLVM bin（默认自动探测 %USERPROFILE%\tools\llvm\clang+llvm-*，可选）
 //
 // 前置：
@@ -40,6 +42,8 @@ const ARCHES = {
 const ALIASES = { aarch64: 'arm64', x86_64: 'x64' }
 
 const releaseDir = process.env.FUND01_RELEASE_DIR || path.join(root, 'release-windows')
+// 归档名后缀：区分构建来源。CI 传 -ci，本机默认空。
+const exeSuffix = process.env.FUND01_EXE_SUFFIX || ''
 
 function run(cmd, extraEnv) {
   console.log(`\n▶ ${cmd}`)
@@ -140,7 +144,9 @@ for (const [arch, { target, label }] of Object.entries(selected)) {
     process.exit(1)
   }
 
-  const dstExe = path.join(releaseDir, path.basename(srcExe))
+  // 归档名可带来源后缀（如 -ci），tauri 原始产物名不变
+  const dstName = `Fund01_${version}_${arch}${exeSuffix}-setup.exe`
+  const dstExe = path.join(releaseDir, dstName)
   copyFileSync(srcExe, dstExe)
   archived.push(dstExe)
   console.log(`\n✓ 已归档：${dstExe}`)
@@ -159,6 +165,6 @@ writeFileSync(path.join(releaseDir, 'SHA256SUMS.txt'), `${sumLines.join('\n')}\n
 console.log('\n========== build-release-windows 完成 ==========')
 console.log('产物列表：')
 for (const [arch, { label }] of Object.entries(selected)) {
-  console.log(`  ${path.join(releaseDir, `Fund01_${version}_${arch}-setup.exe`)}  (${label})`)
+  console.log(`  ${path.join(releaseDir, `Fund01_${version}_${arch}${exeSuffix}-setup.exe`)}  (${label})`)
 }
 console.log(`  ${path.join(releaseDir, 'SHA256SUMS.txt')}`)
