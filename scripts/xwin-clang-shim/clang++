@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# clang++ 对应的 shim，同 clang（C++ 编译同样带 /imsvc 参数）。
+LLVM_CLANG="${LLVM_BIN:-/opt/homebrew/opt/llvm/bin}/clang++"
+exec "$LLVM_CLANG" --driver-mode=cl "$@"

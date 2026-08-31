@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# cargo-xwin 打 aarch64-pc-windows-msvc 时的 ring/clang 修复 shim。
+# cc-rs 对 aarch64-msvc 调用普通 `clang`，但 cargo-xwin 的 CFLAGS 带 clang-cl 风格
+# `/imsvc` 参数（GNU driver 不认，报 "no such file or directory: '/imsvc'"）
+# → 强制 clang-cl driver 模式解决（社区方案：soldr clang-shim，见 CROSS_COMPILE.md）。
+LLVM_CLANG="${LLVM_BIN:-/opt/homebrew/opt/llvm/bin}/clang"
+exec "$LLVM_CLANG" --driver-mode=cl "$@"

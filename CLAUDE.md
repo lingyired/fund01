@@ -34,9 +34,11 @@ node scripts/build-tauri-all.mjs            # 双架构 Tauri 打包（arm64 + x
 node scripts/build-tauri-all.mjs --arch arm64   # 仅 Apple Silicon 版
 node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 pnpm --filter @fund01/tauri tauri:build:release:all   # ⭐ 发 GitHub Release 专用：双架构签名构建 + create-dmg 打 DMG（见「双架构发布产物」）
+node scripts/build-release-windows-cross.mjs            # macOS 本机交叉编译 Windows NSIS 包（x64+arm64，见「Windows 发布产物」）
+node scripts/build-release-windows-cross.mjs --arch x64     # 仅 x64；--arch arm64 仅 arm64
 ```
 
-**Windows 安装包不在 macOS 上构建**（见「Windows 发布产物」）：本地跑 `node scripts/build-release-windows.mjs` 会被脚本的平台校验挡下；要走 GitHub Actions `.github/workflows/build-release.yml`（windows-latest runner 原生构建）。macOS 的 release 包也可选择交给该 workflow（macos-15 runner + Fund01 证书签名，见「发布 workflow」）。
+**Windows 安装包构建**（见「Windows 发布产物」）：`scripts/build-release-windows.mjs` 是 Windows 专属（非 win32 会被平台校验挡下）；macOS 本机可用交叉编译脚本 `node scripts/build-release-windows-cross.mjs` 打 NSIS 包（cargo-xwin）。正式发版仍建议走 GitHub Actions `.github/workflows/build-release.yml`（windows-latest runner 原生构建）。macOS 的 release 包也可选择交给该 workflow（macos-15 runner + Fund01 证书签名，见「发布 workflow」）。
 
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
@@ -117,13 +119,16 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 - **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`；`codesign -dv` 应显示 `Authority=Fund01`；`spctl -a -vv -t exec` 应为 `rejected / origin=Fund01`（软拦截标志，发版前必查）。
   - 签名身份核查注意：`security find-identity -v -p codesigning` 的 **Valid identities only** 里**看不到** Fund01（自签名证书标记 `CSSMERR_TP_NOT_TRUSTED`），只有 **Matching identities** 里才有。**别据此误判证书丢失**——codesign 按名字直接指定仍可签，以产物 `Authority=Fund01` 为准（2026-08-31 v1.5.0 已验证）。
 
-### Windows 发布产物（2026-08-31 定，macOS 本机无法交叉构建）
-- **为什么不能在 macOS 上打**：链接需要 MSVC 的 `link.exe` + Windows SDK 导入库（kernel32.lib / user32.lib 等微软专有文件），打包还需要 `makensis`(NSIS)。rustup 虽可装 `x86_64-pc-windows-msvc` 的 std，但缺链接器与 SDK，交叉不可行；GNU(`-pc-windows-gnu` + mingw) 路径 Tauri 未正式支持，webview2 / windows-rs 大概率链接失败。
-- **⭐ 走 GitHub Actions**：`.github/workflows/build-release.yml` 的 **windows job**（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`，见下方「发布 workflow」）。
+### Windows 发布产物（2026-08-31 定，macOS 本机 NSIS 交叉编译可行）
+- **⭐ GitHub Actions（正式发版）**：`.github/workflows/build-release.yml` 的 **windows job**（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`，见下方「发布 workflow」）。真 Windows 环境、测试最充分，NSIS/MSI 皆可。
+- **macOS 本机交叉编译（日常出包 / 快速验证）**：`node scripts/build-release-windows-cross.mjs`（默认 x64+arm64；`--arch x64|arm64` 单架构）。原理：cargo-xwin 用 clang/lld 链接官方下载的 MSVC CRT + Windows SDK 交叉编译 `*-pc-windows-msvc` target，产物用本机 `makensis`（Homebrew）打 NSIS 安装包。
+  - **能力边界**：仅 **NSIS** 可交叉编译——MSI（WiX）只能在 Windows 上打；且官方标 experimental，适合自测兜底，正式发版仍建议 CI。
+  - **前置依赖**：`brew install nsis llvm lld`、`rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc`、`cargo install --locked cargo-xwin`。
+  - **arm64 必须配 clang shim（2026-08-31 实战）**：cc-rs 对 aarch64-msvc 调普通 `clang`，不认 cargo-xwin CFLAGS 里的 clang-cl 风格 `/imsvc` 参数 → `clang: error: no such file or directory: '/imsvc'`（ring 编译必挂，x64 无此问题）。修复 = `scripts/xwin-clang-shim/` 的 `clang`/`clang++` 包装脚本（强制 `--driver-mode=cl`，社区 soldr 方案），`build-release-windows-cross.mjs` 自动置 PATH 最前并导出 `LLVM_BIN`。
 - **产物来源标识（2026-08-31 定）**：CI 构建注入 `FUND01_EXE_SUFFIX=-ci`，归档名 `Fund01_<ver>_<arch>-ci-setup.exe`；本机打包不设该变量维持原名 `Fund01_<ver>_<arch>-setup.exe`。两者同目录混放也不会混淆。tauri 原始产物名不变，`SHA256SUMS.txt` 的 `-setup.exe` 过滤天然兼容。
 - **matrix 设计**：x64 必成；arm64 依赖 VS 的 ARM64 交叉工具（`x64_arm64`，runner 镜像可能未带该组件）→ 标 `continue-on-error: true` + `fail-fast: false`，单架构可用也好过全红，summary 会标出结果。
-- 脚本本身的前置与坑见 `scripts/build-release-windows.mjs` 头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
-- 历史产物留在 `release-windows/`（v1.4.0 双架构 exe + SHA256SUMS.txt），由用户在 Windows 端本地构建产出。
+- Windows 专属脚本 `scripts/build-release-windows.mjs` 的前置与坑见其头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
+- 历史产物留在 `release-windows/`：v1.4.0 双架构 exe 为 Windows 端构建；v1.5.0 双架构 exe 为 macOS 交叉编译产出（2026-08-31 已验证，NSIS 安装器外壳为 x86，arm64 机走 x86 仿真层安装、本体仍是 ARM64）。
 
 ### 发布 workflow（2026-08-31 定，统一 build-release.yml）
 - 唯一入口 `.github/workflows/build-release.yml`，含 **macos** 与 **windows** 两个 job，取代早先的 build-windows.yml。
