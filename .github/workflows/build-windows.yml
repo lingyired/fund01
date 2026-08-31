@@ -28,11 +28,6 @@ on:
 jobs:
   build:
     name: Build ${{ matrix.label }}
-    # 手动触发时按输入的 arch 过滤（tag push 无 inputs，两个架构都跑）
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.arch == 'all' ||
-      github.event.inputs.arch == matrix.arch
     runs-on: windows-latest
     # arm64 依赖 VS 的 ARM64 交叉工具（x64_arm64），runner 镜像可能未带该组件；
     # 失败不阻塞 x64 —— 单架构可用也比全红好，日志里会明确标出。
@@ -40,6 +35,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 手动触发且指定了单架构时只跑那一个，否则两个都跑。
+        # 注意：过滤只能写在 matrix 定义处 —— job 级 `if` 不能引用 matrix 上下文
+        # （GitHub 会报 Unrecognized named-value: 'matrix'）。
+        arch: ${{ fromJSON((github.event_name == 'workflow_dispatch' && github.event.inputs.arch != 'all' && github.event.inputs.arch != '') && format('["{0}"]', github.event.inputs.arch) || '["x64", "arm64"]') }}
+        # include 里与 arch 同名的条目会自动补上其余属性（target / label / experimental）
         include:
           - arch: x64
             label: x64 (Intel/AMD)
