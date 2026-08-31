@@ -36,6 +36,8 @@ node scripts/build-tauri-all.mjs --arch x86_64  # 仅 Intel 版
 pnpm --filter @fund01/tauri tauri:build:release:all   # ⭐ 发 GitHub Release 专用：双架构签名构建 + create-dmg 打 DMG（见「双架构发布产物」）
 ```
 
+**Windows 安装包不在 macOS 上构建**（见「Windows 发布产物」）：本地跑 `node scripts/build-release-windows.mjs` 会被脚本的平台校验挡下；要走 GitHub Actions `.github/workflows/build-windows.yml`（windows-latest runner 原生构建）。
+
 加载扩展：Chrome 打开 `chrome://extensions` → 开启「开发者模式」→「加载已解压的扩展程序」→ 选择 `apps/chrome/dist/`。
 
 ## 版本号与构建戳规则
@@ -113,6 +115,14 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 - **DMG 例外（已过时，勿按旧文操作）**：旧 bundle_dmg.sh 在 agent 环境因 Finder 权限 -10004 必失败；**2026-08-25 起改用 `scripts/build-dmg.mjs`（纯 create-dmg --no-code-sign + hdiutil，无 Finder 依赖），agent 环境实测可用**（2026-08-26 v1.4.0 双架构 DMG 在 WorkBuddy 环境打出成功）。
   其中 `<staging>` 为拷入对应架构 `Fund01.app` 的临时目录；输出 `Fund01_{version}_{arch}.dmg`（DMG 命名天然带架构后缀，与 .app 命名规则一致）。
 - **产物验证**：归档后 `lipo -info Fund01-{version}-{arch}.app/Contents/MacOS/fund01-tauri` 应分别显示 `arm64` / `x86_64`；`codesign -dv` 应显示 `Authority=Fund01`；`spctl -a -vv -t exec` 应为 `rejected / origin=Fund01`（软拦截标志，发版前必查）。
+  - 签名身份核查注意：`security find-identity -v -p codesigning` 的 **Valid identities only** 里**看不到** Fund01（自签名证书标记 `CSSMERR_TP_NOT_TRUSTED`），只有 **Matching identities** 里才有。**别据此误判证书丢失**——codesign 按名字直接指定仍可签，以产物 `Authority=Fund01` 为准（2026-08-31 v1.5.0 已验证）。
+
+### Windows 发布产物（2026-08-31 定，macOS 本机无法交叉构建）
+- **为什么不能在 macOS 上打**：链接需要 MSVC 的 `link.exe` + Windows SDK 导入库（kernel32.lib / user32.lib 等微软专有文件），打包还需要 `makensis`(NSIS)。rustup 虽可装 `x86_64-pc-windows-msvc` 的 std，但缺链接器与 SDK，交叉不可行；GNU(`-pc-windows-gnu` + mingw) 路径 Tauri 未正式支持，webview2 / windows-rs 大概率链接失败。
+- **⭐ 走 GitHub Actions**：`.github/workflows/build-windows.yml`（windows-latest runner 原生跑 `scripts/build-release-windows.mjs`）。触发 = 手动 `workflow_dispatch`（可选 all / x64 / arm64）或 push tag `v*`；产物**只上传 artifact**（30 天保留），**不自动建 Release**——下载校验后手动建，或另接 `softprops/action-gh-release`。
+- **matrix 设计**：x64 必成；arm64 依赖 VS 的 ARM64 交叉工具（`x64_arm64`，runner 镜像可能未带该组件）→ 标 `continue-on-error: true` + `fail-fast: false`，单架构可用也好过全红，summary 会标出结果。
+- 脚本本身的前置与坑见 `scripts/build-release-windows.mjs` 头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
+- 历史产物留在 `release-windows/`（v1.4.0 双架构 exe + SHA256SUMS.txt），由用户在 Windows 端本地构建产出。
 
 **用法回顾**：测时看 header 的 SHA 是否等于刚构建那次，判断是否为遗留版；push 前后看 `version` 是否同一发布。dirty 为真时说明运行的二进制混入了未提交改动，不等同于任何 commit。
 
