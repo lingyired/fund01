@@ -7,6 +7,9 @@
 //   node scripts/build-dmg.mjs              # 双架构都打
 //   node scripts/build-dmg.mjs --arch arm64    # 仅 M 版
 //   node scripts/build-dmg.mjs --arch x86_64   # 仅 Intel 版
+// 可选环境变量：
+//   FUND01_DMG_SUFFIX  归档名后缀（如 -ci：Fund01_1.5.0_arm64-ci.dmg），
+//                      区分构建来源（CI / 本机）。默认空。
 //
 // 前置：对应架构的 .app 已构建（node scripts/build-tauri-all.mjs --arch xxx）
 // 产物：release-macos/Fund01_{version}_{arch}.dmg（去 quarantine）
@@ -50,6 +53,9 @@ if (!version) {
   process.exit(1)
 }
 
+// 归档名后缀：区分构建来源。CI 传 -ci，本机默认空（与 build-release-windows.mjs 的 FUND01_EXE_SUFFIX 同约定）
+const dmgSuffix = process.env.FUND01_DMG_SUFFIX || ''
+
 mkdirSync(releaseDir, { recursive: true })
 
 for (const [arch, { app: appRel }] of Object.entries(selected)) {
@@ -81,7 +87,9 @@ for (const [arch, { app: appRel }] of Object.entries(selected)) {
     process.exit(1)
   }
 
-  const finalName = `Fund01_${version}_${arch}.dmg`
+  // 归档名可带来源后缀（如 -ci，CI 构建注入 FUND01_DMG_SUFFIX=-ci，
+  // 与本机产物区分；tauri 原始产物名不变）
+  const finalName = `Fund01_${version}_${arch}${dmgSuffix}.dmg`
   const tmpDmg = path.join(tmpDir, finalName)
   renameSync(path.join(tmpDir, generated), tmpDmg)
 
@@ -97,5 +105,5 @@ for (const [arch, { app: appRel }] of Object.entries(selected)) {
 console.log('\n========== 全部完成 ==========')
 console.log('产物列表：')
 for (const [arch] of Object.entries(selected)) {
-  console.log(`  release-macos/Fund01_${version}_${arch}.dmg`)
+  console.log(`  release-macos/Fund01_${version}_${arch}${dmgSuffix}.dmg`)
 }

@@ -1,13 +1,15 @@
 name: Build release installers
 
-# 三端发布构建（macOS + Windows；Chrome 包 tiny、固定本机打，不进 CI）。
+# 三端发布构建（macOS + Windows + Chrome）。
 # 背景：Windows 无法从 macOS 交叉构建（链接需 MSVC link.exe + Windows SDK 导入库，
-# 打包需 makensis），因此两条路都走 GitHub runner：
+# 打包需 makensis），因此三端都走 GitHub runner：
 #   - macOS  job → macos-15 (arm64) 上跑 scripts/build-release-all.mjs
 #     （build-tauri-all 双架构：arm64 原生 + x86_64 交叉 → build-dmg 打 DMG），
 #     签名用仓库 secret MACOS_CERT_P12（Fund01 证书 p12）+ MACOS_CERT_PASSWORD 导入临时钥匙串。
-#   - Windows job → windows-latest 上跑 scripts/build-release-windows.mjs（MSVC + NSIS），
-#     FUND01_EXE_SUFFIX=-ci 让归档名带来源标识，与本机产物区分。
+#   - Windows job → windows-latest 上跑 scripts/build-release-windows.mjs（MSVC + NSIS）。
+#   - Chrome job → ubuntu-latest 上跑 pnpm --filter @fund01/chrome build + zip。
+# 命名约定（2026-08-31 定）：**所有 CI 产物统一带 -ci 后缀**：macOS=Fund01_<ver>_<arch>-ci.dmg、
+# Windows=Fund01_<ver>_<arch>-ci-setup.exe、Chrome=Fund01_<ver>_chrome-ci.zip，与本机产物区分。
 # 产物只上传 artifact（30 天），不建 GitHub Release。
 # 触发：手动 workflow_dispatch（可选 platform / arch），或 push tag v*。
 
@@ -23,6 +25,7 @@ on:
           - all
           - macos
           - windows
+          - chrome
       arch:
         description: '目标架构（默认都打；macOS: arm64+x86_64，Windows: x64+arm64）'
         required: false
@@ -104,9 +107,11 @@ jobs:
 
       - name: Build macOS installers + DMG
         # 单架构时透传 --arch（x64 → x86_64，macOS 脚本的命名）；否则双架构全打。
-        # APPLE_SIGNING_IDENTITY 默认 Fund01
+        # APPLE_SIGNING_IDENTITY 默认 Fund01；FUND01_DMG_SUFFIX=-ci 让 DMG 归档名
+        # 带来源标识（Fund01_<ver>_<arch>-ci.dmg），与本机产物区分（三端 CI 统一 -ci 约定）。
         env:
           APPLE_SIGNING_IDENTITY: Fund01
+          FUND01_DMG_SUFFIX: -ci
         run: |
           set -euxo pipefail
           # 构建前再次解锁临时钥匙串（跨步骤解锁状态不保证持久，卡死元凶之一）
@@ -235,3 +240,55 @@ jobs:
         run: |
           $status = if ('${{ steps.build.outcome }}' -eq 'success') { '✅ 成功' } else { '❌ 失败（查看上方日志）' }
           Add-Content $env:GITHUB_STEP_SUMMARY "${{ matrix.label }}: $status"
+
+  chrome:
+    name: Chrome build
+    runs-on: ubuntu-latest
+    # 手动触发按 platform 过滤；push tag 无 inputs，总是跑
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'chrome'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        # 版本读根 package.json 的 packageManager 字段（pnpm@9.15.0）
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Chrome extension
+        run: pnpm --filter @fund01/chrome build
+
+      - name: Zip Chrome extension
+        # FUND01_ZIP_SUFFIX=-ci：归档名带来源标识（Fund01_<ver>_chrome-ci.zip），
+        # 与本机打包（无后缀）区分（三端 CI 统一 -ci 约定）。
+        env:
+          FUND01_ZIP_SUFFIX: -ci
+        run: pnpm --filter @fund01/chrome zip
+
+      - name: Generate checksums
+        working-directory: release-chrome
+        run: |
+          ls -la
+          shasum -a 256 Fund01_*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload zip
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-chrome
+          path: |
+            release-chrome/*.zip
+            release-chrome/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 30

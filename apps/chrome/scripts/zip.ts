@@ -27,10 +27,12 @@ try {
 
 // 同步一份重命名副本到 release-chrome/（与 release-macos / release-windows 归档惯例一致）
 // 命名对齐三端惯例：macOS=Fund01_<ver>_<arch>.dmg、Windows=Fund01_<ver>_<arch>-setup.exe、
-// Chrome=Fund01_<ver>_chrome.zip（带端标识，无架构，2026-08-31 定）
+// Chrome=Fund01_<ver>_chrome.zip（带端标识，无架构，2026-08-31 定）。
+// 可选 FUND01_ZIP_SUFFIX：归档名后缀（如 -ci：Fund01_1.5.0_chrome-ci.zip），CI 注入 -ci 与本机区分。
 const version = JSON.parse(readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf-8')).version
+const zipSuffix = process.env.FUND01_ZIP_SUFFIX || ''
 const releaseDir = path.resolve(process.cwd(), '..', '..', 'release-chrome')
 mkdirSync(releaseDir, {recursive: true})
-const releaseZip = path.join(releaseDir, `Fund01_${version}_chrome.zip`)
+const releaseZip = path.join(releaseDir, `Fund01_${version}_chrome${zipSuffix}.zip`)
 copyFileSync(zipPath, releaseZip)
 console.log(`✓ 已归档: ${releaseZip}`)
