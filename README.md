@@ -1,10 +1,12 @@
 # Fund01
 
-Fund01 是一个基金持仓盯盘工具，提供 Chrome 扩展与桌面应用（Tauri，macOS / Windows）两种形态。两者复用同一套前端代码（`packages/ui`），通过 Port 接口适配不同运行时。
+Fund01 是一个基金持仓盯盘工具，提供 Chrome 扩展与桌面应用两种形态。桌面端基于 Tauri 2，已支持 **macOS**（菜单栏常驻）和 **Windows**（任务栏常驻）两个平台，三者复用同一套前端代码（`packages/ui`），通过 Port 接口适配不同运行时。
 
-macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组对应一根独立的菜单栏实例，实时显示该分组的当日涨跌幅（红色表示上涨，绿色表示下跌）。Windows 桌面端形态对应任务栏（taskband）：每个分组一个任务栏项（默认停靠右侧，可单独改左侧），并提供系统托盘图标（左键弹浮窗总览，右键打开设置/退出）。App 在后台持续刷新，关闭浮窗不影响行情更新。所有持仓与配置均存储在本地，不上传服务器。
+macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组对应一根独立的菜单栏实例，实时显示该分组的当日涨跌幅（红色表示上涨，绿色表示下跌）。Windows 桌面端形态对应任务栏（taskband）：每个分组一个任务栏项（默认停靠任务栏右侧，可在设置中切换到左侧），实时显示该分组的当日涨跌幅；并提供一个系统托盘图标作为总览入口（左键弹浮窗，右键打开设置/退出）。两种桌面端都支持点击对应实例/项后弹出无边框浮窗（680×600），App 在后台持续刷新，关闭浮窗不影响行情更新。所有持仓与配置均存储在本地，不上传服务器。
 
 ## 截图
+
+### macOS 桌面版
 
 | 暗色模式 | 亮色模式 |
 | --- | --- |
@@ -17,6 +19,14 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 | AI Agent 批量导入 | 常用设置 |
 | --- | --- |
 | ![AI Agent 批量导入](screenshots/ai%20agent%20批量导入.png) | ![常用设置](screenshots/常用设置.png) |
+
+### Windows 桌面版
+
+任务栏右侧停靠与左侧停靠（每张截图对应一个持仓分组实例；分组名 + 当日涨跌直接显示在任务栏上，浮窗由任务栏按钮或系统托盘图标唤起）：
+
+| 在 Windows 任务栏右侧 | 在 Windows 任务栏左侧 |
+| --- | --- |
+| ![在 Windows 任务栏右侧](screenshots/在%20windows%20任务栏右侧.png) | ![在 Windows 任务栏左侧](screenshots/在%20windows%20任务栏左侧.png) |
 
 ## 功能
 
@@ -77,7 +87,7 @@ macOS 桌面端以菜单栏（menubar）常驻方式运行：每个持仓分组�
 
 - **Chrome 扩展**：popup 看板 + 工具栏角标，MV3 Service Worker 后台定时刷新。
 - **macOS 桌面版（Tauri）**：菜单栏常驻应用（不占 Dock），每个持仓分组一个菜单栏实例，实时显示当日涨跌；点击实例弹出浮窗看板。
-- **Windows 桌面版（Tauri，实验性）**：任务栏常驻应用，每个持仓分组一个任务栏项（默认右侧，可单独设置左侧），支持任务栏边缘外边距；系统托盘图标左键弹浮窗（总览）、右键打开设置/退出。
+- **Windows 桌面版（Tauri，实验性）**：任务栏常驻应用，每个持仓分组一个任务栏项（默认停靠任务栏右侧，可在设置中切换到左侧），实时显示当日涨跌；系统托盘图标（左键弹浮窗总览、右键打开设置/退出）作为汇总入口。
 
 ## 开发指南
 
@@ -143,6 +153,31 @@ pnpm --filter @fund01/tauri tauri build   # 打包 .app / .dmg（输出到 src-t
 - 浮窗：680×600 无装饰窗口，失焦 hide + 闲置销毁，点击重建。
 - 存储：`tauri-plugin-store`（config.json）+ Rust 内存镜像（`AppState`）。
 
+### Windows 桌面版开发（Tauri）
+
+构建（macOS 本机交叉编译或 Windows runner 原生打包，二选一）：
+
+```bash
+# 方案 A：macOS 本机用 cargo-xwin 交叉编译（出 NSIS 安装包）
+pnpm --filter @fund01/tauri tauri:build:windows:cross:all     # x64 + arm64
+pnpm --filter @fund01/tauri tauri:build:windows:cross -- --arch x64   # 仅 x64
+
+# 方案 B：Windows runner 原生打包（推荐正式发版）
+node scripts/build-release-windows.mjs
+```
+
+产物命名：`Fund01_<ver>_<arch>-setup.exe`（CI 构建带 `-ci` 后缀；本机打包不带），归档到 `release-windows/`。前置依赖与坑见 `CLAUDE.md`「Windows 发布产物」节。
+
+桌面版关键实现：
+
+- **任务栏常驻**：自研 `tauri-plugin-multiline-taskband`（git 依赖）将每个持仓分组挂到 Windows 任务栏的 `ITaskbarList3::SetProgressState` / ThumbButton 体系，输出一根任务栏项（默认停靠右侧，可在设置中改为左侧）。未分组持仓进兜底任务栏项；分组名 + 当日涨跌双行显示，颜色与字号在设置里独立配。
+- **后台刷新**：与 macOS 端同一套 `tokio` 双循环（日盘 / 夜盘）+ 交易分档间隔，刷新后 `emit('quote-update')` + 更新 taskbar 文本。
+- **托盘图标**：系统托盘 `TrayIconBuilder`，左键弹汇总浮窗（所有分组合并的总览）、右键打开设置/退出。
+- **浮窗**：与 macOS 端共用同一份 `WebviewWindow` 配置（680×600、无装饰、`skip_taskbar: true`、`always_on_top: true`），失焦隐藏逻辑相同。
+- **存储**：与 macOS 端共用 `tauri-plugin-store` + Rust `AppState`。
+
+适配细节、已知缺口与平台差异见 `docs/tauri-plugin-multiline-taskband-适配说明.md`。
+
 ### 架构简述
 
 **Port 抽象（跨端复用核心）**：UI 与具体运行时（Chrome / Tauri）之间通过四个接口解耦——`DataPort`（异步数据访问）、`ConfigPort`（同步读 + 异步推）、`EventPort`（后端 → 前端事件）、`WindowPort`（窗口 / 导航操作）。接口定义在 `packages/core/src/port.ts`。Chrome 与 Tauri 各自提供 Port 实现，UI 层零改动复用同一份 `packages/ui`。
@@ -159,7 +194,6 @@ TypeScript 6 / React 19 / pnpm workspaces / Rsbuild 2 / Radix Themes 3 / echarts
 
 - **macOS 桌面版未签名 / 未公证**：当前为 ad-hoc 签名，首次打开会被 Gatekeeper 拦截（需 `xattr -rd com.apple.quarantine /Applications/Fund01.app` 绕过）。后续版本计划接入 Developer ID 签名 + 公证。
 - **Windows 版为实验性支持**：任务栏形态基于自研 `tauri-plugin-multiline-taskband` 插件（仅 Windows 11 验证过，Windows 10 未验证；插件适配缺口清单见 `docs/tauri-plugin-multiline-taskband-适配说明.md`）。Linux 未适配。
-- **macOS 桌面版未签名 / 未公证**：当前为 ad-hoc 签名，首次打开会被 Gatekeeper 拦截（需 `xattr -rd com.apple.quarantine /Applications/Fund01.app` 绕过）。后续版本计划接入 Developer ID 签名 + 公证。
 - **Chrome 扩展 popup 为 MV3 形态**：设置、持仓编辑等重操作放在原生 options 页（常驻标签页），popup 仅保留看板与快捷操作。
 
 ## 文档
