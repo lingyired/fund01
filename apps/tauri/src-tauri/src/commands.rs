@@ -180,6 +180,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_fall_color = None;
     a.settings.menubar_flat_color = None;
     a.settings.menubar_group_sides = None;
+    a.settings.menubar_global_side = None;
+    a.settings.menubar_item_margin = None;
     a.settings.menubar_edge_margins = None;
     a.settings.privacy_mode = None;
     b.settings.menubar_hidden_groups = None;
@@ -200,6 +202,8 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_fall_color = None;
     b.settings.menubar_flat_color = None;
     b.settings.menubar_group_sides = None;
+    b.settings.menubar_global_side = None;
+    b.settings.menubar_item_margin = None;
     b.settings.menubar_edge_margins = None;
     b.settings.privacy_mode = None;
     a == b

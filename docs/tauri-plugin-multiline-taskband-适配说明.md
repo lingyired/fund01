@@ -34,7 +34,9 @@
 - 实例 id 沿用 macOS 命名：`menubar-overview` / `menubar-group-{分组名hex}` / `menubar-ungrouped`；popup tab 映射（总览→'all' 等）复用 `menubar_common::popup_tab_for`。
 - **排序**：`set_order` 每轮按 desired 顺序幂等下发（总览 0 → 分组按 holdingGroups 顺序 → 未分组最后）。同侧实例按 order 升序**从边缘向内**排布，右缘起点在通知区左侧 → 默认布局「总览」最靠右。
 - **停靠侧**：`menubarGroupSides`（key 约定同 `menubarHiddenGroups`：`''`/`'__overview__'`/分组名，缺省=右侧）→ 每次 rebuild `set_side` 幂等下发。
-- **外边距**：`menubarEdgeMargins` `{left,right}`（物理像素）→ `set_edge_margins`（全局 API）。
+- **全局停靠**：`menubarGlobalSide`（`'follow'|'left'|'right'`，缺省 follow）→ `side_for` 先查该字段：left/right 强制所有实例到对应侧（设置页「全局停靠」，可一次把所有分组移到同一边），follow 才回落逐分组 `menubarGroupSides`。
+- **实例间距**：`menubarItemMargin`（物理像素，缺省 4=插件默认）→ `set_margin`（全局 API，设置页「分组间距」）。
+- **外边距**：`menubarEdgeMargins` `{left,right}`（物理像素）→ `set_edge_margins`（全局 API，设置页「左侧边距/右侧边距」）。
 - 每次刷新路径（refresh → `status_bar::update_with`）与保存配置路径（save_config → `status_bar::rebuild`）都会全量幂等下发文本/颜色/样式/侧/序。
 
 ## 二、与 multiline-menubar 的 API 对照（menubar v1.7.0 ↔ taskband v1.0.0）
@@ -61,10 +63,11 @@
 
 | API | fund01 用法 |
 | --- | --- |
-| `set_side(id, left/right)` | `menubarGroupSides`（每分组停靠侧，设置页「位置」列） |
+| `set_side(id, left/right)` | `menubarGroupSides`（每分组停靠侧，设置页「位置」列）；「全局停靠」`menubarGlobalSide` 可整体覆盖（见上） |
 | `set_order(id, u64)` | desired 顺序自动下发（无 UI，跟随持仓分组排序） |
-| `set_edge_margins(left?, right?)`（全局，物理像素） | `menubarEdgeMargins`（设置页「任务栏边距」） |
-| `set_padding(id, left, right)` / `set_margin(margin)` | 未暴露 UI（用插件默认 4px） |
+| `set_margin(margin)`（全局，物理像素，默认 4） | `menubarItemMargin`（设置页「分组间距」） |
+| `set_edge_margins(left?, right?)`（全局，物理像素） | `menubarEdgeMargins`（设置页「任务栏间距与边距」→ 左侧/右侧边距） |
+| `set_padding(id, left, right)` | 未暴露 UI（用插件默认 4px） |
 
 ### menubar 有、taskband 没有（fund01 已绕开，差异接受，见第三节决策存档）
 

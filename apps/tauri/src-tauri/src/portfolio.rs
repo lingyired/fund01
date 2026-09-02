@@ -9,6 +9,8 @@ pub const MAX_SELECTED_INDICES: usize = 5;
 
 /// 任务栏外边距上限（物理像素，防误输入撑爆任务栏；与 TS MENUBAR_EDGE_MARGINS_MAX 对应）
 pub const MENUBAR_EDGE_MARGINS_MAX: i32 = 2000;
+/// 任务栏相邻实例间距上限（物理像素，防误输入；与 TS MENUBAR_ITEM_MARGIN_MAX 对应）
+pub const MENUBAR_ITEM_MARGIN_MAX: i32 = 100;
 
 pub const DEFAULT_REFRESH_INTERVAL: RefreshInterval = RefreshInterval {
     trading: 60,
@@ -56,6 +58,8 @@ pub fn default_config() -> AppConfig {
             menubar_fall_color: Some("#34C759".to_string()),
             menubar_flat_color: Some("#8e8e93".to_string()),
             menubar_group_sides: Some(HashMap::new()),
+            menubar_global_side: Some("follow".to_string()),
+            menubar_item_margin: Some(4),
             menubar_edge_margins: Some(EdgeMargins { left: 0, right: 0 }),
             group_tab_show_detail: Some(true),
             group_tab_detail_mode: Some("percent".to_string()),
@@ -529,6 +533,21 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             map
         })
         .unwrap_or_default();
+    // menubarGlobalSide（仅 Windows 生效）：仅接受 follow/left/right，非法/缺省回落 follow
+    //（= 跟随 menubarGroupSides 逐分组设置，与 TS normalizeMenubarGlobalSide 一致）
+    let menubar_global_side =
+        match settings_raw.and_then(|s| s.get("menubarGlobalSide").and_then(|v| v.as_str())) {
+            Some("left") => "left".to_string(),
+            Some("right") => "right".to_string(),
+            _ => "follow".to_string(),
+        };
+    // menubarItemMargin（仅 Windows 生效，物理像素）：clamp 到 [0, MENUBAR_ITEM_MARGIN_MAX]，
+    // 缺失/非法回落插件默认 4（显式 0 = 贴紧合法；与 TS normalizeMenubarItemMargin 一致）
+    let menubar_item_margin = settings_raw
+        .and_then(|s| s.get("menubarItemMargin").and_then(|v| v.as_f64()))
+        .filter(|v| v.is_finite())
+        .map(|v| v.floor().clamp(0.0, MENUBAR_ITEM_MARGIN_MAX as f64) as i32)
+        .unwrap_or(4);
     // menubarEdgeMargins（仅 Windows 生效，物理像素）：clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]，
     // 非法/缺省回落 0（与插件 set_edge_margins 的 clamp>=0 语义、TS normalizeMenubarEdgeMargins 一致）
     let clamp_margin = |v: Option<f64>| -> i32 {
@@ -669,6 +688,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_fall_color: Some(menubar_fall_color),
             menubar_flat_color: Some(menubar_flat_color),
             menubar_group_sides: Some(menubar_group_sides),
+            menubar_global_side: Some(menubar_global_side),
+            menubar_item_margin: Some(menubar_item_margin),
             menubar_edge_margins: Some(menubar_edge_margins),
             group_tab_show_detail: Some(group_tab_show_detail),
             group_tab_detail_mode: Some(group_tab_detail_mode),

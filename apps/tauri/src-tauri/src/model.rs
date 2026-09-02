@@ -148,6 +148,15 @@ pub struct AppSettings {
     /// key 约定与 menubar_hidden_groups 一致（''=未分组、'__overview__'=总览、其余=分组名）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_group_sides: Option<HashMap<String, String>>,
+    /// 任务栏分组全局停靠覆盖（仅 Windows 生效）：None/'follow'=跟随 menubar_group_sides
+    /// 逐分组设置；'left'/'right'=强制所有实例停靠到对应侧（改为 follow 后逐分组设置恢复生效）。
+    /// 对应 taskband.rs::side_for 的统一覆盖，用于一次把所有分组移到同一边。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_global_side: Option<String>,
+    /// 任务栏相邻实例间距（仅 Windows 生效，物理像素，缺省=4 与插件 set_margin 默认一致）。
+    /// 对应 taskband 插件全局 set_margin。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_item_margin: Option<i32>,
     /// 任务栏分组整体外边距（仅 Windows 生效，物理像素）：left=左缘留白 right=右缘留白
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_edge_margins: Option<EdgeMargins>,
@@ -191,6 +200,8 @@ impl Default for AppSettings {
             menubar_fall_color: None,
             menubar_flat_color: None,
             menubar_group_sides: None,
+            menubar_global_side: None,
+            menubar_item_margin: None,
             menubar_edge_margins: None,
             group_tab_show_detail: None,
             group_tab_detail_mode: None,

@@ -159,6 +159,14 @@ export type MenubarAlign = 0 | 1 | 2
 /** Windows 任务栏分组停靠侧：left=任务栏左缘 right=任务栏右缘（默认）。仅 tauri Windows 生效 */
 export type MenubarGroupSide = 'left' | 'right'
 
+/**
+ * Windows 任务栏全局停靠覆盖（仅 tauri Windows 生效）：
+ * 'follow'=跟随各分组设置（menubarGroupSides，默认）、
+ * 'left'=所有分组实例一律停靠左缘、'right'=一律停靠右缘。
+ * 用于一次把所有分组移到同一边（如整体靠左避开通知区）。
+ */
+export type MenubarGlobalSide = 'follow' | 'left' | 'right'
+
 /** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
 export type HoldingsNavPosition = 'top' | 'side'
 
@@ -248,6 +256,18 @@ export type AppSettings = {
    * 未配置的分组一律视为 right。对应 tauri-plugin-multiline-taskband 的 set_side。
    */
   menubarGroupSides?: Record<string, MenubarGroupSide>
+  /**
+   * 任务栏分组全局停靠覆盖（仅 tauri Windows 生效）：'follow'(默认)=跟随
+   * menubarGroupSides 逐分组设置；'left'/'right'=强制所有分组实例停靠到对应侧，
+   * 此时逐分组停靠侧设置被整体覆盖（改为 follow 后恢复生效）。
+   * 对应 tauri-plugin-multiline-taskband 的 set_side 在宿主侧的统一覆盖。
+   */
+  menubarGlobalSide?: MenubarGlobalSide
+  /**
+   * 任务栏相邻分组实例之间的间距（仅 tauri Windows 生效，物理像素，默认 4）。
+   * 对应 tauri-plugin-multiline-taskband 的 set_margin（全局）。
+   */
+  menubarItemMargin?: number
   /**
    * 任务栏分组整体的外边距（仅 tauri Windows 生效，物理像素）：
    * left=距任务栏左缘的留白（左侧分组使用），right=距通知区域/右缘的留白（右侧分组使用），

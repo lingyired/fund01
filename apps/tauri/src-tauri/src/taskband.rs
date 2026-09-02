@@ -78,8 +78,15 @@ fn group_key_of(id: &str) -> Option<String> {
     }
 }
 
-/// 实例停靠侧：menubarGroupSides[key] == "left" → 左缘；缺省/非法 → 右缘（插件默认一致）。
+/// 实例停靠侧：menubarGlobalSide 为 left/right 时全局覆盖（所有实例强制到对应侧，
+/// 用于一次把所有分组移到同一边）；否则回落逐分组 menubarGroupSides[key] == "left" → 左缘；
+/// 缺省/非法 → 右缘（插件默认一致）。
 fn side_for(config: &AppConfig, id: &str) -> Side {
+    match config.settings.menubar_global_side.as_deref() {
+        Some("left") => return Side::Left,
+        Some("right") => return Side::Right,
+        _ => {}
+    }
     let left = group_key_of(id)
         .and_then(|k| {
             config
@@ -196,6 +203,14 @@ fn apply_taskband_style(app: &AppHandle, config: &AppConfig, desired: &[Instance
     // 全局外边距（left/right 双侧一次下发；None=保持现值，这里两侧都显式下发）
     let margins = config.settings.menubar_edge_margins.unwrap_or_default();
     let _ = tb.set_edge_margins(Some(margins.left), Some(margins.right));
+    // 全局相邻实例间距（menubarItemMargin，物理像素；缺省 4=插件默认，归一化已 clamp，
+    // 此处再防御性 clamp 上限，防旧配置越界）
+    let margin = config
+        .settings
+        .menubar_item_margin
+        .unwrap_or(4)
+        .clamp(0, crate::portfolio::MENUBAR_ITEM_MARGIN_MAX);
+    let _ = tb.set_margin(margin);
 
     let top = config
         .settings

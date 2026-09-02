@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, MenubarGlobalSide, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -49,6 +49,10 @@ export const MENUBAR_EDGE_MARGINS_DEFAULT: {left: number; right: number} = {
 }
 /** 任务栏外边距合法区间（物理像素）：上限防误输入撑爆任务栏 */
 export const MENUBAR_EDGE_MARGINS_MAX = 2000
+/** 任务栏相邻实例间距默认值（物理像素，仅 tauri Windows 生效；与插件 set_margin 默认一致） */
+export const MENUBAR_ITEM_MARGIN_DEFAULT = 4
+/** 任务栏相邻实例间距合法区间（物理像素）：上限防误输入（间距过大会把分组推出可视区） */
+export const MENUBAR_ITEM_MARGIN_MAX = 100
 
 /** 归一化 hex 颜色：仅接受 #rrggbb，非法回落 fallback */
 export function normalizeHexColor(v: unknown, fallback: string): string {
@@ -93,8 +97,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarRiseColor: MENUBAR_DEFAULTS.riseColor,
     menubarFallColor: MENUBAR_DEFAULTS.fallColor,
     menubarFlatColor: MENUBAR_DEFAULTS.flatColor,
-    // 任务栏（仅 tauri Windows）：分组默认全部停靠右侧；外边距默认 0
+    // 任务栏（仅 tauri Windows）：分组默认全部停靠右侧；外边距默认 0；间距默认 4（插件默认）
     menubarGroupSides: {},
+    menubarGlobalSide: 'follow',
+    menubarItemMargin: MENUBAR_ITEM_MARGIN_DEFAULT,
     menubarEdgeMargins: {...MENUBAR_EDGE_MARGINS_DEFAULT},
     // popup 分组 Tab 收益详情默认开启（两行：分组名 + 当日收益）
     groupTabShowDetail: true,
@@ -334,6 +340,21 @@ export function normalizeMenubarEdgeMargins(v: unknown): {left: number; right: n
   if (!v || typeof v !== 'object' || Array.isArray(v)) return {...MENUBAR_EDGE_MARGINS_DEFAULT}
   const rec = v as Record<string, unknown>
   return {left: clamp(rec.left), right: clamp(rec.right)}
+}
+
+/** 归一化任务栏分组全局停靠覆盖（仅 tauri Windows）：仅接受 'follow'|'left'|'right'，
+ *  非法/缺省回落 'follow'（= 跟随各分组停靠侧设置，与 Rust normalize_config 口径一致） */
+export function normalizeMenubarGlobalSide(v: unknown): MenubarGlobalSide {
+  return v === 'left' || v === 'right' || v === 'follow' ? v : 'follow'
+}
+
+/** 归一化任务栏相邻实例间距（仅 tauri Windows，物理像素，默认 4）：非负整数，
+ *  clamp 到 [0, MENUBAR_ITEM_MARGIN_MAX]；缺失/非法回落插件默认 4（显式 0 = 贴紧合法） */
+export function normalizeMenubarItemMargin(v: unknown): number {
+  if (v === undefined || v === null || v === '') return MENUBAR_ITEM_MARGIN_DEFAULT
+  const n = Number(v)
+  if (!Number.isFinite(n)) return MENUBAR_ITEM_MARGIN_DEFAULT
+  return Math.min(MENUBAR_ITEM_MARGIN_MAX, Math.max(0, Math.floor(n)))
 }
 
 export function normalizeConfig(payload: LegacyAppConfig | null | undefined): AppConfig {
