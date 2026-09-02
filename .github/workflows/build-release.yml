@@ -12,6 +12,14 @@ name: Build release installers
 # Windows=Fund01_<ver>_<arch>-ci-setup.exe、Chrome=Fund01_<ver>_chrome-ci.zip，与本机产物区分。
 # 产物只上传 artifact（30 天），不建 GitHub Release。
 # 触发：手动 workflow_dispatch（可选 platform / arch），或 push tag v*。
+# 单平台 tag 约定（2026-09-02）：tag 带平台后缀时只构建该平台 job ——
+#   v<ver>           → 三端全构建（现状不变）
+#   v<ver>-win       → 仅 Windows（x64 + arm64）
+#   v<ver>-macos     → 仅 macOS（arm64 + x86_64）
+#   v<ver>-chrome    → 仅 Chrome
+# 对应发布规范（单平台更新）：Release 只挂该平台产物（Windows 例：2 个
+#   -ci-setup.exe + 只含 exe 的 SHA256SUMS），notes 注明「XX 专属更新」；
+#   服务端检查更新用 bump-version.sh 只更新对应 os 的 latestVersions.<os>。
 
 on:
   workflow_dispatch:
@@ -43,11 +51,13 @@ jobs:
   macos:
     name: macOS build
     runs-on: macos-15
-    # 手动触发按 platform 过滤；push tag 无 inputs，总是跑
+    # 触发过滤：手动 dispatch 按 platform inputs；push tag 按后缀 ——
+    # 无后缀 v* 全跑，v<ver>-win / -chrome 时本 job 跳过（-macos / 无后缀才跑）
     if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.platform == 'all' ||
-      github.event.inputs.platform == 'macos'
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) ||
+      (github.event_name == 'push' &&
+        !endsWith(github.ref_name, '-win') && !endsWith(github.ref_name, '-chrome'))
 
     steps:
       - uses: actions/checkout@v5
@@ -145,11 +155,13 @@ jobs:
     # arm64 依赖 VS 的 ARM64 交叉工具（x64_arm64），runner 镜像可能未带该组件；
     # 失败不阻塞 x64 —— 单架构可用也比全红好，日志里会明确标出。
     continue-on-error: ${{ matrix.experimental }}
-    # 手动触发按 platform 过滤（与 macos job 同理）；push tag 总是跑
+    # 触发过滤：手动 dispatch 按 platform inputs；push tag 按后缀 ——
+    # 无后缀 v* 全跑，v<ver>-macos / -chrome 时本 job 跳过（-win / 无后缀才跑）
     if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.platform == 'all' ||
-      github.event.inputs.platform == 'windows'
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) ||
+      (github.event_name == 'push' &&
+        !endsWith(github.ref_name, '-macos') && !endsWith(github.ref_name, '-chrome'))
     strategy:
       fail-fast: false
       matrix:
@@ -250,11 +262,13 @@ jobs:
   chrome:
     name: Chrome build
     runs-on: ubuntu-latest
-    # 手动触发按 platform 过滤；push tag 无 inputs，总是跑
+    # 触发过滤：手动 dispatch 按 platform inputs；push tag 按后缀 ——
+    # 无后缀 v* 全跑，v<ver>-win / -macos 时本 job 跳过（-chrome / 无后缀才跑）
     if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.platform == 'all' ||
-      github.event.inputs.platform == 'chrome'
+      (github.event_name == 'workflow_dispatch' &&
+        (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'chrome')) ||
+      (github.event_name == 'push' &&
+        !endsWith(github.ref_name, '-win') && !endsWith(github.ref_name, '-macos'))
 
     steps:
       - uses: actions/checkout@v5
