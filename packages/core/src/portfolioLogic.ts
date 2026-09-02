@@ -523,6 +523,16 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       menubarEdgeMargins: normalizeMenubarEdgeMargins(
         payload?.settings?.menubarEdgeMargins,
       ),
+      // 任务栏全局停靠覆盖 + 相邻实例间距（仅 tauri Windows）：缺失时随 normalize 回落默认。
+      // 注意：此处重建必须接入两字段——否则 getConfig() 每次 normalizeConfig 会把已保存的非默认值
+      // （如全局 left）过滤成 undefined，后续任何设置保存全量落盘时 Rust 归一化回落到 'follow'，
+      // 任务栏随即按逐分组设置排布（表现为「改其它设置后分组全跑到默认侧」）。
+      menubarGlobalSide: normalizeMenubarGlobalSide(
+        payload?.settings?.menubarGlobalSide,
+      ),
+      menubarItemMargin: normalizeMenubarItemMargin(
+        payload?.settings?.menubarItemMargin,
+      ),
       // popup 分组 Tab 收益详情：默认开启（true）；旧配置缺失时回落默认
       groupTabShowDetail:
         typeof payload?.settings?.groupTabShowDetail === 'boolean'
