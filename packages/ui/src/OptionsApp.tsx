@@ -44,8 +44,9 @@ import type {
   CheckUpdateResult,
   FundQuoteRow,
   MenubarAlign,
-  MenubarLayout,
+  MenubarGlobalSide,
   MenubarGroupSide,
+  MenubarLayout,
   QuoteSource,
   ResolveFundResult,
   SettingsTabId,
@@ -57,6 +58,8 @@ import {
   MENUBAR_DEFAULTS,
   MENUBAR_EDGE_MARGINS_MAX,
   MENUBAR_FONT_RANGES,
+  MENUBAR_ITEM_MARGIN_DEFAULT,
+  MENUBAR_ITEM_MARGIN_MAX,
   MENUBAR_OVERVIEW_KEY,
   MIN_REFRESH_INTERVAL,
   normalizeHexColor,
@@ -3553,12 +3556,15 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
   const [riseColor, setRiseColor] = useState(MENUBAR_DEFAULTS.riseColor)
   const [fallColor, setFallColor] = useState(MENUBAR_DEFAULTS.fallColor)
   const [flatColor, setFlatColor] = useState(MENUBAR_DEFAULTS.flatColor)
-  // Windows 任务栏专属：分组停靠侧（缺省=右侧）与整体外边距（物理像素）
+  // Windows 任务栏专属：分组停靠侧（缺省=右侧）、全局停靠覆盖（默认跟随分组）、分组间距与整体外边距（物理像素）
   const [groupSides, setGroupSides] = useState<Record<string, MenubarGroupSide>>({})
+  const [globalSide, setGlobalSide] = useState<MenubarGlobalSide>('follow')
   const [edgeMargins, setEdgeMargins] = useState<{left: number; right: number}>({
     left: 0,
     right: 0,
   })
+  // 分组间距输入框草稿（字符串）：允许中间态输入（如清空、输入 "8" 的过程），失焦/回车才提交
+  const [itemMarginDraft, setItemMarginDraft] = useState(String(MENUBAR_ITEM_MARGIN_DEFAULT))
   // 外边距输入框草稿（字符串）：允许中间态输入（如清空、输入 "12" 的过程），失焦/回车才提交
   const [marginLeftDraft, setMarginLeftDraft] = useState('0')
   const [marginRightDraft, setMarginRightDraft] = useState('0')
@@ -3588,6 +3594,8 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     setFlatColor(normalizeHexColor(s.menubarFlatColor, MENUBAR_DEFAULTS.flatColor))
     // Windows 任务栏专属字段（macOS 端读到的都是缺省值，不影响 UI）
     setGroupSides(s.menubarGroupSides ?? {})
+    setGlobalSide(s.menubarGlobalSide ?? 'follow')
+    setItemMarginDraft(String(s.menubarItemMargin ?? MENUBAR_ITEM_MARGIN_DEFAULT))
     const margins = s.menubarEdgeMargins ?? {left: 0, right: 0}
     setEdgeMargins(margins)
     setMarginLeftDraft(String(margins.left))
@@ -3830,13 +3838,45 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 分组「位置」单元格（仅 Windows 渲染）：Radix Select 左/右停靠侧，缺省回显右侧 */
+  /** 任务栏分组全局停靠覆盖（仅 Windows）：切换即保存；
+   *  'follow'=跟随各分组设置；'left'/'right'=强制所有实例到对应侧（每行「位置」随之禁用） */
+  async function commitGlobalSide(v: MenubarGlobalSide) {
+    setGlobalSide(v)
+    try {
+      await updateSettings(ports, {menubarGlobalSide: v})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 任务栏分组间距（仅 Windows，物理像素）：失焦/回车提交，clamp 到 [0, MENUBAR_ITEM_MARGIN_MAX]；
+   *  清空/非法回落插件默认 4；显式 0 = 贴紧合法（与 normalizeMenubarItemMargin 一致） */
+  async function commitItemMargin(raw: string) {
+    const trimmed = raw.trim()
+    const n =
+      trimmed === ''
+        ? MENUBAR_ITEM_MARGIN_DEFAULT
+        : Math.min(
+            MENUBAR_ITEM_MARGIN_MAX,
+            Math.max(0, Math.floor(Number(trimmed) || 0)),
+          )
+    setItemMarginDraft(String(n))
+    try {
+      await updateSettings(ports, {menubarItemMargin: n})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 分组「位置」单元格（仅 Windows 渲染）：Radix Select 左/右停靠侧，缺省回显右侧；
+   *  全局停靠（left/right）生效时禁用——停靠侧由全局覆盖统一决定 */
   const renderSideCell = (key: string, label: string) =>
     isWindows ? (
       <td className="py-2 pl-3">
         <div className="flex justify-end">
           <Select.Root
             value={groupSides[key] ?? 'right'}
+            disabled={globalSide !== 'follow' || saving}
             onValueChange={(v) => void commitGroupSide(key, v as MenubarGroupSide)}
           >
             <Select.Trigger aria-label={`${label} 停靠位置`} />
@@ -3879,9 +3919,27 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
         <div className="text-sm font-medium text-ink">分组显示</div>
         <p className="text-xs text-muted">
           {isWindows
-            ? '任务栏分组默认停靠在任务栏右侧（靠近通知区域），可在「位置」中改为左侧（靠近开始按钮一侧）；「显示」控制分组是否出现在任务栏。「总览」默认始终显示、不可在本页关闭。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随系统任务栏文字色（深浅色自适应，「颜色」中已自定义上行颜色时跟随全局）。'
+            ? '任务栏分组默认停靠在任务栏右侧（靠近通知区域），可在「位置」中改为左侧（靠近开始按钮一侧）；用「全局停靠」可一次把所有分组移到同一侧。「显示」控制分组是否出现在任务栏。「总览」默认始终显示、不可在本页关闭。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随系统任务栏文字色（深浅色自适应，「颜色」中已自定义上行颜色时跟随全局）。'
             : '菜单栏分组实例的顺序由 macOS 原生管理：按住 ⌘（Cmd）直接拖动菜单栏中的分组图标即可调整位置，应用不会覆盖该顺序。开启「自定义颜色」可为该分组单独设置上行文字颜色，未开启则跟随全局上行颜色（全局也未自定义时跟随系统菜单栏文字色，深浅色自适应）；「显示」控制分组实例是否出现在菜单栏。「总览」默认始终显示、不可在本页关闭；若在菜单栏被按住 ⌘ 拖出，可在此重新开启（开启后恢复始终显示）。'}
         </p>
+        {isWindows ? (
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-ink-soft leading-none">全局停靠</div>
+              <div className="mt-1 text-[11px] text-muted">
+                把所有分组实例一次移到任务栏同一边；此时每行「位置」不可单独调整，切回「跟随分组」后恢复逐组设置。
+              </div>
+            </div>
+            <SegmentedControl.Root
+              value={globalSide}
+              onValueChange={(v) => void commitGlobalSide(v as MenubarGlobalSide)}
+            >
+              <SegmentedControl.Item value="follow">跟随分组</SegmentedControl.Item>
+              <SegmentedControl.Item value="left">全部靠左</SegmentedControl.Item>
+              <SegmentedControl.Item value="right">全部靠右</SegmentedControl.Item>
+            </SegmentedControl.Root>
+          </div>
+        ) : null}
         <table className="w-full pt-1 text-sm">
           <thead>
             <tr className="text-xs text-muted">
@@ -4021,13 +4079,32 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
         </div>
       ) : null}
 
-      {/* 任务栏边距（仅 Windows）：整体外边距，避开开始按钮/其他应用图标 */}
+      {/* 任务栏间距与边距（仅 Windows）：相邻分组间距 + 整体外边距（对应插件 set_margin / set_edge_margins） */}
       {isWindows ? (
         <div className="space-y-2 border-t border-line/50 pt-3">
-          <div className="text-sm font-medium text-ink">任务栏边距</div>
+          <div className="text-sm font-medium text-ink">任务栏间距与边距</div>
           <p className="text-xs text-muted">
-            任务栏分组整体与任务栏左右边缘的留白（物理像素，默认 0）。用于避开开始按钮、其他应用图标或任务栏工具；保存后立即应用。
+            任务栏相邻分组之间的间隔，以及分组整体与任务栏左右边缘的留白（单位均为物理像素）。间距默认 4；左侧边距让左侧分组右移、右侧边距让右侧分组左移（默认 0），用于避开 Windows
+            小组件、开始按钮、其他应用图标或任务栏工具；保存后立即应用。
           </p>
+          <div className="pt-1">
+            <label className="flex items-center justify-between gap-3">
+              <span className="text-sm text-ink-soft leading-none">分组间距</span>
+              <TextField.Root
+                type="number"
+                min={0}
+                max={MENUBAR_ITEM_MARGIN_MAX}
+                value={itemMarginDraft}
+                onChange={(e) => setItemMarginDraft(e.target.value)}
+                onBlur={(e) => void commitItemMargin(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+                className="w-24"
+                aria-label="分组间距（像素）"
+              />
+            </label>
+          </div>
           <div className="grid grid-cols-2 gap-3 pt-1">
             <label className="space-y-1">
               <span className="text-sm text-ink-soft leading-none">左侧边距</span>

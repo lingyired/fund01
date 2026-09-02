@@ -18,7 +18,9 @@ import {
   normalizeConfig,
   normalizeFund,
   normalizeMenubarEdgeMargins,
+  normalizeMenubarGlobalSide,
   normalizeMenubarGroupSides,
+  normalizeMenubarItemMargin,
   normalizeNetValueDate,
   todayDateStr,
 } from '@fund01/core'
@@ -683,6 +685,21 @@ export async function updateSettings(
     // 整体替换 menubarEdgeMargins：clamp 到 [0, MENUBAR_EDGE_MARGINS_MAX]，非法回落 0
     config.settings.menubarEdgeMargins = normalizeMenubarEdgeMargins(
       patch.menubarEdgeMargins,
+    )
+  }
+  // 任务栏分组全局停靠覆盖（仅 Windows）：仅接受 'follow'|'left'|'right'，非法忽略
+  if (
+    patch.menubarGlobalSide === 'follow' ||
+    patch.menubarGlobalSide === 'left' ||
+    patch.menubarGlobalSide === 'right'
+  ) {
+    config.settings.menubarGlobalSide = patch.menubarGlobalSide
+  }
+  // 任务栏相邻实例间距（仅 Windows，物理像素）：clamp 到 [0, MENUBAR_ITEM_MARGIN_MAX]，
+  // 缺失/非法回落插件默认 4（显式 0 = 贴紧合法，与 normalizeMenubarItemMargin 一致）
+  if (typeof patch.menubarItemMargin === 'number') {
+    config.settings.menubarItemMargin = normalizeMenubarItemMargin(
+      patch.menubarItemMargin,
     )
   }
   if (typeof patch.menubarRiseColor === 'string') {
