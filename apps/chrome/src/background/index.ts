@@ -149,6 +149,17 @@ function splitIndices(list: any[] | null | undefined): {a: any[]; us: any[]} {
 }
 
 /**
+ * 只有包含至少一个可用于估值/收益计算的字段，行情才算可用。
+ * provider 会把单只请求失败转换成空 quote；不能让这种「fulfilled」结果覆盖旧快照。
+ */
+function hasUsableFundQuote(q: any): boolean {
+  if (!q || q.error) return false
+  return [q.netValue, q.estimateNetValue, q.prevNetValue].some(
+    (v) => typeof v === 'number' && Number.isFinite(v) && v > 0,
+  )
+}
+
+/**
  * 并发刷新保护：避免 onStartup / onInstalled / alarm / REFRESH 消息在极短时间内
  * 多次并发触发 refreshAll（重复网络请求 + 缓存写竞争）。同一时刻只允许一个刷新在跑，
  * 新请求直接跳过——alarm 会按周期重排、用户也可能再点 REFRESH，跳过无副作用。
@@ -266,7 +277,7 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
     return r.status === 'fulfilled' ? r.value : null
   }
 
-  const holdingsQuotes = fulfilled('holdings')
+  let holdingsQuotes = fulfilled('holdings')
 
   // FundMNFInfo 在 15:00 收盘后清空 GSZ/GZTIME（空窗期）。
   // 参考项目靠 GZTIME=null 时 substr 抛错中断回调，保留上一次有效估算。
@@ -288,6 +299,17 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
     }
     if (sameSource && holdingsQuotes) {
       mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
+    }
+
+    // per-fund 失败会被 provider 转成 fulfilled 的空 quote。只要本轮持仓行情不完整，
+    // 保留上一份快照，避免暂时断网时把资产金额/收益覆盖成 0。
+    const quoteMap = new Map(holdingsQuotes.map((q: any) => [String(q?.code), q]))
+    const complete =
+      quoteMap.size === holdFunds.length &&
+      holdFunds.every((f: any) => hasUsableFundQuote(quoteMap.get(String(f.code))))
+    if (!complete) {
+      console.warn('[fund01] holdings refresh incomplete; keep previous valid snapshot')
+      holdingsQuotes = null
     }
   }
 

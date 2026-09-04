@@ -267,6 +267,17 @@ fn split_indices(list: &[IndexItem]) -> (Vec<IndexItem>, Vec<IndexItem>) {
     (a, us)
 }
 
+/// provider 返回的空 quote 代表单只行情失败，不应参与覆盖上一份持仓快照。
+fn has_usable_fund_quote(q: &FundQuote) -> bool {
+    if q.error.is_some() {
+        return false;
+    }
+    q.net_value.is_some_and(|v| v.is_finite() && v > 0.0)
+        || q.estimate_net_value
+            .is_some_and(|v| v.is_finite() && v > 0.0)
+        || q.prev_net_value.is_some_and(|v| v.is_finite() && v > 0.0)
+}
+
 /// 合并缓存 → 写 state.quote → 广播 quote-update → 状态栏实例（menubar/taskband）
 async fn broadcast(
     app: &AppHandle,
@@ -442,6 +453,32 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                         );
                     }
                 }
+            }
+            // provider 将单只失败转换成空 quote；本轮行情不完整时保留旧快照，
+            // 避免短暂断网把部分或全部资产金额覆盖成 0。
+            let quote_map: std::collections::HashMap<&str, &FundQuote> =
+                quotes.iter().map(|q| (q.code.as_str(), q)).collect();
+            let complete = quotes.len() == holdings_funds.len()
+                && holdings_funds.iter().all(|f| {
+                    quote_map
+                        .get(f.code.as_str())
+                        .is_some_and(|q| has_usable_fund_quote(q))
+                });
+            if !complete
+                && state
+                    .quote
+                    .read()
+                    .unwrap()
+                    .as_ref()
+                    .and_then(|q| q.holdings.as_ref())
+                    .is_some()
+            {
+                crate::err_log!(
+                    "refresh 基金行情不完整，保留上一份持仓快照 quotes={} funds={}",
+                    quotes.len(),
+                    holdings_funds.len()
+                );
+                return;
             }
             let excluded_groups = config
                 .settings

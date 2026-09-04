@@ -1230,15 +1230,20 @@ function parseFundMNFInfoItem(item: any): {
   //     开盘前（净值披露后周末照常显示，开盘后恢复盘中口径）
   const gztimeDay = gztime.length >= 10 ? gztime.slice(0, 10) : ''
   const qdiiName = String(item?.SHORTNAME || '')
-  const hasReplace =
+  const qdiiNameDetected = isQdiiName(qdiiName)
+  const confirmedSession =
     gztimeDay !== ''
       ? pdate !== '--' && pdate !== '' && pdate === gztimeDay
       : (() => {
           const navDay = normalizeNetValueDate(pdate)
           return (
-            navDay !== '' && isConfirmedSessionActive(navDay, undefined, isQdiiName(qdiiName))
+            navDay !== '' &&
+            isConfirmedSessionActive(navDay, undefined, qdiiNameDetected)
           )
         })()
+  // QDII 净值在披露日对应的是上一海外交易日；A 股盘中不能把它当作
+  // 当前 A 股交易日收益展示。与 resolveDisplayPercent 保持同一口径。
+  const hasReplace = confirmedSession && !(qdiiNameDetected && isAShareTradingTime())
 
   // 估值过期：GZTIME 日期 < PDATE 日期（线上版 numDate(gztime) < numDate(jzrq)）
   const estimateStale =
@@ -1354,9 +1359,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     // 分时走势曲线（trend）留空，由 FundTrendDialog 懒加载。
     const trend: FundQuote['trend'] = []
 
-    const now = new Date()
     const qdii = isQdiiName(name)
-    const aShareTrading = isAShareTradingTime(now)
 
     let percent: number | null = null
     let percentSource: 'confirmed' | 'estimate' | null = null
@@ -1408,9 +1411,9 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
           }
         }
       }
-    } else if (confirmed && qdii && !aShareTrading) {
-      // QDII 已确认（delayed 放行，盘后）：parse 反推的 prev 有 4 元级系统误差，
-      // 用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+    } else if (confirmed) {
+      // 所有确认基金都用历史净值取真实前一日净值对齐；NAVCHGRT 只有两位小数，
+      // 用它反推昨日净值会在大额持仓上产生可见的收益额误差。
       await fillHistAligned(code, histState, true)
     }
     // 历史净值对齐结果同步回局部变量

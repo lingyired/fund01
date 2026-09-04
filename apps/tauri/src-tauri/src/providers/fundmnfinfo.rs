@@ -158,13 +158,15 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
     let nav_qdii = crate::calendar::is_delayed_nav_fund(
         item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
     );
-    let has_replace = if !gztime_day.is_empty() {
+    let confirmed_session = if !gztime_day.is_empty() {
         pdate != "--" && !pdate.is_empty() && pdate == gztime_day
     } else {
         let nav_day = crate::calendar::normalize_net_value_date(&pdate, &now);
         !nav_day.is_empty()
             && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
     };
+    let has_replace =
+        confirmed_session && !(nav_qdii && crate::calendar::is_a_share_trading_time(&now));
     crate::dbg_log!(
         "parse item code={} name={} pdate={} gztime_day={} qdii={} has_replace={}",
         item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""),
@@ -588,9 +590,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     // FundMNFInfo 已批量提供行情，分时走势留空由前端懒加载
     let trend: Vec<TrendPoint> = vec![];
 
-    let now = chrono::Local::now();
     let qdii = is_qdii_name(&name);
-    let a_share_trading = crate::calendar::is_a_share_trading_time(&now);
 
     // 自算估值 fallback（空窗期/估值过期）——先于 percent 判定，
     // 因为它可能产出 estimate（自算/fund123 兜底）或 confirmed（QDII/黄金盘后历史净值）口径
@@ -642,9 +642,9 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 }
             }
         }
-    } else if confirmed && qdii && !a_share_trading {
-        // QDII 真正「当日」更新后（PDATE=今天，盘后）：parse 反推的 prev 有 4 元级
-        // 系统误差，用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+    } else if confirmed {
+        // 所有确认基金都用历史净值取真实前一日净值对齐；NAVCHGRT 只有两位小数，
+        // 用它反推昨日净值会在大额持仓上产生可见的收益额误差。
         fill_hist_aligned(
             &code,
             &mut net_value,
