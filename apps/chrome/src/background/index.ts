@@ -160,6 +160,29 @@ function hasUsableFundQuote(q: any): boolean {
 }
 
 /**
+ * 从上一份持仓快照的行数据还原出 quote 形状，供「按只回填」使用。
+ * 只映射 calcHoldings 真正消费的行情字段；行上的金额/收益等派生字段不回填，
+ * 由本轮 calcHoldings 用最新份额与成本重算（份额/成本永远取配置，不取快照）。
+ */
+function staleQuoteFromRow(row: any): any {
+  return {
+    code: String(row?.code ?? ''),
+    name: row?.name,
+    percent: row?.percent ?? null,
+    percentSource: row?.percentSource ?? null,
+    estimateGrowth: row?.estimateGrowth ?? null,
+    dayGrowth: row?.dayGrowth ?? null,
+    netValueDate: row?.netValueDate,
+    netValue: row?.netValue ?? null,
+    estimateNetValue: row?.estimateNetValue ?? null,
+    prevNetValue: row?.prevNetValue ?? null,
+    time: row?.time ?? null,
+    trend: Array.isArray(row?.trend) ? row.trend : [],
+    isQdii: row?.isQdii,
+  }
+}
+
+/**
  * 并发刷新保护：避免 onStartup / onInstalled / alarm / REFRESH 消息在极短时间内
  * 多次并发触发 refreshAll（重复网络请求 + 缓存写竞争）。同一时刻只允许一个刷新在跑，
  * 新请求直接跳过——alarm 会按周期重排、用户也可能再点 REFRESH，跳过无副作用。
@@ -279,18 +302,28 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
 
   let holdingsQuotes = fulfilled('holdings')
 
-  // FundMNFInfo 在 15:00 收盘后清空 GSZ/GZTIME（空窗期）。
-  // 参考项目靠 GZTIME=null 时 substr 抛错中断回调，保留上一次有效估算。
-  // 这里用显式逻辑：新 quote 无估算时，从上次缓存合并旧 estimate 字段，
-  // 使空窗期 UI 仍能看到 15:00 最后估值，等 20:00 官方净值披露后自动覆盖。
-  // 注意：仅当旧缓存与本次刷新同一数据源时才合并。切源后缓存是旧源口径，
-  // 混入会让 percent 与净值差来自不同源（曾出现 QDII +150.53 / -0.06% 方向矛盾）。
+  // 本轮 provider **原始**产出里真正可用的基金集合：必须在 mergeStaleEstimate 之前统计
+  // —— 合并会把上一份快照的估算值写回空 quote，若在其后统计，整体断网（全部为空）也会被
+  // 误判成「拿到了新数据」，导致「数据更新于」时间戳前移。
+  const freshCodes = new Set(
+    (holdingsQuotes || [])
+      .filter((q: any) => hasUsableFundQuote(q))
+      .map((q: any) => String(q?.code)),
+  )
+
   if (holdingsQuotes) {
     const cached = await chrome.storage.local.get([
       CACHE_KEYS.holdings,
       CACHE_KEYS.source,
     ])
     const cachedSource = cached[CACHE_KEYS.source]
+    const cachedList = cached[CACHE_KEYS.holdings]?.list
+    // FundMNFInfo 在 15:00 收盘后清空 GSZ/GZTIME（空窗期）。参考项目靠 GZTIME=null 时
+    // substr 抛错中断回调，保留上一次有效估算。这里用显式逻辑：新 quote 无估算时，从上次
+    // 缓存合并旧 estimate 字段，使空窗期 UI 仍能看到 15:00 最后估值，等 20:00 官方净值
+    // 披露后自动覆盖。
+    // 注意：仅当旧缓存与本次刷新同一数据源时才合并。切源后缓存是旧源口径，混入会让
+    // percent 与净值差来自不同源（曾出现 QDII +150.53 / -0.06% 方向矛盾）。
     const sameSource = !cachedSource || cachedSource === quoteSource
     if (!sameSource) {
       console.warn(
@@ -298,18 +331,43 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
       )
     }
     if (sameSource && holdingsQuotes) {
-      mergeStaleEstimate(holdingsQuotes, cached[CACHE_KEYS.holdings]?.list)
+      mergeStaleEstimate(holdingsQuotes, cachedList)
     }
 
-    // per-fund 失败会被 provider 转成 fulfilled 的空 quote。只要本轮持仓行情不完整，
-    // 保留上一份快照，避免暂时断网时把资产金额/收益覆盖成 0。
-    const quoteMap = new Map(holdingsQuotes.map((q: any) => [String(q?.code), q]))
-    const complete =
-      quoteMap.size === holdFunds.length &&
-      holdFunds.every((f: any) => hasUsableFundQuote(quoteMap.get(String(f.code))))
-    if (!complete) {
-      console.warn('[fund01] holdings refresh incomplete; keep previous valid snapshot')
-      holdingsQuotes = null
+    // per-fund 失败会被 provider 转成 fulfilled 的空 quote。这里**按只**回填上一份
+    // 快照里的有效值，而不是「任一只失败就保留整份快照」——后者会让一只长期取不到
+    // 行情的基金（代码失效 / 停牌 / 单只限流）永久冻结全部持仓，且无自愈途径。
+    // 回填后：正常基金照常更新，失败基金沿用最近一次有效值（与 mergeStaleEstimate
+    // 的兜底口径一致）。要求旧缓存同源且存在，避免把旧源口径混进新源。
+    // QDII 例外：不继承任何跨时段旧值（与 mergeStaleEstimate 的 isQdii 跳过同策），
+    // 否则盘中会把昨晚 confirmed 涨幅 + prevNetValue 带回，冒充「今日」收益。
+    if (sameSource && Array.isArray(cachedList) && cachedList.length) {
+      const rowMap = new Map<string, any>(
+        cachedList.map((r: any) => [String(r?.code), r]),
+      )
+      const backfilled: any[] = []
+      const missing: string[] = []
+      for (const f of holdFunds) {
+        const code = String(f.code)
+        if (freshCodes.has(code)) continue
+        const row = rowMap.get(code)
+        if (!row) {
+          missing.push(code)
+          continue
+        }
+        if (row.isQdii) {
+          missing.push(`${code}(QDII)`)
+          continue
+        }
+        backfilled.push(staleQuoteFromRow(row))
+      }
+      if (backfilled.length) {
+        console.warn(
+          `[fund01] 持仓行情不完整：${backfilled.length}/${holdFunds.length} 只沿用上一份快照` +
+            `${missing.length ? `（未回填=${missing.join(',')}）` : ''}`,
+        )
+        holdingsQuotes = [...holdingsQuotes, ...backfilled]
+      }
     }
   }
 
@@ -325,10 +383,13 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
     }
   }
 
-  const patch: Record<string, any> = {[CACHE_KEYS.time]: Date.now()}
+  const patch: Record<string, any> = {}
   if (holdingsResult) patch[CACHE_KEYS.holdings] = holdingsResult
-  // 记录本次基金刷新使用的数据源（供 mergeStaleEstimate 同源判断）
-  patch[CACHE_KEYS.source] = quoteSource
+  // 数据源标记只在快照真的写出时前移（供 mergeStaleEstimate 同源判断）。
+  // 否则 source 指向新源、cache-holdings 仍是旧源快照，下一轮 sameSource 会误判为
+  // 同源 → 把旧源估算混进新源行情（曾致 QDII 涨跌方向矛盾）。Tauri 端同样只在
+  // 真实写出时更新 last_quote_source。
+  if (holdingsResult) patch[CACHE_KEYS.source] = quoteSource
 
   // 指数：新拉的市场部分 + 旧缓存另一市场部分合并，避免单市场刷新覆盖整份
   const indicesAValue = fulfilled('indicesA')
@@ -345,6 +406,16 @@ async function refreshAllCore(force = false, kind: RefreshKind = 'all'): Promise
       ...(newA.length ? newA : prevA),
       ...(newUs.length ? newUs : prevUs),
     ]
+  }
+
+  // 「数据更新于」= 最近一次真的产出新数据的时刻（与 Tauri 端 broadcast 的判据对齐：
+  // 有广播才 time=now）。持仓为空时快照本身就是最终结果，算产出；持仓非空但本轮
+  // 一只可用行情都没拿到（整体断网 / 接口挂）时不前移，避免「时间戳是新的、数字是
+  // 旧的」误导。指数更新同样算产出（Chrome 侧还要靠该时间戳触发 popup 重载）。
+  const holdingsFresh =
+    Boolean(holdingsResult) && (holdFunds.length === 0 || freshCodes.size > 0)
+  if (holdingsFresh || patch[CACHE_KEYS.indices]) {
+    patch[CACHE_KEYS.time] = Date.now()
   }
   await chrome.storage.local.set(patch)
 

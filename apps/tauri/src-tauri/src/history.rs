@@ -14,6 +14,7 @@ use crate::model::{
 use crate::providers::fund123::{search_fund, search_funds_by_keyword};
 use crate::providers::{eastmoney_fund_get, pad6};
 
+#[derive(Debug, Clone)]
 pub struct HistRow {
     pub date: String,
     pub net_value: Option<f64>,

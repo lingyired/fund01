@@ -278,19 +278,54 @@ fn has_usable_fund_quote(q: &FundQuote) -> bool {
         || q.prev_net_value.is_some_and(|v| v.is_finite() && v > 0.0)
 }
 
+/// 从上一份持仓快照的行数据还原出 quote 形状，供「按只回填」使用。
+/// 只映射 calc_holdings 真正消费的行情字段；行上的金额/收益等派生字段不回填，
+/// 由本轮 calc_holdings 用最新份额与成本重算（份额/成本永远取配置，不取快照）。
+/// 与 Chrome SW 的 `staleQuoteFromRow` 1:1 对齐。
+fn stale_quote_from_row(row: &FundQuoteRow) -> FundQuote {
+    FundQuote {
+        code: row.fund.code.clone(),
+        name: row.fund.name.clone(),
+        percent: row.percent,
+        percent_source: row.percent_source.clone(),
+        estimate_growth: row.estimate_growth,
+        day_growth: row.day_growth,
+        net_value_date: row.net_value_date.clone().unwrap_or_default(),
+        net_value: row.net_value,
+        estimate_net_value: row.estimate_net_value,
+        prev_net_value: row.prev_net_value,
+        time: row.time.clone(),
+        trend: row.trend.clone(),
+        is_qdii: row.is_qdii,
+        ..Default::default()
+    }
+}
+
 /// 合并缓存 → 写 state.quote → 广播 quote-update → 状态栏实例（menubar/taskband）
+///
+/// `fresh`：本半边的数据是否**真的**产出了新值。`false` 时保留上一份 `time`
+/// （「数据更新于」不前移），避免「时间戳是新的、数字是旧的」误导。
+/// 与 Chrome SW 的判据对齐：cache-time 仅在持仓产出可用行情 / 指数更新时才写。
+/// 注意 quote-update 事件本身照常 emit —— `fresh=false` 只影响时间戳，
+/// 前端仍要靠该事件结束加载态。
 async fn broadcast(
     app: &AppHandle,
     holdings: Option<HoldingsPayload>,
     indices: Option<Vec<IndexItem>>,
     patches: Vec<PersistPatch>,
+    fresh: bool,
 ) {
     let state = app.state::<AppState>();
     let prev = state.quote.read().unwrap().clone();
+    let now_ms = chrono::Local::now().timestamp_millis();
     let update = QuoteUpdate {
         holdings: holdings.or_else(|| prev.as_ref().and_then(|p| p.holdings.clone())),
         indices: indices.or_else(|| prev.as_ref().and_then(|p| p.indices.clone())),
-        time: chrono::Local::now().timestamp_millis(),
+        time: if fresh {
+            now_ms
+        } else {
+            prev.as_ref().map(|p| p.time).unwrap_or(now_ms)
+        },
     };
     *state.quote.write().unwrap() = Some(update.clone());
     let _ = app.emit("quote-update", &update);
@@ -414,6 +449,16 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             }
             let provider = get_quote_provider(source);
             let mut quotes = provider.fetch_quotes(&inputs).await;
+            // 本轮 provider **原始**产出里真正可用的基金集合：必须在 merge_stale_estimate
+            // 之前统计 —— 合并会把上一份快照的估算值写回空 quote，若在其后统计，整体断网
+            // （全部为空）也会被误判成「拿到了新数据」，导致「数据更新于」时间戳前移。
+            // 存 String（而非 &str）：后续 merge_stale_estimate 需要 &mut quotes，
+            // 借用期不能延续到这里。
+            let fresh_codes: std::collections::HashSet<String> = quotes
+                .iter()
+                .filter(|q| has_usable_fund_quote(q))
+                .map(|q| q.code.clone())
+                .collect();
             {
                 let with_percent = quotes.iter().filter(|q| q.percent.is_some()).count();
                 let with_nav = quotes.iter().filter(|q| q.net_value.is_some()).count();
@@ -454,32 +499,61 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                     }
                 }
             }
-            // provider 将单只失败转换成空 quote；本轮行情不完整时保留旧快照，
-            // 避免短暂断网把部分或全部资产金额覆盖成 0。
-            let quote_map: std::collections::HashMap<&str, &FundQuote> =
-                quotes.iter().map(|q| (q.code.as_str(), q)).collect();
-            let complete = quotes.len() == holdings_funds.len()
-                && holdings_funds.iter().all(|f| {
-                    quote_map
-                        .get(f.code.as_str())
-                        .is_some_and(|q| has_usable_fund_quote(q))
-                });
-            if !complete
-                && state
-                    .quote
-                    .read()
-                    .unwrap()
-                    .as_ref()
-                    .and_then(|q| q.holdings.as_ref())
-                    .is_some()
-            {
-                crate::err_log!(
-                    "refresh 基金行情不完整，保留上一份持仓快照 quotes={} funds={}",
-                    quotes.len(),
-                    holdings_funds.len()
-                );
-                return;
+            // provider 将单只失败转换成空 quote。这里**按只**回填上一份快照里的有效值，
+            // 而不是「任一只失败就保留整份快照」——后者会让一只长期取不到行情的基金
+            // （代码失效 / 停牌 / 单只限流）永久冻结全部持仓，且无自愈途径。
+            // 回填后：正常基金照常更新，失败基金沿用最近一次有效值（与
+            // merge_stale_estimate 的兜底口径一致）。与 Chrome SW 1:1 对齐。
+            // QDII 例外：不继承任何跨时段旧值（与 merge_stale_estimate 的 is_qdii 跳过同策），
+            // 否则盘中会把昨晚 confirmed 涨幅 + prev 带回，冒充「今日」收益。
+            let has_fresh = !fresh_codes.is_empty();
+            let prev_list = state
+                .quote
+                .read()
+                .unwrap()
+                .as_ref()
+                .and_then(|q| q.holdings.as_ref())
+                .map(|h| h.list.clone())
+                .unwrap_or_default();
+            if !prev_list.is_empty() {
+                let row_map: std::collections::HashMap<&str, &FundQuoteRow> = prev_list
+                    .iter()
+                    .map(|r| (r.fund.code.as_str(), r))
+                    .collect();
+                let mut no_old: Vec<String> = Vec::new();
+                let mut skipped_qdii: Vec<String> = Vec::new();
+                let mut backfilled: Vec<FundQuote> = Vec::new();
+                for f in &holdings_funds {
+                    if fresh_codes.contains(f.code.as_str()) {
+                        continue;
+                    }
+                    let Some(row) = row_map.get(f.code.as_str()) else {
+                        no_old.push(f.code.clone());
+                        continue;
+                    };
+                    let qdii = row.is_qdii.unwrap_or(false)
+                        || crate::providers::fundmnfinfo::is_qdii_name(&row.fund.name);
+                    if qdii {
+                        // QDII：不继承跨时段旧值，保持空（当日收益「-」），
+                        // 与 merge_stale_estimate 的 is_qdii 跳过同策。
+                        skipped_qdii.push(f.code.clone());
+                        continue;
+                    }
+                    backfilled.push(stale_quote_from_row(row));
+                }
+                if !backfilled.is_empty() {
+                    crate::err_log!(
+                        "refresh 基金行情不完整：{}/{} 只沿用上一份快照（无旧值={:?} QDII跳过={:?}）",
+                        backfilled.len(),
+                        holdings_funds.len(),
+                        no_old,
+                        skipped_qdii
+                    );
+                    quotes.extend(backfilled);
+                }
             }
+            // 「数据更新于」只在真的拿到可用行情（或持仓为空，空快照即最终结果）时前移
+            let fresh = holdings_funds.is_empty() || has_fresh;
             let excluded_groups = config
                 .settings
                 .overview_excluded_groups
@@ -489,11 +563,12 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             // 记录本轮基金刷新使用的数据源（供下次合并做同源判断；切源即失效，下次跳过合并）
             *state.last_quote_source.write().unwrap() = Some(source_str.clone());
             // 仅广播持仓半边（indices=None → broadcast 回退上一份快照的指数，不覆盖）
-            broadcast(app, Some(payload), None, p).await;
+            broadcast(app, Some(payload), None, p, fresh).await;
         } else if force {
             // 持仓全空（重置 / 清空后 force 刷新）：显式广播空快照，
             // 否则 broadcast 会回退旧 state.quote，popup / menubar 浮窗仍显示旧持仓。
-            broadcast(app, Some(HoldingsPayload::default()), None, Vec::new()).await;
+            // 空持仓是用户操作的最终结果 → 时间戳照常前移。
+            broadcast(app, Some(HoldingsPayload::default()), None, Vec::new(), true).await;
             *state.last_quote_source.write().unwrap() = Some(source_str.clone());
         }
     };
@@ -516,7 +591,7 @@ async fn refresh_day(app: &AppHandle, force: bool) {
         let mut merged = crate::market::get_a_share_indices().await;
         merged.extend(prev_us);
         // 仅广播指数半边（holdings=None → broadcast 回退上一份快照的持仓，不覆盖）
-        broadcast(app, None, Some(merged), Vec::new()).await;
+        broadcast(app, None, Some(merged), Vec::new(), true).await;
     };
 
     tokio::join!(funds_fut, indices_fut);
@@ -550,5 +625,5 @@ async fn refresh_night(app: &AppHandle, force: bool) {
     if indices.is_none() {
         return; // 空转醒来：无数据变化，不发心跳广播
     }
-    broadcast(app, None, indices, Vec::new()).await;
+    broadcast(app, None, indices, Vec::new(), true).await;
 }
