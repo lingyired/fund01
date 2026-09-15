@@ -296,6 +296,7 @@ fn stale_quote_from_row(row: &FundQuoteRow) -> FundQuote {
         prev_net_value: row.prev_net_value,
         time: row.time.clone(),
         trend: row.trend.clone(),
+        sector_quotes: row.sector_quotes.clone(),
         is_qdii: row.is_qdii,
         ..Default::default()
     }

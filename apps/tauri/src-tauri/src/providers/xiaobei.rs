@@ -6,6 +6,10 @@
 //! 小倍只提供估值百分比 + nav，无估值净值/分时/历史净值 → 净值对与净值日期由东财
 //! FundMNHisNetList 补齐（对齐 fund123.rs 的 hist 对齐逻辑）；取不到估值时 per-fund
 //! 回落 FundMNFInfo（单向 DAG：xiaobei→fundmnfinfo→fund123，无环）。
+//!
+//! 板块：同一条响应的 `data.relatedIndustryV2` 给出**关联板块 + 板块指数实时涨跌幅**
+//! （2026-09-15 实测覆盖率 18/20，仅货币基金无映射；境内板块随 A 股盘中变动，
+//! 美股板块为北京 21:30→次日 04:00 场次）。⚠️ 板块涨跌 ≠ 本基金收益，见 `SectorQuote` 注释。
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -14,29 +18,87 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use crate::http::{self, MOBILE_UA};
-use crate::model::FundQuote;
+use crate::model::{FundQuote, SectorQuote};
 use crate::providers::{fundmnfinfo, pad6, run_quotes_concurrent, FundQuoteInput, QuoteProvider};
 
 // ----------------------------- 缓存 -----------------------------
 
-const XIAOBEI_TTL: Duration = Duration::from_secs(60); // 盘中估值 60s 刷新（对齐 wzk）
+const XIAOBEI_TTL: Duration = Duration::from_secs(60); // 盘中估值 + 板块 60s 刷新（对齐 wzk）
 
-static XIAOBEI_CACHE: OnceLock<Mutex<HashMap<String, (String, Option<f64>, Instant)>>> =
-    OnceLock::new();
+/// ⚠️ App 版本号 —— **不是随便填的**：小倍后端按版本号裁剪响应字段，
+/// `< 3.9.5` 时响应里**连 `dailyYield` 字段都不存在**（`relatedIndustryV2` 同样缺失），
+/// 会让本 provider 静默空转（percent 全空 → per-fund 降级 FundMNFInfo，日志无异常）。
+/// 2026-09-15 实测门槛：3.8.7.0/3.8.9.0/3.9.0 无字段，3.9.5/4.0.0/4.2.1 正常。
+/// 调整此值前必须实测 `dailyYield` 与 `relatedIndustryV2` 两个字段都在。
+const XIAOBEI_VERSION: &str = "4.2.1";
 
-/// 拉取小倍基金详情：返回 (name, daily_yield 百分数)。60s 缓存；
-/// 仅缓存有估值的响应（无估值不缓存，便于下次重试）。
-async fn load_xiaobei_detail(code: &str) -> Option<(String, Option<f64>)> {
+/// 小倍基金详情（一次请求的完整产出）
+#[derive(Clone, Default)]
+struct XiaobeiDetail {
+    name: String,
+    /// 盘中估值涨幅（百分数，-2.08 表示 −2.08%）
+    daily_yield: Option<f64>,
+    /// 关联板块行情（`relatedIndustryV2`）
+    sector_quotes: Vec<SectorQuote>,
+}
+
+static XIAOBEI_CACHE: OnceLock<Mutex<HashMap<String, (XiaobeiDetail, Instant)>>> = OnceLock::new();
+
+/// 小数 → 百分数（保留 4 位）：0.0268 → 2.68；-0.003721 → -0.3721。
+/// 显示层再按需收敛到 2 位（formatPct），这里不预先丢精度。
+fn to_pct(raw: f64) -> f64 {
+    (raw * 1_000_000.0).round() / 10_000.0
+}
+
+/// 解析 `relatedIndustryV2` → 板块行情。
+/// ⚠️ 必须用 V2：V1（`relatedIndustry`）结构看似相同但 `change` 恒为 0、且无 `timeLine`/`factor`。
+/// `factor` 实测恒为 1，暂不参与计算（语义未确认，不猜；若上游出现 ≠1 需重新确认）。
+fn parse_sector_quotes(data: &serde_json::Value) -> Vec<SectorQuote> {
+    let Some(arr) = data.get("relatedIndustryV2").and_then(|v| v.as_array()) else {
+        return vec![];
+    };
+    arr.iter()
+        .filter_map(|it| {
+            let name = it
+                .get("themeName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                return None;
+            }
+            Some(SectorQuote {
+                name,
+                change: it.get("change").and_then(|v| v.as_f64()).map(to_pct),
+                index_code: it
+                    .get("indexCode")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                market: it
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        })
+        .collect()
+}
+
+/// 拉取小倍基金详情（名称 / 盘中估值 / 关联板块）。60s 缓存；
+/// 仅缓存「有估值或有板块」的响应（全空不缓存，便于下次重试）。
+async fn load_xiaobei_detail(code: &str) -> Option<XiaobeiDetail> {
     let cache = || XIAOBEI_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     {
         let guard = cache().lock().unwrap();
-        if let Some((name, dy, ts)) = guard.get(code) {
+        if let Some((detail, ts)) = guard.get(code) {
             if ts.elapsed() < XIAOBEI_TTL {
-                return Some((name.clone(), *dy));
+                return Some(detail.clone());
             }
         }
     }
-    let body = json!({ "code": code, "version": "3.8.7.0", "clientType": "APP" });
+    let body = json!({ "code": code, "version": XIAOBEI_VERSION, "clientType": "APP" });
     let res = http::http_post_json(
         "https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310",
         &body,
@@ -46,23 +108,23 @@ async fn load_xiaobei_detail(code: &str) -> Option<(String, Option<f64>)> {
     .await
     .ok()?;
     let data = res.get("data")?;
-    let name = data
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    // 0.0268 → 2.68（百分数，保留两位；wzk parseXiaobeiDailyYield 同构）
-    let daily_yield = data
-        .get("dailyYield")
-        .and_then(|v| v.as_f64())
-        .map(|raw| (raw * 10000.0).round() / 100.0);
-    if daily_yield.is_some() {
-        cache().lock().unwrap().insert(
-            code.to_string(),
-            (name.clone(), daily_yield, Instant::now()),
-        );
+    let detail = XiaobeiDetail {
+        name: data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        // 0.0268 → 2.68（百分数；wzk parseXiaobeiDailyYield 同构）
+        daily_yield: data.get("dailyYield").and_then(|v| v.as_f64()).map(to_pct),
+        sector_quotes: parse_sector_quotes(data),
+    };
+    if detail.daily_yield.is_some() || !detail.sector_quotes.is_empty() {
+        cache()
+            .lock()
+            .unwrap()
+            .insert(code.to_string(), (detail.clone(), Instant::now()));
     }
-    Some((name, daily_yield))
+    Some(detail)
 }
 
 /// 小倍失败/无估值时的空行情（percent 空 → fetch_quotes 层降级到 FundMNFInfo）
@@ -113,18 +175,19 @@ impl QuoteProvider for XiaobeiQuoteProvider {
 async fn fetch_one(fund: &FundQuoteInput) -> FundQuote {
     let code = pad6(&fund.code);
     let mut name = fund.name.clone().unwrap_or_default();
-    let daily_yield = match load_xiaobei_detail(&code).await {
-        Some((n, dy)) => {
-            if name.is_empty() {
-                name = n;
-            }
-            dy
-        }
+    let detail = match load_xiaobei_detail(&code).await {
+        Some(d) => d,
         None => return xiaobei_empty(&code, fund, "xiaobei: 请求失败"),
     };
-    let Some(daily_yield) = daily_yield else {
+    if name.is_empty() {
+        name = detail.name.clone();
+    }
+    // 无估值 → 整只降级 FundMNFInfo。板块不单独放行：降级链路上不产
+    // 「东财估值 + 小倍板块」的混合口径，宁可整只空缺（对齐「不混合」约定）。
+    let Some(daily_yield) = detail.daily_yield else {
         return xiaobei_empty(&code, fund, "xiaobei: 无盘中估值");
     };
+    let sector_quotes = detail.sector_quotes;
 
     // 净值 / 净值日期 / dayGrowth：东财历史净值对齐（对齐 fund123.rs get_fund_quote）
     let mut net_value: Option<f64> = None;
@@ -210,6 +273,7 @@ async fn fetch_one(fund: &FundQuoteInput) -> FundQuote {
         time: None,
         trend: vec![],
         sectors,
+        sector_quotes,
         use_calc: Some(false),
         is_qdii: Some(qdii),
         ..Default::default()

@@ -111,22 +111,25 @@ export function FundDetailDialog({
           </DetailStat>
         </div>
 
-        {/* 占比 / 板块（暂隐藏）
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className="rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
-            <div className="text-[11px] text-muted">占比</div>
-            <div className="mt-0.5 font-mono tabular-nums text-ink-soft">
-              {formatPct(proportion, 1).replace('+', '')}
+        {/* 关联板块（小倍 `relatedIndustryV2`）：板块指数实时涨跌幅。
+            仅该数据源产板块行情时渲染；占比（proportion）暂不展示，仍由调用方按 tab 口径传入。 */}
+        {row.sectorQuotes?.length ? (
+          <div className="mt-3 rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
+            <div
+              className="text-[11px] text-muted"
+              title={
+                '关联板块指数的实时涨跌幅（数据源：小倍养基）。\n' +
+                '⚠️ 板块涨跌不等于本基金收益，两者不可混用。\n' +
+                '境内板块随 A 股盘中变动；美股板块为北京时间 21:30 → 次日 04:00 场次，白天显示的是昨夜值。'
+              }
+            >
+              关联板块 <span className="text-muted/80">ⓘ</span>
+            </div>
+            <div className="mt-1">
+              <SectorTags quotes={row.sectorQuotes} />
             </div>
           </div>
-          <div className="rounded-lg border border-line/60 bg-paper-deep/50 px-3 py-2">
-            <div className="text-[11px] text-muted">板块</div>
-            <div className="mt-0.5">
-              <SectorTags sectors={row.sectors} />
-            </div>
-          </div>
-        </div>
-        */}
+        ) : null}
 
         {/* 走势（涨幅）：直接内嵌在底部，无需额外点击 */}
         <div className="mt-3 flex-1 border-t border-line/60 pt-3">

@@ -178,6 +178,7 @@ function staleQuoteFromRow(row: any): any {
     prevNetValue: row?.prevNetValue ?? null,
     time: row?.time ?? null,
     trend: Array.isArray(row?.trend) ? row.trend : [],
+    sectorQuotes: Array.isArray(row?.sectorQuotes) ? row.sectorQuotes : undefined,
     isQdii: row?.isQdii,
   }
 }
