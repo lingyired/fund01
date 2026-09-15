@@ -29,6 +29,25 @@ export type FundRecord = {
   updatedAt?: string
 }
 
+/**
+ * 关联板块行情（小倍 `relatedIndustryV2`）—— **实时行情，不持久化**。
+ * 与 Rust `model.rs` 的 `SectorQuote` 1:1 对应。
+ *
+ * ⚠️ 语义边界：这是**板块指数的涨跌幅**，不是本基金的收益，两者不可混用。
+ * 境内板块随 A 股盘中实时变动；美股板块为「北京 21:30 → 次日 04:00」场次，
+ * 白天取值即昨夜收盘值（2026-09-15 实测）。
+ */
+export type SectorQuote = {
+  /** 板块名（小倍 themeName，如「白酒」「纳指100」「海外科技」） */
+  name: string
+  /** 板块指数涨跌幅（百分数，-0.37 表示 −0.37%）；取不到为 null */
+  change: number | null
+  /** 板块指数代码（小倍 indexCode，如 399997.SZ / 100.NDX100 / .NDXT） */
+  indexCode: string
+  /** 市场类型（小倍 type）：A 境内 / USA 美股场次（跨北京自然日） */
+  market: string
+}
+
 export type FundQuoteRow = FundRecord & {
   amount: number
   percent: number | null
@@ -41,6 +60,11 @@ export type FundQuoteRow = FundRecord & {
   prevNetValue?: number | null
   time?: string | null
   trend: {time: string; growth: number | null; netValue?: number | null}[]
+  /**
+   * 关联板块行情（仅 xiaobei 源填充；空/未定义表示该数据源不产板块数据）。
+   * ⚠️ 是板块指数涨跌幅，不是本基金收益，禁止参与金额/收益计算。
+   */
+  sectorQuotes?: SectorQuote[]
   liveAmount?: number
   /** 当日收益额（元）；null/undefined = 当日收益无意义（QDII 未披露日等，UI 渲染「-」、分组聚合跳过） */
   pnl?: number | null

@@ -1,4 +1,4 @@
-import type {FundQuoteRow, FundRecord, HoldingsPayload} from './types'
+import type {FundQuoteRow, FundRecord, HoldingsPayload, SectorQuote} from './types'
 import {
   shouldShowConfirmedUpdatedBadge,
   normalizeNetValueDate,
@@ -30,6 +30,8 @@ export type QuoteLike = {
   time?: string | null
   trend?: {time: string; growth: number | null; netValue?: number | null}[]
   sectors?: string[]
+  /** 关联板块行情（仅 xiaobei 源填充）——板块指数涨跌幅，**不是本基金收益** */
+  sectorQuotes?: SectorQuote[]
   isQdii?: boolean
 }
 
@@ -239,6 +241,7 @@ export function calcHoldings(
       prevNetValue: prevNav,
       time: q.time,
       trend: q.trend || [],
+      sectorQuotes: q.sectorQuotes?.length ? q.sectorQuotes : undefined,
       amount: round2(displayAmount),
       liveAmount: round2(liveAmount),
       pnl,

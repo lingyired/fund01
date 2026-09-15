@@ -294,9 +294,11 @@ export interface EventPort {
 
 ### 小倍养基（api.xiaobeiyangji.com，非官方源）
 
-- 单只 POST `https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310`，body `{"code":"6位补零","version":"3.8.7.0","clientType":"APP"}`，需移动 UA
+- 单只 POST `https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310`，body `{"code":"6位补零","version":"<见下>","clientType":"APP"}`，需移动 UA
+- ⚠️ **`version` 必须 ≥ `3.9.5`**（实测用 `4.2.1`）。`< 3.9.5`（含曾用过的 `3.8.7.0`）时响应里**连 `dailyYield` 字段都不存在**（境内基金也一样）→ `Number(undefined)` = NaN → 被判为「无估值」→ **整条小倍源静默降级到 FundMNFInfo，不报错**。版本号提成常量（`XIAOBEI_VERSION`），别再散落字面量。
 - 响应 `data.dailyYield`：number 小数盘中实时估值（0.0268 → 2.68%），**QDII 也有值**；`data.nav` 当前净值；`data.isQDII` 字段不可信（008987 实测 false 但 Fund01 按 QDII 处理），一律用 `is_qdii_name` 判定
-- 能力边界：只有估值百分比 + nav，**无**估值净值/分时/历史净值 → 净值对与净值日期由东财 `FundMNHisNetList` 补齐
+- `data.relatedIndustryV2[].change`×`factor` = **关联板块日收益率**（= 小倍 App 持仓列表「关联板块」列，实测逐位一致）；`themeName` 是板块名、`indexCode` 是它内部指数码。⚠️ **必须用 V2**，V1 `relatedIndustry` 的 `change` 恒为 `0`（标签可 V1 兜底，涨跌不行）。实测美股场次北京 04:00 定稿 → **按日缓存**，勿与 60s 混用。详见 `docs/小倍养基实时估值逻辑.md` §2.4
+- 能力边界：只有估值百分比 + nav，**无**估值净值/历史净值 → 净值对与净值日期由东财 `FundMNHisNetList` 补齐（有 `get-net-worth-es` 估值分时，末点 change == dailyYield）
 - ⚠️ 只取 dailyYield，**不用 changeRate 兜底**：changeRate 属热搜口径（开盘常为空），与 dailyYield 不同源，混用显示错误涨幅
 - 缓存 60s TTL（Rust `XIAOBEI_CACHE` / TS `xiaobeiDetailCache`），并发 chunk=10；仅缓存有估值的响应
 - 参考：wzk-fund 文档 `docs/小倍养基实时估值逻辑.md`

@@ -9,6 +9,7 @@ import {
   pickFundByName,
   type QuoteSource,
   type ResolveFundResult,
+  type SectorQuote,
 } from '@fund01/core'
 
 // CSRF token 缓存：SW 重启时丢失，会多请求一次 fund123.cn（可接受）
@@ -845,6 +846,8 @@ export type FundQuote = {
   time: string | null
   trend: {time: string; growth: number | null; netValue?: number | null}[]
   sectors: string[]
+  /** 关联板块行情（仅 xiaobei 源填充）——板块指数涨跌幅，**不是本基金收益** */
+  sectorQuotes?: SectorQuote[]
   error?: string
   /** true 表示 estimateNetValue/estimateGrowth/percent 来自重仓股加权自算
    *  （非 FundMNFInfo 直接返回）。空窗期（15:00-20:00 GSZ 缺失）时为 true。 */
@@ -1551,16 +1554,57 @@ export async function fetchFundIntradayForDialog(
 // 小倍只提供估值百分比 + nav，无估值净值/分时/历史净值 → 净值对与净值日期由东财
 // FundMNHisNetList 补齐；取不到估值时回落 FundMNFInfo（单向 DAG：xiaobei→fundmnfinfo→fund123）。
 
-const XIAOBEI_DETAIL_TTL_MS = 60 * 1000 // 盘中估值 60s 刷新（对齐 wzk）
-const xiaobeiDetailCache = new TtlCache<{dailyYield: number | null; name: string}>(
-  200,
-  XIAOBEI_DETAIL_TTL_MS,
-)
-const xiaobeiInflight = new Map<string, Promise<{dailyYield: number | null; name: string}>>()
+/**
+ * ⚠️ App 版本号 —— **不是随便填的**：小倍后端按版本号裁剪响应字段，
+ * `< 3.9.5` 时响应里**连 `dailyYield` 字段都不存在**（`relatedIndustryV2` 同样缺失），
+ * 会让本 provider 静默空转（percent 全空 → per-fund 降级 FundMNFInfo，无报错无日志）。
+ * 2026-09-15 实测门槛：3.8.7.0/3.8.9.0/3.9.0 无字段，3.9.5/4.0.0/4.2.1 正常。
+ * 调整此值前必须实测 `dailyYield` 与 `relatedIndustryV2` 两个字段都在。
+ */
+const XIAOBEI_VERSION = '4.2.1'
 
-async function fetchXiaobeiDetail(
-  code: string,
-): Promise<{dailyYield: number | null; name: string}> {
+/** 小倍基金详情（一次请求的完整产出） */
+type XiaobeiDetail = {
+  /** 盘中估值涨幅（百分数，-2.08 表示 −2.08%） */
+  dailyYield: number | null
+  name: string
+  /** 关联板块行情（`relatedIndustryV2`） */
+  sectorQuotes: SectorQuote[]
+}
+
+/** 小数 → 百分数（保留 4 位）：0.0268 → 2.68；-0.003721 → -0.3721。显示层再收敛到 2 位 */
+function toPct(raw: number): number {
+  return Math.round(raw * 1_000_000) / 10_000
+}
+
+/**
+ * 解析 `relatedIndustryV2` → 板块行情。
+ * ⚠️ 必须用 V2：V1（`relatedIndustry`）结构看似相同但 `change` 恒为 0、且无 `timeLine`/`factor`。
+ * `factor` 实测恒为 1，暂不参与计算（语义未确认，不猜）。
+ */
+function parseSectorQuotes(data: any): SectorQuote[] {
+  const arr = data?.relatedIndustryV2
+  if (!Array.isArray(arr)) return []
+  const out: SectorQuote[] = []
+  for (const it of arr) {
+    const name = String(it?.themeName ?? '').trim()
+    if (!name) continue
+    const raw = Number(it?.change)
+    out.push({
+      name,
+      change: Number.isFinite(raw) ? toPct(raw) : null,
+      indexCode: String(it?.indexCode ?? ''),
+      market: String(it?.type ?? ''),
+    })
+  }
+  return out
+}
+
+const XIAOBEI_DETAIL_TTL_MS = 60 * 1000 // 盘中估值 + 板块 60s 刷新（对齐 wzk）
+const xiaobeiDetailCache = new TtlCache<XiaobeiDetail>(200, XIAOBEI_DETAIL_TTL_MS)
+const xiaobeiInflight = new Map<string, Promise<XiaobeiDetail>>()
+
+async function fetchXiaobeiDetail(code: string): Promise<XiaobeiDetail> {
   const cached = xiaobeiDetailCache.get(code)
   if (cached) return cached
   const inflight = xiaobeiInflight.get(code)
@@ -1568,16 +1612,21 @@ async function fetchXiaobeiDetail(
   const p = (async () => {
     const res = await httpPost(
       'https://api.xiaobeiyangji.com/yangji-api/api/get-fund-detail-v310',
-      {code, version: '3.8.7.0', clientType: 'APP'},
+      {code, version: XIAOBEI_VERSION, clientType: 'APP'},
       {headers: {'User-Agent': MOBILE_UA}, timeout: 12000},
     )
     const data = res?.data
     if (!data) throw new Error('小倍响应无 data')
     const raw = Number(data.dailyYield)
-    const dailyYield = Number.isFinite(raw) ? Math.round(raw * 10000) / 100 : null
-    const out = {dailyYield, name: String(data.name || '')}
-    // 仅缓存有估值的响应（无估值不缓存，便于下次重试）
-    if (dailyYield != null) xiaobeiDetailCache.set(code, out)
+    const out: XiaobeiDetail = {
+      dailyYield: Number.isFinite(raw) ? toPct(raw) : null,
+      name: String(data.name || ''),
+      sectorQuotes: parseSectorQuotes(data),
+    }
+    // 仅缓存「有估值或有板块」的响应（全空不缓存，便于下次重试）
+    if (out.dailyYield != null || out.sectorQuotes.length) {
+      xiaobeiDetailCache.set(code, out)
+    }
     return out
   })()
   xiaobeiInflight.set(code, p)
@@ -1620,13 +1669,17 @@ class XiaobeiQuoteProvider implements FundQuoteProvider {
     const code = String(fund.code).padStart(6, '0')
     let name = fund.name || ''
     let dailyYield: number | null = null
+    let sectorQuotes: SectorQuote[] = []
     try {
       const detail = await fetchXiaobeiDetail(code)
       name = name || detail.name
       dailyYield = detail.dailyYield
+      sectorQuotes = detail.sectorQuotes
     } catch (e) {
       return emptyQuote(fund, `xiaobei: ${(e as Error)?.message || e}`)
     }
+    // 无估值 → 整只降级 FundMNFInfo。板块不单独放行：降级链路上不产
+    // 「东财估值 + 小倍板块」的混合口径，宁可整只空缺（对齐「不混合」约定）。
     if (dailyYield == null) {
       return emptyQuote(fund, 'xiaobei: 无盘中估值')
     }
@@ -1699,6 +1752,7 @@ class XiaobeiQuoteProvider implements FundQuoteProvider {
       time: null,
       trend: [],
       sectors,
+      sectorQuotes,
       isQdii: qdii,
     }
   }

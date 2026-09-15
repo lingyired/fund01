@@ -237,6 +237,25 @@ pub struct AppConfig {
 // 行情
 // ---------------------------------------------------------------------------
 
+/// 关联板块行情（小倍 `relatedIndustryV2`）—— **实时行情，不持久化**。
+/// 与 `packages/core/src/types.ts` 的 `SectorQuote` 1:1 对应。
+///
+/// ⚠️ 语义边界：这是**板块指数的涨跌幅**，不是本基金的收益，两者不可混用。
+/// 境内板块随 A 股盘中实时变动；美股板块为「北京时间 21:30 → 次日 04:00」场次，
+/// 白天取值即昨夜收盘值（2026-09-15 实测）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SectorQuote {
+    /// 板块名（小倍 `themeName`，如「白酒」「纳指100」「海外科技」）
+    pub name: String,
+    /// 板块指数涨跌幅（百分数，-0.37 表示 −0.37%）；取不到为 None
+    pub change: Option<f64>,
+    /// 板块指数代码（小倍 `indexCode`，如 399997.SZ / 100.NDX100 / .NDXT）
+    pub index_code: String,
+    /// 市场类型（小倍 `type`）：`A` 境内 / `USA` 美股场次（跨北京自然日）
+    pub market: String,
+}
+
 /// 与 services/fund.ts 的 FundQuote 对应（provider 产出，计算层消费）
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -255,6 +274,9 @@ pub struct FundQuote {
     pub time: Option<String>,
     pub trend: Vec<TrendPoint>,
     pub sectors: Vec<String>,
+    /// 关联板块行情（仅 xiaobei 源填充，其余源为空 —— 不产伪数据）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sector_quotes: Vec<SectorQuote>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -298,6 +320,9 @@ pub struct FundQuoteRow {
     pub time: Option<String>,
     #[serde(default)]
     pub trend: Vec<TrendPoint>,
+    /// 关联板块行情（透传自 FundQuote；空表示该数据源无板块数据）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sector_quotes: Vec<SectorQuote>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_amount: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]

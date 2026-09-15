@@ -1,4 +1,5 @@
 import {formatPct, pctClass} from '@fund01/core'
+import type {SectorQuote} from '@fund01/core'
 
 /**
  * 天天基金口径说明（spec 持仓录入与展示统一 D4 定稿文案）。
@@ -68,7 +69,46 @@ export function ConfirmedUpdatedBadge({
   )
 }
 
-export function SectorTags({sectors}: {sectors?: string[]}) {
+/**
+ * 关联板块标签。
+ *
+ * 优先渲染 `quotes`（小倍 `relatedIndustryV2`：板块名 + **板块指数**实时涨跌幅）；
+ * 仅在没有板块行情时回落纯文本 `sectors`（自研推断标签，无涨跌）。
+ *
+ * ⚠️ 展示口径：涨跌幅是**板块指数**的，不是本基金的收益，禁止与「当日收益」并列比较。
+ * 境内板块随 A 股盘中变动；美股板块为「北京 21:30 → 次日 04:00」场次，白天看到的是昨夜值。
+ */
+export function SectorTags({
+  sectors,
+  quotes,
+}: {
+  sectors?: string[]
+  quotes?: SectorQuote[]
+}) {
+  if (quotes?.length) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {quotes.map((q) => (
+          <span
+            key={q.name}
+            title={
+              `${q.name}${q.indexCode ? `（${q.indexCode}）` : ''}` +
+              '　板块指数涨跌幅，非本基金收益' +
+              (q.market === 'USA' ? '；美股场次：北京 21:30 → 次日 04:00' : '')
+            }
+            className="inline-flex items-center gap-1 rounded border border-line bg-paper px-1.5 py-0.5 text-[11px] leading-none"
+          >
+            <span className="text-ink-soft">{q.name}</span>
+            {q.change != null ? (
+              <span className={`font-mono tabular-nums ${pctClass(q.change)}`}>
+                {formatPct(q.change)}
+              </span>
+            ) : null}
+          </span>
+        ))}
+      </div>
+    )
+  }
   if (!sectors?.length) return <span className="text-xs text-muted">--</span>
   return (
     <div className="flex flex-wrap gap-1">
