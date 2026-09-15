@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use crate::history::HistRow;
 use crate::http::{self, MOBILE_UA};
 use crate::model::{FundQuote, TrendPoint};
 use crate::providers::{
@@ -158,13 +159,15 @@ fn parse_fund_mnfinfo_item(item: &Value) -> ParsedMnf {
     let nav_qdii = crate::calendar::is_delayed_nav_fund(
         item.get("SHORTNAME").and_then(|v| v.as_str()).unwrap_or(""),
     );
-    let has_replace = if !gztime_day.is_empty() {
+    let confirmed_session = if !gztime_day.is_empty() {
         pdate != "--" && !pdate.is_empty() && pdate == gztime_day
     } else {
         let nav_day = crate::calendar::normalize_net_value_date(&pdate, &now);
         !nav_day.is_empty()
             && crate::calendar::is_confirmed_session_active(&nav_day, &now, nav_qdii)
     };
+    let has_replace =
+        confirmed_session && !(nav_qdii && crate::calendar::is_a_share_trading_time(&now));
     crate::dbg_log!(
         "parse item code={} name={} pdate={} gztime_day={} qdii={} has_replace={}",
         item.get("FCODE").and_then(|v| v.as_str()).unwrap_or(""),
@@ -245,17 +248,54 @@ struct ParsedMnf {
 
 static HOLDINGS_CACHE: OnceLock<Mutex<HashMap<String, (Vec<Value>, Instant)>>> = OnceLock::new();
 static CALC_GSZZL_CACHE: OnceLock<Mutex<HashMap<String, (f64, Instant)>>> = OnceLock::new();
+/// fill_hist_aligned 专用的「近 5 条历史净值」缓存（key=补齐 6 位的 code）
+static NAV_HISTORY_CACHE: OnceLock<Mutex<HashMap<String, (Vec<HistRow>, Instant)>>> =
+    OnceLock::new();
 
 const HOLDINGS_TTL: Duration = Duration::from_secs(60 * 60);
 const CALC_GSZZL_TTL: Duration = Duration::from_secs(5 * 60);
+/// 与 TS 端 NAV_HISTORY_TAIL_CACHE 同周期
+const NAV_HISTORY_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// fill_hist_aligned 专用的「近 5 条历史净值」拉取 + 5min 去重缓存。
+/// 确认净值披露后是稳定值，同一轮刷新里多只基金各自拉一次纯属浪费。
+/// 不给 fetch_fund_nav_history 整体加缓存：它同时服务于历史净值走势图（需要实时）。
+/// 与 TS 端 `fetchNavHistoryTail` 1:1 对齐。
+async fn fetch_nav_history_tail(code: &str) -> Option<Vec<HistRow>> {
+    {
+        let cache = NAV_HISTORY_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap();
+        if let Some((rows, exp)) = cache.get(code) {
+            if Instant::now() < *exp {
+                return Some(rows.clone());
+            }
+        }
+    }
+    let rows = crate::history::fetch_fund_nav_history(code, 5, 1).await.ok()?;
+    if !rows.is_empty() {
+        NAV_HISTORY_CACHE
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap()
+            .insert(code.to_string(), (rows.clone(), Instant::now() + NAV_HISTORY_TTL));
+    }
+    Some(rows)
+}
 
 /// 手动刷新（force）时清空自算估值缓存，强制下一次自算实时拉取行情，
 /// 保证「点击刷新 = 点击时刻的最新估算值」。
-/// 与 Chrome 端 clearFundEstimateCaches()（清 CALC_GSZZL_CACHE + STOCK_PCT_CACHE）对齐：
+/// 与 Chrome 端 clearFundEstimateCaches() 对齐：
 /// - Rust 端 fetch_stock_pct_changes 无缓存，故只需清 CALC_GSZZL_CACHE；
-/// - HOLDINGS_CACHE（重仓股，1h TTL）保留：重仓股为慢变量，清空只会徒增请求。
+/// - HOLDINGS_CACHE（重仓股，1h TTL）保留：重仓股为慢变量，清空只会徒增请求；
+/// - NAV_HISTORY_CACHE 一并清空：手动刷新要反映「点击时刻」的最新已披露净值，
+///   否则刚披露的净值会因缓存命中失败 → fill_hist_aligned 跳过 → 仍显示估算值。
 pub fn clear_calc_caches() {
     if let Some(cache) = CALC_GSZZL_CACHE.get() {
+        cache.lock().unwrap().clear();
+    }
+    if let Some(cache) = NAV_HISTORY_CACHE.get() {
         cache.lock().unwrap().clear();
     }
 }
@@ -503,8 +543,9 @@ impl QuoteProvider for FundMNFInfoQuoteProvider {
 /// 实测 040046 反推 8.303409 vs 真实 8.3030，持 10000 份收益额偏差 +4.09 元）。
 /// `with_prev=true` 仅用于「确认会话（盘后）」场景；盘中/空窗不填 prev，
 /// 避免 resolve_nav_pair 的兜底分支用滞后净值算出盘中收益。
-/// 性能：本函数仅在自算估值失败（QDII / 黄金等无重仓股）或 QDII 盘后确认时调用，
-/// 是少数基金按需单只拉取，不复用 FundMNFInfo 批量优势。
+/// 性能：调用面 = 自算估值失败（QDII / 黄金等无重仓股）+ **所有 confirmed 基金**
+/// （prev 需真实前一日净值）。单只按需拉取，不复用 FundMNFInfo 批量优势；
+/// 因此走 fetch_nav_history_tail 做 5min 去重（force 刷新时随之清空）。
 async fn fill_hist_aligned(
     code: &str,
     net_value: &mut Option<f64>,
@@ -513,7 +554,7 @@ async fn fill_hist_aligned(
     net_value_date: &mut String,
     with_prev: bool,
 ) {
-    let Ok(hist) = crate::history::fetch_fund_nav_history(code, 5, 1).await else {
+    let Some(hist) = fetch_nav_history_tail(code).await else {
         return;
     };
     if hist.is_empty() {
@@ -522,9 +563,24 @@ async fn fill_hist_aligned(
     let now = chrono::Local::now();
     let nav_day = crate::calendar::normalize_net_value_date(net_value_date, &now);
     let idx = if nav_day.is_empty() {
+        // 无净值日期可比对（PDATE 缺失/非法）：退化为最新一条
         0
     } else {
-        hist.iter().position(|h| h.date == nav_day).unwrap_or(0)
+        match hist.iter().position(|h| h.date == nav_day) {
+            Some(i) => i,
+            None => {
+                // PDATE 在历史净值里找不到（FundMNHisNetList 滞后于 FundMNFInfo）：**不能**
+                // 退化成 hist[0] —— 那是另一天的净值/涨幅，会把昨日涨幅当今日 confirmed
+                // 展示，并覆盖 net_value_date。保留 parse 反推值（日期正确），等下一轮对齐。
+                crate::dbg_log!(
+                    "fill_hist_aligned 跳过 code={} PDATE={} 未在历史净值中找到（最新={}）",
+                    code,
+                    nav_day,
+                    hist.first().map(|h| h.date.as_str()).unwrap_or("-")
+                );
+                return;
+            }
+        }
     };
     if let Some(r) = hist.get(idx) {
         if r.net_value.is_some() {
@@ -588,9 +644,7 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
     // FundMNFInfo 已批量提供行情，分时走势留空由前端懒加载
     let trend: Vec<TrendPoint> = vec![];
 
-    let now = chrono::Local::now();
     let qdii = is_qdii_name(&name);
-    let a_share_trading = crate::calendar::is_a_share_trading_time(&now);
 
     // 自算估值 fallback（空窗期/估值过期）——先于 percent 判定，
     // 因为它可能产出 estimate（自算/fund123 兜底）或 confirmed（QDII/黄金盘后历史净值）口径
@@ -642,9 +696,9 @@ async fn fetch_one(fund: &FundQuoteInput, info_map: &HashMap<String, Value>) -> 
                 }
             }
         }
-    } else if confirmed && qdii && !a_share_trading {
-        // QDII 真正「当日」更新后（PDATE=今天，盘后）：parse 反推的 prev 有 4 元级
-        // 系统误差，用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+    } else if confirmed {
+        // 所有确认基金都用历史净值取真实前一日净值对齐；NAVCHGRT 只有两位小数，
+        // 用它反推昨日净值会在大额持仓上产生可见的收益额误差。
         fill_hist_aligned(
             &code,
             &mut net_value,

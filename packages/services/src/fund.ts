@@ -548,8 +548,9 @@ export async function fetchFundNavHistory(code: string, pageSize = 5, pageIndex 
  * 实测 040046 反推 8.303409 vs 真实 8.3030，持 10000 份收益额偏差 +4.09 元）。
  * `withPrev=true` 仅用于「确认会话（盘后）」场景；盘中/空窗不填 prev，
  * 避免 resolveNavPair 的兜底分支用滞后净值算出盘中收益。
- * 性能：仅在自算估值失败（QDII / 黄金等无重仓股）或 QDII 盘后确认时调用，
- * 少数基金按需单只拉取，不复用 FundMNFInfo 批量优势。
+ * 性能：调用面 = 自算估值失败（QDII / 黄金等无重仓股）+ **所有 confirmed 基金**
+ * （prev 需真实前一日净值）。单只按需拉取，不复用 FundMNFInfo 批量优势；
+ * 因此走 NAV_HISTORY_TAIL_CACHE 做 5min 去重（force 刷新时随之清空）。
  * ⚠️ 入参为可变 state（fetchOne 局部变量包装），调用后由调用方同步回局部变量。
  */
 async function fillHistAligned(
@@ -558,11 +559,22 @@ async function fillHistAligned(
   withPrev: boolean,
 ): Promise<void> {
   try {
-    const hist = await fetchFundNavHistory(code, 5)
+    const hist = await fetchNavHistoryTail(code)
     if (!hist.length) return
     const navDay = normalizeNetValueDate(s.netValueDate)
-    let idx = navDay ? hist.findIndex((h) => h.date === navDay) : 0
-    if (idx < 0) idx = 0
+    let idx = 0
+    if (navDay) {
+      idx = hist.findIndex((h) => h.date === navDay)
+      if (idx < 0) {
+        // PDATE 在历史净值里找不到（FundMNHisNetList 滞后于 FundMNFInfo）：**不能**退化成
+        // hist[0] —— 那是另一天的净值/涨幅，会把昨日涨幅当今日 confirmed 展示，并覆盖
+        // netValueDate。保留 parse 反推值（日期正确），等下一轮接口对齐。
+        console.warn(
+          `[fund01] fillHistAligned 跳过 code=${code} PDATE=${navDay} 未在历史净值中找到（最新=${hist[0]?.date ?? '-'}）`,
+        )
+        return
+      }
+    }
     const match = hist[idx]
     if (!match) return
     if (match.netValue != null) s.netValue = match.netValue
@@ -1102,16 +1114,38 @@ function calcFundEstimateChange(
  *  返回 null 时不缓存，便于下次重试。 */
 const CALC_GSZZL_CACHE = new TtlCache<number>(200, 5 * 60 * 1000)
 
+type NavHistoryRow = {date: string; netValue: number | null; dayGrowth: number | null}
+
 /**
- * 手动刷新（force）时清空自算估值缓存 + 股票涨跌幅缓存，强制下一次自算
- * 实时拉取行情，保证「点击刷新 = 点击时刻的最新估算值」。
- * 与 Tauri 端 refresh_day(force=true) 清 CALC_GSZZL_CACHE 的行为对齐（跨端铁律）。
+ * fillHistAligned 专用的「近 5 条历史净值」缓存（TTL 5min，与 CALC_GSZZL_CACHE 同周期）。
+ * 确认净值披露后是稳定值，同一轮刷新里多只基金各自拉一次纯属浪费。
+ * 不给 fetchFundNavHistory 整体加缓存：它同时服务于历史净值走势图（需要实时）。
+ * 与 Tauri 端 `fetch_nav_history_tail` / NAV_HISTORY_TTL 1:1 对齐。
+ */
+const NAV_HISTORY_TAIL_CACHE = new TtlCache<NavHistoryRow[]>(200, 5 * 60 * 1000)
+
+async function fetchNavHistoryTail(code: string): Promise<NavHistoryRow[]> {
+  const padded = String(code).padStart(6, '0')
+  const cached = NAV_HISTORY_TAIL_CACHE.get(padded)
+  if (cached) return cached
+  const rows = await fetchFundNavHistory(padded, 5, 1)
+  if (rows.length) NAV_HISTORY_TAIL_CACHE.set(padded, rows)
+  return rows
+}
+
+/**
+ * 手动刷新（force）时清空自算估值缓存 + 股票涨跌幅缓存 + 历史净值尾部缓存，
+ * 强制下一次自算实时拉取行情，保证「点击刷新 = 点击时刻的最新估算值」。
+ * 与 Tauri 端 refresh_day(force=true) 清 CALC_GSZZL_CACHE / NAV_HISTORY_CACHE 对齐（跨端铁律）。
  * HOLDINGS_CACHE（重仓股，1h TTL）保留：重仓股为慢变量，清空只会徒增请求。
  */
 export function clearFundEstimateCaches(): void {
   CALC_GSZZL_CACHE.clear()
   STOCK_PCT_CACHE.clear()
   xiaobeiDetailCache.clear()
+  // 历史净值尾部同样清空：手动刷新要反映「点击时刻」的最新已披露净值，
+  // 否则刚披露的净值会因 5min 缓存命中失败 → fillHistAligned 跳过 → 仍显示估算值
+  NAV_HISTORY_TAIL_CACHE.clear()
 }
 
 export async function getCalcGszzl(code: string): Promise<number | null> {
@@ -1230,15 +1264,20 @@ function parseFundMNFInfoItem(item: any): {
   //     开盘前（净值披露后周末照常显示，开盘后恢复盘中口径）
   const gztimeDay = gztime.length >= 10 ? gztime.slice(0, 10) : ''
   const qdiiName = String(item?.SHORTNAME || '')
-  const hasReplace =
+  const qdiiNameDetected = isQdiiName(qdiiName)
+  const confirmedSession =
     gztimeDay !== ''
       ? pdate !== '--' && pdate !== '' && pdate === gztimeDay
       : (() => {
           const navDay = normalizeNetValueDate(pdate)
           return (
-            navDay !== '' && isConfirmedSessionActive(navDay, undefined, isQdiiName(qdiiName))
+            navDay !== '' &&
+            isConfirmedSessionActive(navDay, undefined, qdiiNameDetected)
           )
         })()
+  // QDII 净值在披露日对应的是上一海外交易日；A 股盘中不能把它当作
+  // 当前 A 股交易日收益展示。与 resolveDisplayPercent 保持同一口径。
+  const hasReplace = confirmedSession && !(qdiiNameDetected && isAShareTradingTime())
 
   // 估值过期：GZTIME 日期 < PDATE 日期（线上版 numDate(gztime) < numDate(jzrq)）
   const estimateStale =
@@ -1354,9 +1393,7 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
     // 分时走势曲线（trend）留空，由 FundTrendDialog 懒加载。
     const trend: FundQuote['trend'] = []
 
-    const now = new Date()
     const qdii = isQdiiName(name)
-    const aShareTrading = isAShareTradingTime(now)
 
     let percent: number | null = null
     let percentSource: 'confirmed' | 'estimate' | null = null
@@ -1408,9 +1445,9 @@ class FundMNFInfoQuoteProvider implements FundQuoteProvider {
           }
         }
       }
-    } else if (confirmed && qdii && !aShareTrading) {
-      // QDII 已确认（delayed 放行，盘后）：parse 反推的 prev 有 4 元级系统误差，
-      // 用历史净值取真实前一日净值对齐（P0-2，禁止用涨幅反推）。
+    } else if (confirmed) {
+      // 所有确认基金都用历史净值取真实前一日净值对齐；NAVCHGRT 只有两位小数，
+      // 用它反推昨日净值会在大额持仓上产生可见的收益额误差。
       await fillHistAligned(code, histState, true)
     }
     // 历史净值对齐结果同步回局部变量
