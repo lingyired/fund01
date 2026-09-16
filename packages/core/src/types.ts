@@ -195,8 +195,15 @@ export type MenubarGlobalSide = 'follow' | 'left' | 'right'
 export type HoldingsNavPosition = 'top' | 'side'
 
 /**
- * 菜单栏/任务栏「历史」实例的下行数值档（仅 tauri 生效）：
- * cumPercent=历史收益涨跌幅（累计收益率）、cumAmount=历史收益额、holdingAmount=当前持仓额。
+ * 菜单栏/任务栏「历史」实例**某一行**可显示的内容档（仅 tauri 生效）：
+ * label=名称文字、cumPercent=历史收益涨跌幅（累计收益率）、cumAmount=历史收益额、
+ * holdingAmount=当前持仓额。上下两行共用这一组档位（默认 上行=label、下行=cumAmount）。
+ */
+export type MenubarHistorySlotMode = 'label' | 'cumPercent' | 'cumAmount' | 'holdingAmount'
+
+/**
+ * 「历史」实例**第二行（数值行）**的档位。与 `MenubarHistorySlotMode` 同义但**不含 label**
+ * ——第二行恒为数值，不显示名称文字（名称只在第一行的 label 档出现）。
  */
 export type MenubarHistoryMode = 'cumPercent' | 'cumAmount' | 'holdingAmount'
 
@@ -263,15 +270,29 @@ export type AppSettings = {
   menubarHistoryEnabled?: boolean
   /**
    * 「历史」实例的上行名称（默认「历史」）。仅 tauri 生效。
-   * trim 后为空回落默认值；超过 8 个字符截断（菜单栏横向空间有限）。
+   * **只在该实例第一行档位为 `label` 时显示**（第一行改成数值档后名称不参与渲染，
+   * 但仍保留在配置里，切回 label 档即恢复）。trim 后为空回落默认值；超过 8 个字符截断。
    */
   menubarHistoryLabel?: string
   /**
-   * 「历史」实例的下行数值档（默认 cumPercent）。仅 tauri 生效。
+   * 「历史」实例**第一行**的内容档（默认 `label`=名称文字）。仅 tauri 生效。
+   * 可改为三档数值之一 —— 此时第一行不再显示名称，且未自定义「第一行颜色」时
+   * 按涨跌语义取色（正红负绿），与第二行一致。
+   */
+  menubarHistoryTopMode?: MenubarHistorySlotMode
+  /**
+   * 「历史」实例**第二行**的内容档（默认 cumAmount=历史收益额）。仅 tauri 生效。
    * 历史收益涨跌幅 / 历史收益额 二档在未录入成本（算不出累计收益）时回退显示当前持仓额；
    * 隐私模式下收益额档降级为涨跌幅档、持仓额档显示 ****。
    */
   menubarHistoryMode?: MenubarHistoryMode
+  /**
+   * 「历史」实例**第二行**的自定义颜色（`#rrggbb`，默认 `''`=未自定义）。仅 tauri 生效。
+   * 未自定义时按语义取色：收益两档=涨跌色（正红负绿）、持仓额档=跟随第一行已解析颜色。
+   * 注：**第一行**自定义色不走本字段，而是复用分组色表 `menubarGroupColors['__history__']`
+   * （见 MENUBAR_HISTORY_KEY）——历史项与各分组共用同一套上行配色机制。
+   */
+  menubarHistoryBottomColor?: string
   /** 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串/缺省=系统字体。仅 tauri 生效 */
   menubarTopFont?: string
   /** 菜单栏下行字体族名（macOS font family，如 Menlo）。空串/缺省=系统字体。仅 tauri 生效 */

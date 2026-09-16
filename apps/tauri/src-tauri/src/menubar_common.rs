@@ -99,9 +99,13 @@ pub(crate) fn format_holding_amount(v: f64) -> String {
 /// 行情行索引：code → quote 行（分组归属与份额以最新 config 为准，此处只取行情数值）
 type QuoteRows<'a> = HashMap<&'a str, &'a FundQuoteRow>;
 
-/// 「历史」实例下行数值档（对应设置 `menubarHistoryMode`）。
+/// 「历史」实例**某一行**的内容档（对应设置 `menubarHistoryTopMode` / `menubarHistoryMode`）。
+/// 上下两行共用这一组档位（默认 上行=Label、下行=CumAmount），故档位与行无关，
+/// 只是「第二行不允许 Label」（`parse_bottom` 会把 label 判非法回落）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HistoryMode {
+    /// 名称文字（第一行专属档；`Label` 档取 `InstanceSpec.top`）
+    Label,
     /// 历史收益涨跌幅（累计收益率）
     CumPercent,
     /// 历史收益额
@@ -111,33 +115,54 @@ pub enum HistoryMode {
 }
 
 impl HistoryMode {
-    /// 解析设置字符串：非法/缺省回落 CumPercent（与 TS `normalizeMenubarHistoryMode` 口径一致）
-    pub fn parse(raw: Option<&str>) -> Self {
+    /// 解析**第一行**档位：接受四档（含 Label=名称文字），非法/缺省回落 Label
+    /// （与 TS `normalizeMenubarHistoryTopMode` 口径一致）
+    pub fn parse_top(raw: Option<&str>) -> Self {
         match raw.map(str::trim) {
+            Some("cumPercent") => Self::CumPercent,
             Some("cumAmount") => Self::CumAmount,
             Some("holdingAmount") => Self::HoldingAmount,
-            _ => Self::CumPercent,
+            _ => Self::Label,
+        }
+    }
+
+    /// 解析**第二行**档位：只接受三档数值，非法/缺省回落 CumAmount
+    /// （与 TS `normalizeMenubarHistoryMode` 口径一致）。
+    /// ⚠️ `label` 是第一行专属档，此处判非法并回落 —— 第二行恒为数值。
+    pub fn parse_bottom(raw: Option<&str>) -> Self {
+        match raw.map(str::trim) {
+            Some("cumPercent") => Self::CumPercent,
+            Some("holdingAmount") => Self::HoldingAmount,
+            _ => Self::CumAmount,
         }
     }
 }
 
-/// 实例下行的数值语义（决定取值来源与配色依据）
+/// 实例的数值语义来源（决定「哪一行的内容由什么决定」）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BottomKind {
-    /// 当日收益（总览 / 各分组 / 未分组）：受 `menubarShowAmount` 切换百分比↔金额，恒用涨跌色
+    /// 当日收益（总览 / 各分组 / 未分组）：上行恒为名称文字，下行受 `menubarShowAmount`
+    /// 切换百分比↔金额，恒有涨跌语义
     DayPnl,
-    /// 历史累计（可选实例）：受 `menubarHistoryMode` 切换三档；
-    /// 收益两档用涨跌色，「当前持仓额」及其回退用跟随上行色
+    /// 历史累计（可选实例）：**上下两行各自**受 `menubarHistoryTopMode` / `menubarHistoryMode`
+    /// 切换档位（四档/三档），行内容见 `history_row_display`
     History,
 }
 
-/// 下行渲染结果：文本 + 配色依据。
-#[derive(Debug, Clone, PartialEq)]
-pub struct BottomDisplay {
+/// 一行的渲染结果：文本 + 配色依据。
+pub struct RowDisplay {
     pub text: String,
-    /// `Some(v)` → 按 v 取涨跌色（正=涨色 / 负=跌色 / 零=平色）；
-    /// `None` → 无涨跌语义，**跟随上行色**（`top_color_style` 解析链）
+    /// `Some(v)` → 该行有涨跌语义，**未自定义颜色**时按 v 取涨跌色（正=涨 / 负=跌 / 零=平）；
+    /// `None` → 无涨跌语义（名称文字 / 持仓额 / 占位符 / 打码），未自定义颜色时走该行的颜色链
+    /// （上行=分组自定义色→全局上行色→系统色；下行=跟随上行已解析色）
     pub signed: Option<f64>,
+}
+
+impl RowDisplay {
+    /// 纯文字行（无涨跌语义）：DayPnl 实例的上行（总览 / 分组名 / 未分组）用
+    pub(crate) fn text(text: String) -> Self {
+        Self { text, signed: None }
+    }
 }
 
 fn quote_rows(quote: Option<&QuoteUpdate>) -> QuoteRows<'_> {
@@ -356,9 +381,10 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
         .map(|h| h.summary.clone());
 
     // 「历史」实例（可选，排在最前）：整体组合的累计表现。
-    // 三档取数见 bottom_display：历史收益额/涨跌幅取自 summary.total_cum_pnl(_percent)，
-    // 当前持仓额取自 summary.total_amount（与 popup 汇总同口径，已按 overviewExcludedGroups 聚合）。
-    // 快照未就绪（quote=None）时 cum_* / holding_amount 均为 None → 下行显示占位符。
+    // 上下两行的取数与档位见 history_row_display：历史收益额/涨跌幅取自
+    // summary.total_cum_pnl(_percent)，当前持仓额取自 summary.total_amount
+    // （与 popup 汇总同口径，已按 overviewExcludedGroups 聚合）。
+    // 快照未就绪（quote=None）时 cum_* / holding_amount 均为 None → 该行显示占位符。
     if config.settings.menubar_history_enabled.unwrap_or(false) {
         out.push(InstanceSpec {
             id: INSTANCE_HISTORY.to_string(),
@@ -445,80 +471,112 @@ pub(crate) fn instance_label(id: &str) -> String {
     }
 }
 
-/// 计算实例下行的**展示文本与配色依据**（macOS 菜单栏与 Windows 任务栏唯一共用口径）。
+/// 渲染「历史」实例的**某一行**（macOS 菜单栏与 Windows 任务栏唯一共用口径）。
+/// 上下两行共用本函数，只是传入各自的档位（上行 `parse_top` / 下行 `parse_bottom`）。
 ///
-/// `show_amount` = 当日收益档（false=百分比 true=金额，隐私模式下由调用方强制 false）；
-/// `privacy` = 隐私模式（金额类一律降级/打码）；`history_mode` = 「历史」实例的数值档。
+/// `privacy` = 隐私模式（金额类一律降级/打码）。
 ///
-/// 规则表（`kind=History`）：
+/// 规则表：
 /// | 档位 | 有成本 | 结果 |
 /// | --- | --- | --- |
-/// | 历史收益涨跌幅 | 是 | `format_pct(cum_pct)`，涨跌色 |
-/// | 历史收益额 | 是 | `format_amount(cum_amount)`，涨跌色 |
-/// | 任意收益档 | 否（未录入成本） | **回退**当前持仓额，跟随上行色 |
-/// | 当前持仓额 | — | `format_holding_amount(holding)`，跟随上行色 |
+/// | 名称文字(label) | — | `spec.top`（本实例名称），无涨跌语义 |
+/// | 历史收益涨跌幅 | 是 | `format_pct(cum_pct)`，有涨跌语义 |
+/// | 历史收益额 | 是 | `format_amount(cum_amount)`，有涨跌语义 |
+/// | 任意收益档 | 否（未录入成本） | **回退**当前持仓额，无涨跌语义 |
+/// | 当前持仓额 | — | `format_holding_amount(holding)`，无涨跌语义 |
 ///
-/// 隐私模式：收益额档降级为涨跌幅档；持仓额档（含无成本回退）无百分比等价物 → 打码 `****`。
-/// 快照未就绪（holding_amount=None）→ 占位符 `-`。
-pub(crate) fn bottom_display(
+/// 「有涨跌语义」= `RowDisplay.signed` 为 `Some` → 该行未自定义颜色时取涨跌色（正红负绿）；
+/// 无涨跌语义的行未自定义颜色时走该行颜色链（详见 `RowDisplay::signed`）。
+///
+/// 隐私模式：收益额档降级为涨跌幅档（只暴露百分比）；持仓额档（含无成本回退）无百分比
+/// 等价物 → 打码 `****`。快照未就绪（holding_amount=None）→ 占位符 `-`。
+pub(crate) fn history_row_display(
     spec: &InstanceSpec,
-    show_amount: bool,
+    mode: HistoryMode,
     privacy: bool,
-    history_mode: HistoryMode,
-) -> BottomDisplay {
-    if spec.kind == BottomKind::History {
-        // 隐私模式：只暴露百分比，金额档降级为收益率档；持仓额档留在 holding 分支里打码
-        let mode = if privacy && history_mode == HistoryMode::CumAmount {
-            HistoryMode::CumPercent
-        } else {
-            history_mode
-        };
-        return match mode {
-            HistoryMode::HoldingAmount => holding_display(spec.holding_amount, privacy),
-            HistoryMode::CumAmount => match spec.cum_amount {
-                Some(v) => BottomDisplay {
-                    text: format_amount(v),
-                    signed: Some(v),
-                },
-                None => holding_display(spec.holding_amount, privacy),
+) -> RowDisplay {
+    // 隐私模式：只暴露百分比，金额档降级为收益率档；持仓额档留在 holding 分支里打码
+    let mode = if privacy && mode == HistoryMode::CumAmount {
+        HistoryMode::CumPercent
+    } else {
+        mode
+    };
+    match mode {
+        HistoryMode::Label => RowDisplay::text(spec.top.clone()),
+        HistoryMode::HoldingAmount => holding_display(spec.holding_amount, privacy),
+        HistoryMode::CumAmount => match spec.cum_amount {
+            Some(v) => RowDisplay {
+                text: format_amount(v),
+                signed: Some(v),
             },
-            HistoryMode::CumPercent => match spec.cum_pct {
-                Some(v) => BottomDisplay {
-                    text: format_pct(v),
-                    signed: Some(v),
-                },
-                None => holding_display(spec.holding_amount, privacy),
+            None => holding_display(spec.holding_amount, privacy),
+        },
+        HistoryMode::CumPercent => match spec.cum_pct {
+            Some(v) => RowDisplay {
+                text: format_pct(v),
+                signed: Some(v),
             },
-        };
+            None => holding_display(spec.holding_amount, privacy),
+        },
     }
+}
+
+/// 渲染「当日收益」实例的下行（总览 / 各分组 / 未分组）：
+/// 受 `menubarShowAmount` 切换百分比↔金额（隐私模式下由调用方强制百分比），恒有涨跌语义。
+pub(crate) fn day_pnl_display(spec: &InstanceSpec, show_amount: bool) -> RowDisplay {
     if show_amount {
-        BottomDisplay {
+        RowDisplay {
             text: format_amount(spec.amount),
             signed: Some(spec.amount),
         }
     } else {
-        BottomDisplay {
+        RowDisplay {
             text: format_pct(spec.pct),
             signed: Some(spec.pct),
         }
     }
 }
 
-/// 持仓额行的展示：无方向符号的金额、**跟随上行色**（`signed=None`）；
+/// 实例两行内容的统一入口（macOS 菜单栏与 Windows 任务栏共用，`kind` 分派在此收口）：
+/// - `DayPnl`（总览 / 分组 / 未分组）：上行恒为名称文字，下行受 `show_amount` 切换；
+/// - `History`（「历史」实例）：上下两行各自按 `top_mode` / `bottom_mode` 取内容。
+///
+/// 档位解析（`HistoryMode::parse_top` / `parse_bottom`）由调用方完成，
+/// 保证两端用同一份解析口径，而调用方不重复实现分派。
+pub(crate) fn rows_of(
+    spec: &InstanceSpec,
+    show_amount: bool,
+    privacy: bool,
+    top_mode: HistoryMode,
+    bottom_mode: HistoryMode,
+) -> (RowDisplay, RowDisplay) {
+    match spec.kind {
+        BottomKind::DayPnl => (
+            RowDisplay::text(spec.top.clone()),
+            day_pnl_display(spec, show_amount),
+        ),
+        BottomKind::History => (
+            history_row_display(spec, top_mode, privacy),
+            history_row_display(spec, bottom_mode, privacy),
+        ),
+    }
+}
+
+/// 持仓额行的展示：无方向符号的金额、**无涨跌语义**（`signed=None`）；
 /// 隐私模式打码，快照未就绪显示占位符。
-fn holding_display(holding_amount: Option<f64>, privacy: bool) -> BottomDisplay {
+fn holding_display(holding_amount: Option<f64>, privacy: bool) -> RowDisplay {
     if privacy {
-        return BottomDisplay {
+        return RowDisplay {
             text: BOTTOM_MASKED.to_string(),
             signed: None,
         };
     }
     match holding_amount {
-        Some(v) => BottomDisplay {
+        Some(v) => RowDisplay {
             text: format_holding_amount(v),
             signed: None,
         },
-        None => BottomDisplay {
+        None => RowDisplay {
             text: BOTTOM_PLACEHOLDER.to_string(),
             signed: None,
         },
@@ -601,43 +659,73 @@ mod tests {
         }
     }
 
-    /// 历史三档规则表：取值 + 配色依据（持仓额档必须 signed=None = 跟随上行色）
+    /// 「历史」两行共用的档位规则表：取值 + 配色依据。
+    /// 有涨跌语义的档（收益两档）必须 signed=Some；名称/持仓额/回退/占位符必须 signed=None。
     #[test]
-    fn history_bottom_display_rule_table() {
+    fn history_row_display_rule_table() {
         let spec = history_spec(Some(-12345.0), Some(-12.34), Some(98765.0));
+        // 第一行 Label 档：渲染本实例名称，无涨跌语义（未自定义颜色时走颜色链）
+        let label = history_row_display(&spec, HistoryMode::Label, false);
+        assert_eq!(label.text, "历史");
+        assert_eq!(label.signed, None);
         assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::CumPercent).text,
+            history_row_display(&spec, HistoryMode::CumPercent, false).text,
             "-12.34%"
         );
         assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::CumAmount).text,
+            history_row_display(&spec, HistoryMode::CumAmount, false).text,
             "-12345"
         );
         assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::HoldingAmount).text,
+            history_row_display(&spec, HistoryMode::HoldingAmount, false).text,
             "98765"
         );
         // 收益档有涨跌语义 → signed=Some；持仓额档无 → signed=None
         assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::CumAmount).signed,
+            history_row_display(&spec, HistoryMode::CumAmount, false).signed,
             Some(-12345.0)
         );
         assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::HoldingAmount).signed,
+            history_row_display(&spec, HistoryMode::CumPercent, false).signed,
+            Some(-12.34)
+        );
+        assert_eq!(
+            history_row_display(&spec, HistoryMode::HoldingAmount, false).signed,
             None
         );
         // 隐私模式：收益额档降级为收益率档；持仓额档打码（同样无涨跌语义）
         assert_eq!(
-            bottom_display(&spec, true, true, HistoryMode::CumAmount).text,
+            history_row_display(&spec, HistoryMode::CumAmount, true).text,
             "-12.34%"
         );
-        let masked = bottom_display(&spec, true, true, HistoryMode::HoldingAmount);
+        let masked = history_row_display(&spec, HistoryMode::HoldingAmount, true);
         assert_eq!(masked.text, BOTTOM_MASKED);
         assert_eq!(masked.signed, None);
-        // show_amount 对历史项无影响（历史档由 history_mode 决定）
+    }
+
+    /// 上下两行档位完全独立：同一档在两行渲染出完全一致的结果（允许重复，不做去重干预）；
+    /// 默认组合 = 上行 Label（名称）+ 下行 CumAmount（历史收益额）。
+    #[test]
+    fn history_rows_are_independent_and_may_repeat() {
+        let spec = history_spec(Some(8888.0), Some(8.88), Some(66666.0));
+        for mode in [
+            HistoryMode::Label,
+            HistoryMode::CumPercent,
+            HistoryMode::CumAmount,
+            HistoryMode::HoldingAmount,
+        ] {
+            let top = history_row_display(&spec, mode, false);
+            let bottom = history_row_display(&spec, mode, false);
+            assert_eq!(top.text, bottom.text, "mode={mode:?} 两行同档应同值");
+            assert_eq!(top.signed, bottom.signed, "mode={mode:?}");
+        }
         assert_eq!(
-            bottom_display(&spec, true, false, HistoryMode::CumPercent).text,
-            "-12.34%"
+            history_row_display(&spec, HistoryMode::Label, false).text,
+            "历史"
+        );
+        assert_eq!(
+            history_row_display(&spec, HistoryMode::CumAmount, false).text,
+            "+8888"
         );
     }
 
@@ -646,18 +734,18 @@ mod tests {
     fn history_falls_back_to_holding_amount_when_cost_missing() {
         let no_cost = history_spec(None, None, Some(52000.0));
         for mode in [HistoryMode::CumPercent, HistoryMode::CumAmount] {
-            let d = bottom_display(&no_cost, false, false, mode);
+            let d = history_row_display(&no_cost, mode, false);
             assert_eq!(d.text, "52000", "mode={mode:?} 应回退显示持仓额");
-            assert_eq!(d.signed, None, "回退行无涨跌语义，须跟随上行色");
+            assert_eq!(d.signed, None, "回退行无涨跌语义，未自定义时走颜色链");
         }
         // 隐私模式下回退同为金额 → 打码
         assert_eq!(
-            bottom_display(&no_cost, false, true, HistoryMode::CumAmount).text,
+            history_row_display(&no_cost, HistoryMode::CumAmount, true).text,
             BOTTOM_MASKED
         );
     }
 
-    /// 行情快照未就绪（首次刷新前）→ 占位符，不显示误导性的 0
+    /// 行情快照未就绪（首次刷新前）→ 占位符，不显示误导性的 0（Label 档不受影响）
     #[test]
     fn history_shows_placeholder_before_first_quote() {
         let empty = history_spec(None, None, None);
@@ -666,26 +754,65 @@ mod tests {
             HistoryMode::CumAmount,
             HistoryMode::HoldingAmount,
         ] {
-            let d = bottom_display(&empty, false, false, mode);
+            let d = history_row_display(&empty, mode, false);
             assert_eq!(d.text, BOTTOM_PLACEHOLDER, "mode={mode:?}");
             assert_eq!(d.signed, None);
         }
+        assert_eq!(
+            history_row_display(&empty, HistoryMode::Label, false).text,
+            "历史",
+            "快照未就绪不影响名称文字档"
+        );
     }
 
-    /// 档位解析：仅接受三档字面量，非法/缺省回落默认
+    /// 第一行档位解析：接受四档（含 label=名称文字），非法/缺省回落 label
     #[test]
-    fn history_mode_parse_accepts_known_values_only() {
-        assert_eq!(HistoryMode::parse(Some("cumPercent")), HistoryMode::CumPercent);
-        assert_eq!(HistoryMode::parse(Some("cumAmount")), HistoryMode::CumAmount);
+    fn history_top_mode_parse_accepts_four_values() {
+        assert_eq!(HistoryMode::parse_top(Some("label")), HistoryMode::Label);
         assert_eq!(
-            HistoryMode::parse(Some("holdingAmount")),
+            HistoryMode::parse_top(Some("cumPercent")),
+            HistoryMode::CumPercent
+        );
+        assert_eq!(
+            HistoryMode::parse_top(Some("cumAmount")),
+            HistoryMode::CumAmount
+        );
+        assert_eq!(
+            HistoryMode::parse_top(Some("holdingAmount")),
             HistoryMode::HoldingAmount
         );
-        assert_eq!(HistoryMode::parse(Some(" bogus ")), HistoryMode::CumPercent);
-        assert_eq!(HistoryMode::parse(None), HistoryMode::CumPercent);
+        assert_eq!(HistoryMode::parse_top(Some(" bogus ")), HistoryMode::Label);
+        assert_eq!(HistoryMode::parse_top(None), HistoryMode::Label);
     }
 
-    /// 当日收益实例路径不受本次改动影响（回归护栏）
+    /// 第二行档位解析：只接受三档数值；`label` 是第一行专属档，必须判非法并回落 CumAmount
+    /// （否则第二行会渲染出名称文字）
+    #[test]
+    fn history_bottom_mode_parse_rejects_label() {
+        assert_eq!(
+            HistoryMode::parse_bottom(Some("cumPercent")),
+            HistoryMode::CumPercent
+        );
+        assert_eq!(
+            HistoryMode::parse_bottom(Some("cumAmount")),
+            HistoryMode::CumAmount
+        );
+        assert_eq!(
+            HistoryMode::parse_bottom(Some("holdingAmount")),
+            HistoryMode::HoldingAmount
+        );
+        assert_eq!(
+            HistoryMode::parse_bottom(Some("label")),
+            HistoryMode::CumAmount
+        );
+        assert_eq!(
+            HistoryMode::parse_bottom(Some(" bogus ")),
+            HistoryMode::CumAmount
+        );
+        assert_eq!(HistoryMode::parse_bottom(None), HistoryMode::CumAmount);
+    }
+
+    /// 当日收益实例路径不受槽位改造影响（回归护栏）
     #[test]
     fn day_pnl_display_unchanged() {
         let spec = InstanceSpec::day_pnl(
@@ -695,18 +822,14 @@ mod tests {
             567.0,
             true,
         );
-        assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::CumPercent).text,
-            "+1.23%"
-        );
-        assert_eq!(
-            bottom_display(&spec, true, false, HistoryMode::CumPercent).text,
-            "+567"
-        );
-        assert_eq!(
-            bottom_display(&spec, false, false, HistoryMode::CumPercent).signed,
-            Some(1.234)
-        );
+        assert_eq!(day_pnl_display(&spec, false).text, "+1.23%");
+        assert_eq!(day_pnl_display(&spec, true).text, "+567");
+        assert_eq!(day_pnl_display(&spec, false).signed, Some(1.234));
+        assert_eq!(day_pnl_display(&spec, true).signed, Some(567.0));
+        // 当日收益实例上行恒为名称文字（无涨跌语义 → 走分组色/全局链）
+        let top = RowDisplay::text(spec.top.clone());
+        assert_eq!(top.text, "总览");
+        assert_eq!(top.signed, None);
     }
 
     #[test]

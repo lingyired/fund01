@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, MenubarGlobalSide, MenubarHistoryMode, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, MenubarGlobalSide, MenubarHistoryMode, MenubarHistorySlotMode, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -53,8 +53,14 @@ export const MENUBAR_HISTORY_KEY = '__history__'
 export const MENUBAR_HISTORY_LABEL_DEFAULT = '历史'
 /** 「历史」实例上行名称最大长度（菜单栏横向空间有限，超出截断） */
 export const MENUBAR_HISTORY_LABEL_MAX = 8
-/** 「历史」实例下行数值档默认值（与 Rust 侧 history_mode 解析口径一致） */
-export const MENUBAR_HISTORY_MODE_DEFAULT = 'cumPercent' as const
+/** 「历史」实例第一行档位默认值：名称文字（与 Rust 侧第一行解析口径一致） */
+export const MENUBAR_HISTORY_TOP_MODE_DEFAULT = 'label' as const
+/**
+ * 「历史」实例第二行档位默认值：历史收益额。
+ * ⚠️ 2026-09-16 由 cumPercent 改为 cumAmount（用户拍板「默认是文字 + 历史收益额」）；
+ * 三处默认值（本常量 / DEFAULT_CONFIG / Rust normalize_config）必须同步。
+ */
+export const MENUBAR_HISTORY_MODE_DEFAULT = 'cumAmount' as const
 
 /** 任务栏外边距默认值（物理像素，仅 tauri Windows 生效；与插件 set_edge_margins 默认一致） */
 export const MENUBAR_EDGE_MARGINS_DEFAULT: {left: number; right: number} = {
@@ -85,11 +91,27 @@ export function normalizeMenubarHistoryLabel(v: unknown): string {
   return Array.from(s).slice(0, MENUBAR_HISTORY_LABEL_MAX).join('')
 }
 
-/** 归一化「历史」实例下行数值档：仅接受三档字面量，非法/缺省回落默认 */
+/** 归一化「历史」实例第一行档位：接受四档（含 label），非法/缺省回落 label */
+export function normalizeMenubarHistoryTopMode(v: unknown): MenubarHistorySlotMode {
+  return v === 'label' || v === 'cumPercent' || v === 'cumAmount' || v === 'holdingAmount'
+    ? v
+    : MENUBAR_HISTORY_TOP_MODE_DEFAULT
+}
+
+/**
+ * 归一化「历史」实例第二行档位：**只接受三档数值**，非法/缺省回落默认
+ * （`label` 属第一行专属档，传给本函数会被判非法并回落，避免第二行渲染出名称文字）。
+ */
 export function normalizeMenubarHistoryMode(v: unknown): MenubarHistoryMode {
   return v === 'cumPercent' || v === 'cumAmount' || v === 'holdingAmount'
     ? v
     : MENUBAR_HISTORY_MODE_DEFAULT
+}
+
+/** 归一化「历史」实例第二行自定义色：仅接受 #rrggbb，**空串/非法一律回落 `''`（=未自定义）**。
+ *  与本文件它处颜色字段（回落具体默认色）不同：本字段的空值有语义，代表「按涨跌/跟随语义取色」。 */
+export function normalizeMenubarHistoryBottomColor(v: unknown): string {
+  return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : ''
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -114,11 +136,14 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarBottomFontSize: 11,
     menubarEqualFontSize: 9,
     menubarShowAmount: false,
-    // 「历史」实例（仅 tauri）：默认关闭。名称/数值档的截断与白名单归一化在 normalizeConfig /
+    // 「历史」实例（仅 tauri）：默认关闭。档位/名称的截断与白名单归一化在 normalizeConfig /
     // Rust normalize_config 里做；这里给的是「首次启动」与「归一化 fallback」的基准值。
+    // 默认展示「名称文字 + 历史收益额」，两行均可改成数值档（见 menubarHistoryTopMode）。
     menubarHistoryEnabled: false,
     menubarHistoryLabel: MENUBAR_HISTORY_LABEL_DEFAULT,
+    menubarHistoryTopMode: MENUBAR_HISTORY_TOP_MODE_DEFAULT,
     menubarHistoryMode: MENUBAR_HISTORY_MODE_DEFAULT,
+    menubarHistoryBottomColor: '',
     menubarTopFont: MENUBAR_DEFAULTS.topFont,
     menubarBottomFont: MENUBAR_DEFAULTS.bottomFont,
     menubarTopBold: MENUBAR_DEFAULTS.topBold,
@@ -529,8 +554,14 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       menubarHistoryLabel: normalizeMenubarHistoryLabel(
         payload?.settings?.menubarHistoryLabel,
       ),
+      menubarHistoryTopMode: normalizeMenubarHistoryTopMode(
+        payload?.settings?.menubarHistoryTopMode,
+      ),
       menubarHistoryMode: normalizeMenubarHistoryMode(
         payload?.settings?.menubarHistoryMode,
+      ),
+      menubarHistoryBottomColor: normalizeMenubarHistoryBottomColor(
+        payload?.settings?.menubarHistoryBottomColor,
       ),
       menubarTopFont: normalizeFontFamily(
         payload?.settings?.menubarTopFont,

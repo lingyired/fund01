@@ -111,12 +111,21 @@ pub struct AppSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_history_enabled: Option<bool>,
     /// 「历史」实例的上行名称（默认「历史」）。trim 后空回落默认，超 8 字符截断。
+    /// ⚠️ 只在该实例第一行档位为 label 时显示（见 menubar_history_top_mode）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_history_label: Option<String>,
-    /// 「历史」实例下行数值档：cumPercent(默认)=历史收益涨跌幅 / cumAmount=历史收益额 /
+    /// 「历史」实例第一行内容档：label(默认)=名称文字 / cumPercent=历史收益涨跌幅 /
+    /// cumAmount=历史收益额 / holdingAmount=当前持仓额。四档与第二行对等。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_top_mode: Option<String>,
+    /// 「历史」实例第二行内容档：cumAmount(默认)=历史收益额 / cumPercent=历史收益涨跌幅 /
     /// holdingAmount=当前持仓额。收益两档在未录入成本时回退显示当前持仓额。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_history_mode: Option<String>,
+    /// 「历史」实例第二行自定义颜色（#rrggbb；空串=未自定义，按涨跌/跟随语义取色）。
+    /// 第一行自定义色不走本字段，而是复用 menubar_group_colors 的 "__history__" key。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_bottom_color: Option<String>,
     /// 菜单栏上行字体族名（macOS font family，默认空=系统字体）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_font: Option<String>,
@@ -202,7 +211,9 @@ impl Default for AppSettings {
             menubar_show_amount: None,
             menubar_history_enabled: None,
             menubar_history_label: None,
+            menubar_history_top_mode: None,
             menubar_history_mode: None,
+            menubar_history_bottom_color: None,
             menubar_top_font: None,
             menubar_bottom_font: None,
             menubar_top_bold: None,

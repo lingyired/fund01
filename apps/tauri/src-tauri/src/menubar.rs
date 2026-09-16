@@ -38,8 +38,8 @@ use tauri::Manager;
 use tauri_plugin_multiline_menubar::{ColorStyle, MenuItemDescriptor, MultilineMenubarExt};
 
 use crate::menubar_common::{
-    bottom_display, color_for, desired_instances, instance_label, menubar_all_hidden,
-    popup_tab_for, HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT,
+    color_for, desired_instances, instance_label, menubar_all_hidden, popup_tab_for, rows_of,
+    BottomKind, HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT,
     COLOR_RISE_DEFAULT, COLOR_TOP_DEFAULT, INSTANCE_HISTORY, INSTANCE_OVERVIEW,
 };
 use crate::model::QuoteUpdate;
@@ -377,10 +377,13 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // 隐私模式（privacy_mode）下强制百分比（不暴露绝对金额），忽略用户设置的收益额偏好。
     let privacy = config.settings.privacy_mode.unwrap_or(false);
     let show_amount = !privacy && config.settings.menubar_show_amount.unwrap_or(false);
-    // 「历史」实例下行数值档（cumPercent / cumAmount / holdingAmount），解析口径与 TS 归一化一致
-    let history_mode = HistoryMode::parse(config.settings.menubar_history_mode.as_deref());
-    // 颜色：上行解析链见 top_color_style（未自定义 → 跟随系统色）；下行按涨跌
-    //（涨色/跌色/平色均可配置）
+    // 「历史」实例上下两行各自的档位：第一行四档（含 label=名称文字）、第二行三档数值，
+    // 解析口径与 TS normalizeMenubarHistoryTopMode / normalizeMenubarHistoryMode 一致。
+    let history_top_mode =
+        HistoryMode::parse_top(config.settings.menubar_history_top_mode.as_deref());
+    let history_mode = HistoryMode::parse_bottom(config.settings.menubar_history_mode.as_deref());
+    // 颜色：上行 = 该实例显式自定义色 > （第一行显示数值时）涨跌色 > 全局上行色（未自定义=系统色）；
+    // 下行 = 「历史」第二行自定义色 > 涨跌色 > 跟随上行已解析色（解析规则见 apply_colors_tooltip_one）
     let rise_color = config
         .settings
         .menubar_rise_color
@@ -410,11 +413,11 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // `bottomH = bottomFontSize + 1` 未按字体真实 ascender/descender 留白，见插件仓库 issue；
     // 本顺序约定不解决该问题，仅作为合理的调用顺序保留。）
     for spec in &desired {
-        let _ = app.multiline_menubar().set_text(
-            spec.id.clone(),
-            spec.top.clone(),
-            bottom_display(spec, show_amount, privacy, history_mode).text,
-        );
+        let (top_row, bottom_row) =
+            rows_of(spec, show_amount, privacy, history_top_mode, history_mode);
+        let _ = app
+            .multiline_menubar()
+            .set_text(spec.id.clone(), top_row.text, bottom_row.text);
     }
     apply_menubar_style(app, &config, &desired);
     for spec in &desired {
@@ -423,6 +426,7 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
             spec,
             show_amount,
             privacy,
+            history_top_mode,
             history_mode,
             &rise_color,
             &fall_color,
@@ -432,22 +436,12 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     }
 }
 
-/// 上行颜色解析链（macOS，与 taskband.rs::top_color_style 两端口径一致）：分组自定义色
-///（menubarGroupColors，key 见 group_key_of）→ 全局自定义上行色（menubarTopColor，等于默认白
-/// #ffffff 视为未自定义——设置页「重置为系统默认」写回该值）→ `ColorStyle::Default`。
+/// 全局上行色兜底（macOS，与 taskband.rs 两端口径一致）：`menubarTopColor` 等于默认白
+/// `#ffffff` 视为未自定义（设置页「重置为系统默认」写回该值）→ `ColorStyle::Default`。
 /// Default 由插件在**绘制时**解析 `NSColor.labelColor` 并随深浅色模式自动重绘（插件 v1.7.0：
 /// native 层 KVO effectiveAppearance，切换即重绘，无需宿主干预）。此前 macOS 未自定义恒回落
 /// 白色 Solid，系统未开「暗色菜单栏」（浅色菜单栏）时白字对比度差。
-fn top_color_style(config: &crate::model::AppConfig, group_key: Option<&str>) -> ColorStyle {
-    if let Some(c) = group_key.and_then(|k| {
-        config
-            .settings
-            .menubar_group_colors
-            .as_ref()
-            .and_then(|m| m.get(k))
-    }) {
-        return ColorStyle::Solid { value: c.clone() };
-    }
+fn global_top_style(config: &crate::model::AppConfig) -> ColorStyle {
     match config.settings.menubar_top_color.as_deref().map(str::trim) {
         Some(v) if !v.is_empty() && !v.eq_ignore_ascii_case(COLOR_TOP_DEFAULT) => {
             ColorStyle::Solid {
@@ -458,40 +452,111 @@ fn top_color_style(config: &crate::model::AppConfig, group_key: Option<&str>) ->
     }
 }
 
+/// 该实例的**显式自定义上行色**（menubarGroupColors，key 见 group_key_of；「历史」实例复用
+/// `__history__` 这一格）。返回 None = 未自定义（此时才走涨跌色 / 全局色兜底）。
+fn custom_top_color<'a>(
+    config: &'a crate::model::AppConfig,
+    group_key: Option<&str>,
+) -> Option<&'a str> {
+    group_key
+        .and_then(|k| {
+            config
+                .settings
+                .menubar_group_colors
+                .as_ref()
+                .and_then(|m| m.get(k))
+        })
+        .map(|s| s.as_str())
+}
+
+/// 该实例的**显式自定义下行色**：目前仅「历史」实例有该通道（`menubarHistoryBottomColor`），
+/// 其余实例下行恒为涨跌语义色（无自定义入口）。空串/纯空白 = 未自定义。
+fn custom_bottom_color<'a>(
+    config: &'a crate::model::AppConfig,
+    spec: &InstanceSpec,
+) -> Option<&'a str> {
+    if spec.kind != BottomKind::History {
+        return None;
+    }
+    config
+        .settings
+        .menubar_history_bottom_color
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// 一行颜色的最终解析（macOS，与 taskband.rs 两端口径一致）：
+/// ① **显式自定义色**（用户意图，优先级最高——即便该行是数值也照用）；
+/// ② 否则该行**有涨跌语义**（`signed=Some`）→ 涨跌色（正红负绿）；
+/// ③ 否则 → `fallback`（上行=全局色/系统色；下行=已解析的上行色，深浅自适应）。
+fn resolve_row_style(
+    custom: Option<&str>,
+    signed: Option<f64>,
+    fallback: ColorStyle,
+    rise: &str,
+    fall: &str,
+    flat: &str,
+) -> ColorStyle {
+    if let Some(hex) = custom {
+        return ColorStyle::Solid {
+            value: hex.to_string(),
+        };
+    }
+    match signed {
+        Some(v) => ColorStyle::Solid {
+            value: color_for(v, rise, fall, flat),
+        },
+        None => fallback,
+    }
+}
+
 /// 对单个实例下发颜色与 tooltip（不影响 view 高度测量，可与文本分离）。
 ///
-/// 下行配色由 `bottom_display` 返回的 `signed` 决定：
-/// `Some(v)` → 涨跌色（收益类）；`None` → **跟随上行色**（「历史」实例的当前持仓额档，
-/// 以及未录入成本时的回退行——持仓额没有涨跌语义，用涨跌色会被误读成当日涨跌）。
+/// 配色规则（两行各自独立解析，见 `resolve_row_style`）：
+/// - **上行**：该实例自定义色 > （第一行档位为数值时）涨跌色 > 全局上行色 > 系统色；
+/// - **下行**：历史项第二行自定义色 > 涨跌色 > **跟随已解析的上行色**
+///   （持仓额档 / 无成本回退行没有涨跌语义，用涨跌色会被误读成当日涨跌）。
 #[allow(clippy::too_many_arguments)]
 fn apply_colors_tooltip_one(
     config: &crate::model::AppConfig,
     spec: &InstanceSpec,
     show_amount: bool,
     privacy: bool,
-    history_mode: HistoryMode,
+    top_mode: HistoryMode,
+    bottom_mode: HistoryMode,
     rise: &str,
     fall: &str,
     flat: &str,
     app: &AppHandle,
 ) {
     let mb = app.multiline_menubar();
-    let bottom = bottom_display(spec, show_amount, privacy, history_mode);
+    let (top_row, bottom_row) = rows_of(spec, show_amount, privacy, top_mode, bottom_mode);
     let group_key = group_key_of(&spec.id);
-    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid；
-    // 无涨跌语义的行（持仓额档）直接复用同一份上行 ColorStyle，深浅色模式自适应
-    let bottom_style = match bottom.signed {
-        Some(v) => ColorStyle::Solid {
-            value: color_for(v, rise, fall, flat),
-        },
-        None => top_color_style(config, group_key.as_deref()),
-    };
-    let _ = mb.set_colors(
-        spec.id.clone(),
-        top_color_style(config, group_key.as_deref()),
-        bottom_style,
+    let top_style = resolve_row_style(
+        custom_top_color(config, group_key.as_deref()),
+        top_row.signed,
+        global_top_style(config),
+        rise,
+        fall,
+        flat,
     );
-    let _ = mb.set_tooltip(spec.id.clone(), format!("{} {}", spec.top, bottom.text));
+    // 下行无涨跌语义时「跟随上行」= 复用同一份已解析 ColorStyle（Default 亦随之继承，
+    // 由插件在绘制时解析系统文字色，深浅色自适应）
+    let bottom_style = resolve_row_style(
+        custom_bottom_color(config, spec),
+        bottom_row.signed,
+        top_style.clone(),
+        rise,
+        fall,
+        flat,
+    );
+    let _ = mb.set_colors(spec.id.clone(), top_style, bottom_style);
+    // tooltip = 两行实际文本（上行可能是名称文字也可能是数值，一律照实拼接）
+    let _ = mb.set_tooltip(
+        spec.id.clone(),
+        format!("{} {}", top_row.text, bottom_row.text),
+    );
 }
 
 /// 菜单事件分发（open-settings / hide-group）。
