@@ -184,6 +184,16 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     a.settings.menubar_item_margin = None;
     a.settings.menubar_edge_margins = None;
     a.settings.privacy_mode = None;
+    // 「历史」实例（仅 tauri）：纯展示设置（开关/名称/上下行档位/第二行色/数值口径）。
+    // ⚠️ 必须一并列入——漏了就会让「改历史项颜色」这类纯显示变更被判为「影响行情数据的配置」，
+    //    从而触发一次完整网络刷新（`trigger_refresh`），既无必要也拖慢保存回包。
+    //    （2026-09-16 补；新增 menubarHistory* 字段时记得同步本函数。）
+    a.settings.menubar_history_enabled = None;
+    a.settings.menubar_history_label = None;
+    a.settings.menubar_history_top_mode = None;
+    a.settings.menubar_history_mode = None;
+    a.settings.menubar_history_bottom_color = None;
+    a.settings.menubar_history_valuation = None;
     b.settings.menubar_hidden_groups = None;
     b.settings.menubar_layout = None;
     b.settings.menubar_top_font_size = None;
@@ -206,6 +216,13 @@ fn is_menubar_only_settings_change(old: &AppConfig, new: &AppConfig) -> bool {
     b.settings.menubar_item_margin = None;
     b.settings.menubar_edge_margins = None;
     b.settings.privacy_mode = None;
+    // 与上方 a 段逐条对应（「历史」实例纯展示设置）
+    b.settings.menubar_history_enabled = None;
+    b.settings.menubar_history_label = None;
+    b.settings.menubar_history_top_mode = None;
+    b.settings.menubar_history_mode = None;
+    b.settings.menubar_history_bottom_color = None;
+    b.settings.menubar_history_valuation = None;
     a == b
 }
 

@@ -32,9 +32,10 @@ use tauri::Manager;
 use tauri_plugin_multiline_taskband::{ColorStyle, MenuItemDescriptor, MultilineTaskbandExt, Side};
 
 use crate::menubar_common::{
-    color_for, decode_group_id, desired_instances, instance_label, popup_tab_for, rows_of,
-    BottomKind, HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT,
-    COLOR_RISE_DEFAULT, COLOR_TOP_DEFAULT, INSTANCE_HISTORY, INSTANCE_OVERVIEW,
+    color_for, decode_group_id, desired_instances, instance_label, layout_changed, layout_forget,
+    popup_tab_for, rows_of, BottomKind, HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT,
+    COLOR_FLAT_DEFAULT, COLOR_RISE_DEFAULT, COLOR_TOP_DEFAULT, INSTANCE_HISTORY,
+    INSTANCE_OVERVIEW,
 };
 use crate::model::{AppConfig, QuoteUpdate};
 use crate::window::{open_settings_window, show_popup};
@@ -158,6 +159,8 @@ fn sync_instances(app: &AppHandle, config: &AppConfig, desired: &[InstanceSpec])
     for spec in desired {
         let is_new = tracked().lock().unwrap().insert(spec.id.clone());
         if is_new {
+            // 新实例：清掉布局登记（缺席 = 下一步强制全量下发一次 visible/side/order）
+            layout_forget(&spec.id);
             let side = side_for(config, &spec.id);
             let _ = tb.create(spec.id.clone(), side);
             set_standard_menu(app, &spec.id);
@@ -170,11 +173,20 @@ fn sync_instances(app: &AppHandle, config: &AppConfig, desired: &[InstanceSpec])
         ensure_click_listener(app, &spec.id);
     }
 
-    // 2. 显隐/停靠侧/顺序：幂等下发（desired 顺序即同侧排序，总览恒为 0 = 最靠右缘起点）
+    // 2. 显隐/停靠侧/顺序：**仅在与上次下发值不同时**才发送（desired 顺序即同侧排序，
+    //    总览恒为下标 0 = 最靠右缘起点 / 最靠左缘起点）。
+    //    ⚠️ 这三条命令插件侧每条都会触发一次全量 relayout_all()（= 每实例一次跨进程
+    //    MoveWindow/UpdateLayeredWindow/ShowWindow），所以必须比对后再发——
+    //    完整复盘见 menubar_common.rs::layout_changed。
     for (order, spec) in desired.iter().enumerate() {
-        let _ = tb.set_visible(spec.id.clone(), spec.visible);
-        let _ = tb.set_side(spec.id.clone(), side_for(config, &spec.id));
-        let _ = tb.set_order(spec.id.clone(), order as u64);
+        let side = side_for(config, &spec.id);
+        let want = (spec.visible, side == Side::Left, order as u64);
+        if !layout_changed(&spec.id, want) {
+            continue;
+        }
+        let _ = tb.set_visible(spec.id.clone(), want.0);
+        let _ = tb.set_side(spec.id.clone(), side);
+        let _ = tb.set_order(spec.id.clone(), want.2);
     }
 
     // 3. 销毁「不该存在」的实例（同步移除 click 监听，释放闭包持有的 AppHandle）
@@ -188,6 +200,8 @@ fn sync_instances(app: &AppHandle, config: &AppConfig, desired: &[InstanceSpec])
     for id in stale {
         let _ = tb.remove(id.clone());
         tracked_set.remove(&id);
+        // 同步清掉布局登记：同一个 id 将来被重新创建时必须重发全量状态
+        layout_forget(&id);
         if let Some(event_id) = listeners().lock().unwrap().remove(&id) {
             app.unlisten(event_id);
         }

@@ -426,6 +426,17 @@ declare module '*.css';
 
 原 plan 设想 SW 读 `chrome.storage.session`。实际实现中，`ChromeConfigPort.saveConfig` 直接写 `chrome.storage.local`（key=`session-config`），SW 的 `getSessionConfig()` 也从 `chrome.storage.local` 读。`chrome.storage.session` 在 popup 关闭后仍可访问，但跨 SW 重启行为不如 local 稳定，统一用 local 更简单。
 
+### 7. Windows 任务栏：实例顺序与布局下发门控（2026-09-16，症状=改色卡死）
+
+实例顺序与下发时机在 Windows 侧**不是纯展示问题**，会直接影响系统稳定性：
+
+- **`desired_instances` 的返回下标 = Windows 的 `set_order`**（`taskband.rs::sync_instances` 直接用下标下发；macOS 不用它——菜单栏顺序由系统原生 ⌘-拖拽决定，所以 macOS 侧代码**不得**依赖下标）。插件按 order 升序从边缘向内排，**`order 0` 是边缘锚位**（贴通知区/最左缘），该位置**必须留给「总览」**。新增实例一律 `push` 到总览**之后**，不要插到最前。
+- **插件对 `set_visible` / `set_side` / `set_order` 每条命令都会触发一次全量 `relayout_all()`**，对每个可见实例执行 `MoveWindow` + `UpdateLayeredWindow` + `ShowWindow` —— 这些是**跨进程同步**窗口操作（任务栏窗口属于 `explorer.exe`）。而 `set_colors` 只是向 UI 线程 post 一条命令，**不 relayout**。
+- 因此**不允许「声明式全量重下」**：凡调用上述三个 setter 的地方，必须先过 `menubar_common.rs::layout_changed(id, (visible, 是否左缘, order))` 门控，只在值**变化**时下发；实例**新建 / 销毁**时调用 `layout_forget(id)`（缺席 = 下次强制下发一次），保证新实例收到完整状态。
+- 后果说明：全量重下使单次配置保存产生 `3 × 实例数 × 2` 条命令（rebuild 与 update 路径各一遍），叠加边缘锚位误占，可累积 **200+ 次跨进程窗口操作**，把 `explorer.exe` 的 UI 线程拖住 → 表现是**任务栏与桌面一起卡死**，而非应用窗口卡死。纯改颜色本不该有任何窗口操作。
+
+回归测试：`menubar_common.rs` 的 `overview_keeps_edge_anchor_history_follows_it`、`layout_push_skipped_unless_changed_or_forgotten`（这两个符号只被 Windows 目标使用，非 Windows 目标下挂 `#[cfg_attr(not(target_os = "windows"), allow(dead_code))]` 以免 `cargo check` 刷屏）。
+
 ## 样式系统：tw-shim 手写垫片（重要）
 
 本项目**没有 Tailwind 引擎**。原子类（`px-3` / `pb-3` / `flex` / `space-y-2` / `bg-paper-deep/50` 等）来自手写白名单 `packages/ui/src/tw-shim.css`，置于 `@layer utilities`（优先级高于 `radix-themes` 层）。Radix Themes 只提供组件与 CSS 变量（`--gray-*` / `--accent-*` / `--app-rise/-fall/-gold`），**不提供原子类**。

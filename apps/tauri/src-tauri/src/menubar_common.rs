@@ -7,6 +7,7 @@
 //! 保持 1:1 一致；分组涨跌/收益额口径与 popup 分组聚合一致（份额取最新 config 为权威）。
 
 use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use crate::calc::round2;
 use crate::model::{AppConfig, FundQuoteRow, HoldingsSummary, QuoteUpdate};
@@ -336,6 +337,64 @@ fn hex_val(c: u8) -> Option<u8> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 布局三件套「仅变化才下发」登记表（Windows 任务栏专用语义，逻辑放在此处便于本机单测）
+// ---------------------------------------------------------------------------
+
+/// 布局三件套的最后下发值：`(visible, 是否左缘, order)`。
+///
+/// 用 `bool` 表示停靠侧（而非插件的 `Side`）是为了让本模块保持平台中立——
+/// `multiline-taskband` 只是 Windows 目标的依赖，macOS 构建里不存在该类型。
+// 这三个符号只被 Windows 目标的 `taskband.rs` 使用；macOS 构建里该模块被 `#[cfg]` 排除，
+// 于是本机 `cargo check` 会报一串 `never used`。用 cfg_attr 精确压掉非 Windows 目标的噪音，
+// Windows 目标仍保留 lint（那边是真会被用到的）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub type LayoutSnapshot = (bool, bool, u64);
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+static LAYOUT_APPLIED: OnceLock<Mutex<HashMap<String, LayoutSnapshot>>> = OnceLock::new();
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn layout_applied() -> &'static Mutex<HashMap<String, LayoutSnapshot>> {
+    LAYOUT_APPLIED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 该实例的布局三件套是否需要下发：与上次下发值**不同**才返回 true（并记为最新值）。
+///
+/// # 为什么必须比对（2026-09-16「Windows 改历史项颜色 → 任务栏/桌面卡死」复盘）
+///
+/// 插件（multiline-taskband v1.0.0）对 `set_visible` / `set_side` / `set_order`
+/// **每条命令都会触发一次全量 `relayout_all()`**，而 relayout 会对**每个可见实例**执行
+/// `MoveWindow` + `UpdateLayeredWindow` + `ShowWindow`——这些是**跨进程同步**窗口操作
+/// （任务栏窗口属于 explorer.exe）。若按「声明式全量重下」的写法，一次配置保存的下发量是
+/// `3 × 实例数 × 2`（rebuild 与 update 各同步一遍），每次 relayout 又重绘全部实例，
+/// **单次保存可产生 200+ 次跨进程窗口操作**；explorer 的 UI 线程被这些同步调用拖住时，
+/// 任务栏与桌面会一起卡死。比对后，纯显示类变更（颜色 / 字号 / 档位 / 文字 / 数值口径）
+/// 对这三个维度**零下发**，一次保存只剩真正变化的那一条。
+///
+/// # 为什么跳过是安全的
+///
+/// - 插件侧 `Inst` 的 `visible` / `side` / `order` 在 explorer 重启后依然保留（只有窗口被
+///   销毁重建，`Inst` 本体不动）→ 缓存不会过期；
+/// - 实例**新建 / 销毁**时调用 [`layout_forget`]（缺席 = 下次强制全量下发），保证新实例
+///   一定收到完整状态；
+/// - 插件 API 本就幂等，跳过「与上次完全相同」的写入等价。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn layout_changed(id: &str, want: LayoutSnapshot) -> bool {
+    let mut applied = layout_applied().lock().unwrap();
+    if applied.get(id) == Some(&want) {
+        return false;
+    }
+    applied.insert(id.to_string(), want);
+    true
+}
+
+/// 实例新建 / 销毁时清空其登记（下一次必然全量下发）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn layout_forget(id: &str) {
+    layout_applied().lock().unwrap().remove(id);
+}
+
 /// 一个菜单栏/任务栏实例的期望状态。
 ///
 /// `visible` 与「实例是否在列表里」是**两个独立维度**：
@@ -451,15 +510,24 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
         .and_then(|q| q.holdings.as_ref())
         .map(|h| h.summary.clone());
 
-    // 「历史」实例（可选，排在最前）：整体组合的累计表现。
+    // 「历史」实例（可选）：整体组合的累计表现。
     // 上下两行的取数与档位见 history_row_display；三档数值统一由 history_values 按
     // `menubarHistoryValuation` 口径产出（latest=含今日市值，confirmed=只用已公布净值）。
     // 快照未就绪（quote=None）时三值均为 None → 该行显示占位符。
-    if config.settings.menubar_history_enabled.unwrap_or(false) {
+    //
+    // ⚠️ **此处的下标就是 Windows 任务栏的 `set_order`**（`taskband.rs::sync_instances` 用
+    // desired 下标直接下发；macOS 不用它——菜单栏顺序由系统原生 ⌘-拖拽决定）。
+    // 插件按 order 升序**从边缘向内**排：右侧 `order 0` = 最靠右缘（紧贴通知区域）的锚位，
+    // 而该锚位**必须留给总览**（见 taskband.rs 模块头「总览最靠右/最靠左缘起点」）。
+    // 因此历史排在**总览之后**、而不是像早期实现那样插在最前：
+    // 2026-09-16 复盘——历史插在最前会顶掉总览的锚位、把实例挤到托盘边缘，而紧贴托盘的实例
+    // 每次重排都要与 explorer 做跨进程同步窗口更新（详因见 taskband.rs::LAYOUT_APPLIED 注释），
+    // 实测表现为「改历史项颜色 → 任务栏/桌面卡死」。顺序改为紧随总览后，两侧边缘锚位不变。
+    let history_spec = if config.settings.menubar_history_enabled.unwrap_or(false) {
         let valuation =
             HistoryValuation::parse(config.settings.menubar_history_valuation.as_deref());
         let (cum_amount, cum_pct, holding_amount) = history_values(overview.as_ref(), valuation);
-        out.push(InstanceSpec {
+        Some(InstanceSpec {
             id: INSTANCE_HISTORY.to_string(),
             top: crate::portfolio::normalize_menubar_history_label(
                 config.settings.menubar_history_label.as_deref(),
@@ -471,11 +539,14 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
             cum_pct,
             holding_amount,
             visible: true,
-        });
-    }
+        })
+    } else {
+        None
+    };
 
     // 总览恒在（实例不销毁）；默认恒显示，但被用户 ⌘-拖出（写入 __overview__ 隐藏标记）后
     // visible=false——设置界面据此解锁总览为可重新开启，开启后恢复恒显。
+    // 恒为列表首个（= Windows 右侧/左侧的边缘锚位），不得被其它实例挤掉。
     let overview_hidden = hidden
         .iter()
         .any(|h| h == crate::portfolio::MENUBAR_OVERVIEW_KEY);
@@ -486,6 +557,11 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
         overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0),
         !overview_hidden,
     ));
+
+    // 「历史」紧随总览之后（下标 1）：紧邻边缘锚位但不占用它
+    if let Some(spec) = history_spec {
+        out.push(spec);
+    }
 
     // 每个分组一个实例：隐藏的分组**照样进列表**，只是 visible=false。
     // 实例 id 基于分组名（稳定）：持仓分组拖拽排序只改 holding_groups 顺序、不改 id，
@@ -1024,5 +1100,79 @@ mod tests {
             );
             assert_eq!(decode_group_id(&enc), name, "roundtrip 失败: {name}");
         }
+    }
+
+    /// `desired_instances` 的**下标就是 Windows 任务栏的 `set_order`**：总览必须恒为 0
+    /// （右侧 = 最靠右缘锚位 / 左侧 = 最靠左缘锚位），「历史」紧随其后（1）。
+    ///
+    /// 回归背景（2026-09-16）：历史早期实现插在列表最前（下标 0），顶掉了总览的锚位，
+    /// 把实例挤到紧贴通知区域的位置；而贴托盘的实例每次重排都要与 explorer 做跨进程同步
+    /// 窗口更新，实测表现为「改历史项第一行颜色 → 任务栏/桌面卡死」。
+    #[test]
+    fn overview_keeps_edge_anchor_history_follows_it() {
+        // 历史关闭：总览仍在首位，列表里没有历史实例
+        let off = crate::portfolio::normalize_config(&serde_json::json!({
+            "settings": {"holdingGroups": ["A", "B"]}
+        }));
+        let ids_off: Vec<String> = desired_instances(&off, None)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(
+            ids_off.first().map(String::as_str),
+            Some(INSTANCE_OVERVIEW),
+            "总览必须占边缘锚位（下标 0）"
+        );
+        assert!(
+            !ids_off.iter().any(|id| id == INSTANCE_HISTORY),
+            "历史关闭时不应出现历史实例：{ids_off:?}"
+        );
+
+        // 历史开启：总览 0、历史 1，分组顺延
+        let on = crate::portfolio::normalize_config(&serde_json::json!({
+            "settings": {"holdingGroups": ["A", "B"], "menubarHistoryEnabled": true}
+        }));
+        let ids_on: Vec<String> = desired_instances(&on, None)
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(
+            ids_on.first().map(String::as_str),
+            Some(INSTANCE_OVERVIEW),
+            "总览不得被历史挤掉边缘锚位：{ids_on:?}"
+        );
+        assert_eq!(
+            ids_on.get(1).map(String::as_str),
+            Some(INSTANCE_HISTORY),
+            "历史必须紧随总览之后：{ids_on:?}"
+        );
+        assert_eq!(ids_on.len(), 4, "总览 + 历史 + A + B：{ids_on:?}");
+    }
+
+    /// 布局三件套「仅变化才下发」：一致 → 跳过；任一维度变化 → 下发；
+    /// `layout_forget` 后（实例新建/销毁）→ 强制下发一次。
+    ///
+    /// ⚠️ 这三条命令在插件侧每条都会触发一次全量 `relayout_all()`（= 每实例一次跨进程
+    /// `MoveWindow`/`UpdateLayeredWindow`/`ShowWindow`），全量重下会让单次配置保存产生
+    /// 200+ 次跨进程窗口操作 → explorer UI 线程被拖住 → 任务栏/桌面卡死。见 `layout_changed`。
+    #[test]
+    fn layout_push_skipped_unless_changed_or_forgotten() {
+        let id = "menubar-test-layout-gate";
+        layout_forget(id);
+        // 缺席 = 首次必须下发
+        assert!(layout_changed(id, (true, false, 0)), "首次必须下发");
+        // 完全一致 → 跳过
+        assert!(!layout_changed(id, (true, false, 0)), "一致时必须跳过");
+        // 可见性变化 → 下发
+        assert!(layout_changed(id, (false, false, 0)), "visible 变化必须下发");
+        assert!(!layout_changed(id, (false, false, 0)));
+        // 停靠侧变化 → 下发
+        assert!(layout_changed(id, (false, true, 0)), "side 变化必须下发");
+        // 顺序变化 → 下发
+        assert!(layout_changed(id, (false, true, 1)), "order 变化必须下发");
+        // 实例重建（forget）→ 即便值相同也要重发全量
+        layout_forget(id);
+        assert!(layout_changed(id, (false, true, 1)), "forget 后必须重发");
+        layout_forget(id);
     }
 }
