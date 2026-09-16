@@ -622,6 +622,23 @@ export async function updateSettings(
   if (typeof patch.menubarShowAmount === 'boolean') {
     config.settings.menubarShowAmount = patch.menubarShowAmount
   }
+  // 「历史」实例（仅 tauri）：开关 / 上行名称 / 下行数值档
+  // ⚠️ 本函数是**逐字段白名单**（不是通用 merge）——新增 AppSettings 字段若漏在这里，
+  //    patch 会被静默丢弃，表现为「设置项点了没反应 / 开关弹回」（2026-09-16 踩）。
+  if (typeof patch.menubarHistoryEnabled === 'boolean') {
+    config.settings.menubarHistoryEnabled = patch.menubarHistoryEnabled
+  }
+  if (typeof patch.menubarHistoryLabel === 'string') {
+    // 只 trim；空串回落默认、超长截断由 core normalizeConfig 与 Rust normalize_config 负责
+    config.settings.menubarHistoryLabel = patch.menubarHistoryLabel.trim()
+  }
+  if (
+    patch.menubarHistoryMode === 'cumPercent' ||
+    patch.menubarHistoryMode === 'cumAmount' ||
+    patch.menubarHistoryMode === 'holdingAmount'
+  ) {
+    config.settings.menubarHistoryMode = patch.menubarHistoryMode
+  }
   // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
   if (typeof patch.silentStart === 'boolean') {
     config.settings.silentStart = patch.silentStart

@@ -114,6 +114,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarBottomFontSize: 11,
     menubarEqualFontSize: 9,
     menubarShowAmount: false,
+    // 「历史」实例（仅 tauri）：默认关闭。名称/数值档的截断与白名单归一化在 normalizeConfig /
+    // Rust normalize_config 里做；这里给的是「首次启动」与「归一化 fallback」的基准值。
+    menubarHistoryEnabled: false,
+    menubarHistoryLabel: MENUBAR_HISTORY_LABEL_DEFAULT,
+    menubarHistoryMode: MENUBAR_HISTORY_MODE_DEFAULT,
     menubarTopFont: MENUBAR_DEFAULTS.topFont,
     menubarBottomFont: MENUBAR_DEFAULTS.bottomFont,
     menubarTopBold: MENUBAR_DEFAULTS.topBold,
