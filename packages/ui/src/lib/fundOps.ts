@@ -14,11 +14,13 @@ import {
   calcHoldings,
   clampRefreshInterval,
   MAX_SELECTED_INDICES,
+  MENUBAR_DEFAULTS,
   MENUBAR_OVERVIEW_KEY,
   normalizeConfig,
   normalizeFund,
   normalizeMenubarEdgeMargins,
   normalizeMenubarGlobalSide,
+  normalizeMenubarGroupColors,
   normalizeMenubarGroupSides,
   normalizeMenubarItemMargin,
   normalizeNetValueDate,
@@ -687,21 +689,16 @@ export async function updateSettings(
     config.settings.menubarTopColor = patch.menubarTopColor
   }
   if (patch.menubarGroupColors && typeof patch.menubarGroupColors === 'object') {
-    // 整体替换 menubarGroupColors：仅保留 ''(未分组)、总览或现有分组名，value 校验 hex
-    const valid = new Set(config.settings.holdingGroups || [])
-    const next: Record<string, string> = {}
-    for (const [g, color] of Object.entries(patch.menubarGroupColors)) {
-      const key = String(g ?? '').trim()
-      if (typeof color !== 'string') continue
-      const hex = color.trim()
-      if (
-        (key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) &&
-        /^#[0-9a-fA-F]{6}$/.test(hex)
-      ) {
-        next[key] = hex
-      }
-    }
-    config.settings.menubarGroupColors = next
+    // 整体替换 menubarGroupColors：**直接复用 core 白名单**（''/总览/「历史」/现有分组名 + hex 校验），
+    // 与 normalizeConfig、Rust normalize_config 共用同一份 key 规则。
+    // ⚠️ 此处曾经手写白名单且漏了 MENUBAR_HISTORY_KEY → 「历史」第一行自定义色被静默丢弃
+    // （落盘 menubarGroupColors 恒为空对象，第二行因走独立字段而正常）。**勿再手写本白名单**：
+    // 新增固定 key 时只改 core，三处自动同步。
+    config.settings.menubarGroupColors = normalizeMenubarGroupColors(
+      patch.menubarGroupColors,
+      config.settings.holdingGroups || [],
+      MENUBAR_DEFAULTS.topColor,
+    )
   }
   if (
     patch.menubarGroupSides &&

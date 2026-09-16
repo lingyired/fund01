@@ -550,8 +550,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
     let menubar_flat_color = color_of("menubarFlatColor", "#8e8e93");
-    // menubarGroupSides（仅 Windows 生效）：key 限 ''/__overview__/有效分组，value 限 'left'|'right'，
-    // 非法条目直接丢弃（= 回落右侧默认，与 TS normalizeMenubarGroupSides 一致）
+    // menubarGroupSides（仅 Windows 生效）：key 限 ''/__overview__/__history__/有效分组，
+    // value 限 'left'|'right'，非法条目直接丢弃（= 回落右侧默认，与 TS normalizeMenubarGroupSides 一致）
+    // ⚠️ __history__ 必须在内：任务栏「历史」项的左右停靠侧走这一格（补漏，原缺 → 设置静默丢弃）
     let menubar_group_sides: HashMap<String, String> = settings_raw
         .and_then(|s| s.get("menubarGroupSides"))
         .and_then(|v| v.as_object())
@@ -560,7 +561,10 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             for (k, v) in obj {
                 let key = k.trim().to_string();
                 let side = v.as_str().unwrap_or("");
-                if (key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key))
+                if (key.is_empty()
+                    || key == MENUBAR_OVERVIEW_KEY
+                    || key == MENUBAR_HISTORY_KEY
+                    || holding_groups.contains(&key))
                     && (side == "left" || side == "right")
                 {
                     map.insert(key, side.to_string());
@@ -817,5 +821,80 @@ pub fn normalize_menubar_history_valuation(raw: Option<&str>) -> String {
         Some("latest") => "latest".to_string(),
         Some("confirmed") => "confirmed".to_string(),
         _ => MENUBAR_HISTORY_VALUATION_DEFAULT.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造只含 settings 的最小配置（其余字段走默认，与运行时相同入口 normalize_config）
+    fn cfg_with(settings: serde_json::Value) -> AppConfig {
+        normalize_config(&serde_json::json!({ "settings": settings }))
+    }
+
+    /// menubarGroupColors 白名单：''/总览/「历史」/有效分组保留，其余（未定义分组、非法 hex）丢弃。
+    /// ⚠️ 漏 `__history__` → 「历史」第一行自定义色**静默丢失**（TS 手写白名单与 Rust 各踩过一次）。
+    #[test]
+    fn normalize_group_colors_key_whitelist() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarGroupColors": {
+                "__history__": "#3a88fe",
+                "__overview__": "#112233",
+                "": "#445566",
+                "A": "#778899",
+                "B": "#aabbcc"
+            }
+        }));
+        let m = c.settings.menubar_group_colors.unwrap_or_default();
+        assert_eq!(
+            m.get(MENUBAR_HISTORY_KEY).map(String::as_str),
+            Some("#3a88fe")
+        );
+        assert_eq!(
+            m.get(MENUBAR_OVERVIEW_KEY).map(String::as_str),
+            Some("#112233")
+        );
+        assert_eq!(m.get("").map(String::as_str), Some("#445566"));
+        assert_eq!(m.get("A").map(String::as_str), Some("#778899"));
+        // 非现有分组：丢弃
+        assert_eq!(m.get("B"), None);
+        assert_eq!(m.len(), 4);
+    }
+
+    /// menubarGroupSides 白名单同样收录「历史」（任务栏「历史」项左右停靠，
+    /// 补漏前 __history__ 被丢弃 → 设置页切左右没反应）；value 仅 left/right。
+    #[test]
+    fn normalize_group_sides_key_whitelist() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarGroupSides": {
+                "__history__": "left",
+                "__overview__": "right",
+                "A": "left",
+                "B": "left"
+            }
+        }));
+        let m = c.settings.menubar_group_sides.unwrap_or_default();
+        assert_eq!(m.get(MENUBAR_HISTORY_KEY).map(String::as_str), Some("left"));
+        assert_eq!(m.get("A").map(String::as_str), Some("left"));
+        assert_eq!(m.get("B"), None);
+        assert_eq!(m.len(), 3);
+    }
+
+    /// menubarHiddenGroups **不得**收「历史」key：历史项显隐由 menubarHistoryEnabled 独立控制
+    /// （关闭 = 销毁实例），写进来会让「关历史项」与「隐藏分组」两条路径互相干扰。
+    #[test]
+    fn normalize_hidden_groups_rejects_history_key() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarHiddenGroups": ["__history__", "__overview__", "A", ""]
+        }));
+        let v = c.settings.menubar_hidden_groups.unwrap_or_default();
+        assert!(v.contains(&MENUBAR_OVERVIEW_KEY.to_string()));
+        assert!(v.contains(&"A".to_string()));
+        assert!(v.contains(&String::new()));
+        assert!(!v.contains(&MENUBAR_HISTORY_KEY.to_string()));
     }
 }
