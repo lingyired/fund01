@@ -56,7 +56,7 @@ Chrome 与 Tauri **共用同一个版本号**（基线 1.3.0）。任何一次�
 
 ### 语义化版本（SemVer）
 `MAJOR.MINOR.PATCH`：
-- `PATCH`：修复 / 小幅改动，准备 commit/push 时 +1
+- `PATCH`：修复 / 小幅改动（**正式发布时** +1，见「Bump 纪律」）
 - `MINOR`：一个功能或一批相关改动
 - `MAJOR`：保留（预发布阶段暂不使用）
 - 预发布基线已重置为 **1.0.0**（2026-08-18 落地：Chrome 1.2.80→1.0.0、Tauri 1.0.50→1.0.0，无历史包袱，重新计数）
@@ -77,14 +77,18 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 **决策口诀**：打开后「能不能做一件之前做不到的事？」能 → MINOR；不能（只是之前能做的更对 / 更好 / 不崩）→ PATCH。**拿不准默认 PATCH**（保守），等一个功能分支整体做完、想给它一个里程碑时再 MINOR。
 
-**MINOR / PATCH 由 AI agent 在 commit/push 时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；**版本号两端必须一起 +1（统一版本号）**。关键：bump 在「改动完成、准备 commit/push」时一次定，不中途纠结。
+**MINOR / PATCH 由 AI agent 在「正式发布」时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认；**开发周期内不 bump**，见「Bump 纪律」）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；**版本号两端必须一起 +1（统一版本号）**。
 
 **本项目实例参照（分类，具体号随基线重置后重新计数）**：popup 加载态修复 / 涨跌色值微调 / 缓存 bug = PATCH；持仓分组排序、指数 / 市场面板、QDII 夜盘刷新 = MINOR。
 
-### Bump 纪律（统一版本号，2026-08-24 起）
-- **发布版本只在「改动完成、准备 commit/push」时 bump 一次，不在每次中间尝试时 bump。**
-- **任何改动（chrome-only / tauri-only / 共享包）都两端同步 +1**：`apps/chrome/package.json` 与 Tauri 三处（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock` 的 fund01-tauri 条目）必须全部改为同一新版本。
-- 严禁「只 bump 一端」；提交前必须跑 `pnpm check:versions`（已实现两端相等校验）。
+### Bump 纪律（统一版本号，2026-08-24 起；**2026-09-16 修订**）
+- ⚠️ **开发周期内不 bump（2026-09-16 用户定）**：一个功能从开工、commit 到合并 main 都**沿用当前版本号**（现阶段 = `1.6.x`），**不要**在 commit 时顺手 +1。版本号在**正式发布（发 GitHub Release）那一次**统一提升，号段由用户拍板。
+  - 为什么：发布节奏由用户掌握。逐次 bump 会造出一串「开发中版本号」——它们在线上没有任何对应的 Release，与 `lingai.net` 版本检查接口的 `latestVersion` 形成假差异。
+  - CHANGELOG 里未发布的内容挂在 `## 未发布（正式发布时并入 1.6.x）` 标题下；发布时再改写为 `## v<ver> · <date>`。
+  - 例外：用户明确要求 bump（「bump 到 X.Y.Z」「准备发版」）时，照旧执行本文档的 bump 流程。
+- **不 bump ≠ 不校验**：`pnpm check:versions` 仍在 commit 前跑（校验四处**相等**，与「是否变更号」无关）。
+- **bump 发生时，任何改动（chrome-only / tauri-only / 共享包）都两端同步 +1**：`apps/chrome/package.json` 与 Tauri 三处（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock` 的 fund01-tauri 条目）必须全部改为同一新版本。
+- 严禁「只 bump 一端」；bump 后必须跑 `pnpm check:versions`（已实现两端相等校验）。
 
 ### 构建戳（build stamp，已实现）
 - **发布版本不负责「我测的是不是刚编的最新版」——那由构建戳承担。**
