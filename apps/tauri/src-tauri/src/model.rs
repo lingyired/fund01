@@ -105,6 +105,18 @@ pub struct AppSettings {
     /// 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_show_amount: Option<bool>,
+    /// 菜单栏/任务栏「历史」实例总开关（默认 false）。开启后在全部实例最前面增加一项，
+    /// 展示整个组合的累计表现（口径见 menubar_history_mode）。
+    /// 关闭 = 该实例不存在；macOS ⌘-拖出该实例等价于把本项置 false。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_enabled: Option<bool>,
+    /// 「历史」实例的上行名称（默认「历史」）。trim 后空回落默认，超 8 字符截断。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_label: Option<String>,
+    /// 「历史」实例下行数值档：cumPercent(默认)=历史收益涨跌幅 / cumAmount=历史收益额 /
+    /// holdingAmount=当前持仓额。收益两档在未录入成本时回退显示当前持仓额。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_mode: Option<String>,
     /// 菜单栏上行字体族名（macOS font family，默认空=系统字体）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_font: Option<String>,
@@ -188,6 +200,9 @@ impl Default for AppSettings {
             menubar_bottom_font_size: None,
             menubar_equal_font_size: None,
             menubar_show_amount: None,
+            menubar_history_enabled: None,
+            menubar_history_label: None,
+            menubar_history_mode: None,
             menubar_top_font: None,
             menubar_bottom_font: None,
             menubar_top_bold: None,

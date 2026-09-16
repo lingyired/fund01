@@ -762,6 +762,8 @@ export function hasUngroupedHoldings(cfg: AppConfig): boolean {
  *  ⚠️ 判定口径与 Rust `menubar_all_hidden`（apps/tauri/src-tauri/src/menubar.rs）保持一致（两端 1:1 铁律）。
  *  仅 Tauri 有意义；Chrome 端由 useMenubarEmpty 在 supportsMenubar 为假时短路，不走到这里。 */
 export function isMenubarEmpty(cfg: AppConfig): boolean {
+  // 「历史」项开着 → 菜单栏里还有东西，不算全空（与 Rust menubar_all_hidden 第 0 条 1:1 对齐）
+  if (cfg.settings.menubarHistoryEnabled === true) return false
   const hidden = new Set(cfg.settings.menubarHiddenGroups || [])
   if (!hidden.has(MENUBAR_OVERVIEW_KEY)) return false
   for (const g of cfg.settings.holdingGroups || []) {

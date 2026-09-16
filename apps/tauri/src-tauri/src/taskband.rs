@@ -1,5 +1,6 @@
 //! taskband 多实例编排（Windows 任务栏，multiline-taskband 插件）。
-//! 实例 id 与 macOS menubar 完全一致：menubar-overview / menubar-group-{hex} / menubar-ungrouped，
+//! 实例 id 与 macOS menubar 完全一致：menubar-history / menubar-overview /
+//! menubar-group-{hex} / menubar-ungrouped，
 //! 纯逻辑（期望实例集合、涨跌口径、id 编解码）复用 `menubar_common.rs`，本模块只做插件编排。
 //!
 //! # 与 macOS menubar.rs 的差异（务必了解，详见 docs/tauri-plugin-multiline-taskband-适配说明.md）
@@ -31,9 +32,9 @@ use tauri::Manager;
 use tauri_plugin_multiline_taskband::{ColorStyle, MenuItemDescriptor, MultilineTaskbandExt, Side};
 
 use crate::menubar_common::{
-    bottom_text_of, color_for, decode_group_id, desired_instances, instance_label, popup_tab_for,
-    InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT, COLOR_RISE_DEFAULT, COLOR_TOP_DEFAULT,
-    INSTANCE_OVERVIEW,
+    bottom_display, color_for, decode_group_id, desired_instances, instance_label, popup_tab_for,
+    HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT, COLOR_RISE_DEFAULT,
+    COLOR_TOP_DEFAULT, INSTANCE_HISTORY, INSTANCE_OVERVIEW,
 };
 use crate::model::{AppConfig, QuoteUpdate};
 use crate::window::{open_settings_window, show_popup};
@@ -65,10 +66,14 @@ pub fn setup(app: &AppHandle) {
 }
 
 /// 实例 id → 分组 key（menubarGroupSides/menubarGroupColors 同 key 约定）：
-/// 总览 → '__overview__'；未分组 → ''；menubar-group-{hex} → 分组名。
+/// 总览 → '__overview__'；历史 → '__history__'；未分组 → ''；menubar-group-{hex} → 分组名。
+/// ⚠️ `__history__` 只用于上行配色与停靠侧两张表，不写进 menubar_hidden_groups
+/// （历史项显隐由 menubarHistoryEnabled 独立控制，见 menubar_common::INSTANCE_HISTORY）。
 fn group_key_of(id: &str) -> Option<String> {
     if id == INSTANCE_OVERVIEW {
         Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+    } else if id == INSTANCE_HISTORY {
+        Some(crate::portfolio::MENUBAR_HISTORY_KEY.to_string())
     } else if id == "menubar-ungrouped" {
         Some(String::new())
     } else {
@@ -312,11 +317,10 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         .clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）。
     // 隐私模式（privacy_mode）下强制百分比（不暴露绝对金额），忽略用户设置的收益额偏好。
-    let show_amount = if config.settings.privacy_mode.unwrap_or(false) {
-        false
-    } else {
-        config.settings.menubar_show_amount.unwrap_or(false)
-    };
+    let privacy = config.settings.privacy_mode.unwrap_or(false);
+    let show_amount = !privacy && config.settings.menubar_show_amount.unwrap_or(false);
+    // 「历史」实例下行数值档（cumPercent / cumAmount / holdingAmount），与 macOS 同源解析
+    let history_mode = HistoryMode::parse(config.settings.menubar_history_mode.as_deref());
     // 颜色：下行按涨跌（涨色/跌色/平色均可配置）；上行颜色解析链见 top_color_style
     let rise_color = config
         .settings
@@ -340,7 +344,7 @@ pub fn update_taskbar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         let _ = app.multiline_taskband().set_text(
             spec.id.clone(),
             spec.top.clone(),
-            bottom_text_of(spec, show_amount),
+            bottom_display(spec, show_amount, privacy, history_mode).text,
         );
     }
     apply_taskband_style(app, &config, &desired);
@@ -383,26 +387,33 @@ fn top_color_style(config: &AppConfig, id: &str) -> ColorStyle {
 }
 
 /// 对单个实例下发颜色（⚠️ 插件无 set_tooltip，跳过 macOS 的 tooltip 步骤）。
+///
+/// 下行配色由 `bottom_display` 返回的 `signed` 决定：`Some(v)` → 涨跌色；
+/// `None` → **跟随上行色**（「历史」实例的当前持仓额档与无成本回退行，无涨跌语义）。
+#[allow(clippy::too_many_arguments)]
 fn apply_colors_one(
     config: &AppConfig,
     spec: &InstanceSpec,
     show_amount: bool,
+    privacy: bool,
+    history_mode: HistoryMode,
     rise: &str,
     fall: &str,
     flat: &str,
     app: &AppHandle,
 ) {
-    let color = if show_amount {
-        color_for(spec.amount, rise, fall, flat)
-    } else {
-        color_for(spec.pct, rise, fall, flat)
+    let bottom = bottom_display(spec, show_amount, privacy, history_mode);
+    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid；
+    // 无涨跌语义的行直接复用同一份上行 ColorStyle，深浅色模式自适应
+    let bottom_style = match bottom.signed {
+        Some(v) => ColorStyle::Solid {
+            value: color_for(v, rise, fall, flat),
+        },
+        None => top_color_style(config, &spec.id),
     };
-    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid
-    let _ = app.multiline_taskband().set_colors(
-        spec.id.clone(),
-        top_color_style(config, &spec.id),
-        ColorStyle::Solid { value: color },
-    );
+    let _ = app
+        .multiline_taskband()
+        .set_colors(spec.id.clone(), top_color_style(config, &spec.id), bottom_style);
 }
 
 /// 菜单事件分发（实例右键菜单 + 托盘菜单共用）。
@@ -439,9 +450,17 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
 /// 持久化 + 广播 config-change（设置页开关实时同步置灰），再 rebuild 收敛显隐——
 /// 该实例在 desired 里变 visible=false → set_visible(false)，实例保留、重新勾选原位复活
 /// （对齐 macOS ⌘-拖出的处理路径 menubar.rs::ensure_remove_listener）。
+///
+/// 「历史」项例外：Windows 无 ⌘-拖出通道，右键「隐藏」= **关闭该功能**
+/// （写 menubar_history_enabled=false，实例随之销毁），与设置页开关等价。
 fn hide_group_from_menu(app: &AppHandle, id: &str) {
     // 总览恒显不可隐藏（与设置页一致；菜单层已不挂该项，此处防御性兜底）
     if id == INSTANCE_OVERVIEW {
+        return;
+    }
+    // 「历史」：不能把 __history__ 写进 menubar_hidden_groups（它不是隐藏 key），走独立通道
+    if id == INSTANCE_HISTORY {
+        hide_history_from_menu(app);
         return;
     }
     let Some(group) = group_key_of(id) else {
@@ -464,6 +483,29 @@ fn hide_group_from_menu(app: &AppHandle, id: &str) {
     crate::commands::persist_config(app, &snapshot);
     rebuild_taskbar(app, &snapshot, quote.as_ref());
     eprintln!("[fund01] 右键菜单「隐藏」→ 分组「{group}」已隐藏（menubarHiddenGroups 已同步）");
+}
+
+/// 「历史」实例被右键「隐藏」→ 等价于在设置页关闭该项（写 `menubarHistoryEnabled = false`）。
+///
+/// ⚠️ 与分组的「隐藏 = 写 menubarHiddenGroups、实例保留」不同：历史项的显隐状态本身持久化在
+/// 设置项里（`desired_instances` 据此决定实例存在与否），所以隐藏就是关功能——实例会被
+/// `sync_instances` 真正 remove，设置页开关随 config-change 实时同步为关闭。
+/// Windows 无 ⌘-拖出通道，本函数是该平台右键关闭它的唯一入口（对齐 macOS
+/// menubar.rs::hide_history_from_menu）。
+fn hide_history_from_menu(app: &AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let snapshot = {
+        let mut cfg = state.config.write().unwrap();
+        if !cfg.settings.menubar_history_enabled.unwrap_or(false) {
+            return;
+        }
+        cfg.settings.menubar_history_enabled = Some(false);
+        cfg.clone()
+    };
+    let quote = state.quote.read().unwrap().clone();
+    crate::commands::persist_config(app, &snapshot);
+    rebuild_taskbar(app, &snapshot, quote.as_ref());
+    eprintln!("[fund01] 右键隐藏 → 「历史」项已关闭（menubarHistoryEnabled=false 已同步）");
 }
 
 /// 供 refresh 后调用（避免与 config 锁死）

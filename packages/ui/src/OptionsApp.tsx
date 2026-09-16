@@ -46,6 +46,7 @@ import type {
   MenubarAlign,
   MenubarGlobalSide,
   MenubarGroupSide,
+  MenubarHistoryMode,
   MenubarLayout,
   QuoteSource,
   ResolveFundResult,
@@ -58,6 +59,9 @@ import {
   MENUBAR_DEFAULTS,
   MENUBAR_EDGE_MARGINS_MAX,
   MENUBAR_FONT_RANGES,
+  MENUBAR_HISTORY_KEY,
+  MENUBAR_HISTORY_LABEL_DEFAULT,
+  MENUBAR_HISTORY_MODE_DEFAULT,
   MENUBAR_ITEM_MARGIN_DEFAULT,
   MENUBAR_ITEM_MARGIN_MAX,
   MENUBAR_OVERVIEW_KEY,
@@ -734,7 +738,7 @@ function GeneralSection({
         <div className="min-w-0">
           <div className="text-sm font-medium text-ink">隐私模式</div>
           <p className="text-xs text-muted">
-            开启后 popup 中所有金额（当日收益、持有收益、持仓金额）显示为 ****，只显示涨跌百分比；工具栏角标、菜单栏、分组收益详情也会强制显示百分比。仅影响显示，不影响数据计算。
+            开启后 popup 中所有金额（当日收益、持有收益、持仓金额）显示为 ****，只显示涨跌百分比；工具栏角标、菜单栏、分组收益详情也会强制显示百分比（菜单栏/任务栏「历史」项改为显示历史收益涨跌幅，该档选「当前持仓额」时显示 ****）。仅影响显示，不影响数据计算。
           </p>
         </div>
         <Switch
@@ -2919,7 +2923,7 @@ function DataDocsSection() {
             <b className="text-ink">隐私模式</b>是一个只看百分比、不看金额的显示开关：开启后，所有金额数字都会被隐藏——单只基金和分组的持仓金额、当日收益额、持有收益额，在 popup 里都会显示为 <b className="text-ink">****</b>。
           </p>
           <p>
-            同时，工具栏角标、菜单栏文字、分组收益详情也会统一改为<b className="text-ink">只显示涨跌百分比</b>，不再显示金额。
+            同时，工具栏角标、菜单栏文字、分组收益详情也会统一改为<b className="text-ink">只显示涨跌百分比</b>，不再显示金额。菜单栏/任务栏的「历史」项若选的是「历史收益额」，会自动改为显示历史收益涨跌幅；若选的是「当前持仓额」，则显示为 <b className="text-ink">****</b>。
           </p>
           <p>
             隐私模式<b className="text-ink">只影响显示，不影响数据</b>：计算、刷新、净值走势都照常进行，关闭后金额立即恢复显示。适合在容易被旁人看到屏幕的场合（如工位、地铁）保护持仓隐私。
@@ -3544,6 +3548,11 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
   const [bottom, setBottom] = useState(12)
   const [equal, setEqual] = useState(9)
   const [showAmount, setShowAmount] = useState(false)
+  // 「历史」项（仅 tauri）：总开关 / 上行名称草稿 / 下行数值档。
+  // 开关与名称、数值档分开保存：名称用草稿（失焦或回车才提交，避免每按键触发后端刷新）。
+  const [historyEnabled, setHistoryEnabled] = useState(false)
+  const [historyLabelDraft, setHistoryLabelDraft] = useState(MENUBAR_HISTORY_LABEL_DEFAULT)
+  const [historyMode, setHistoryMode] = useState<MenubarHistoryMode>(MENUBAR_HISTORY_MODE_DEFAULT)
   const [hasUngrouped, setHasUngrouped] = useState(false)
   const [topFont, setTopFont] = useState(MENUBAR_DEFAULTS.topFont)
   const [bottomFont, setBottomFont] = useState(MENUBAR_DEFAULTS.bottomFont)
@@ -3581,6 +3590,10 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     setShowAmount(s.menubarShowAmount === true)
+    // 「历史」项（仅 tauri）：开关 / 上行名称 / 下行数值档
+    setHistoryEnabled(s.menubarHistoryEnabled === true)
+    setHistoryLabelDraft(s.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+    setHistoryMode(s.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
     setTopFont(s.menubarTopFont ?? '')
     setBottomFont(s.menubarBottomFont ?? '')
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
@@ -3627,6 +3640,12 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
       hiddenRef.current = h
       setHidden(h)
       setGroups(listHoldingGroups(ports))
+      // 「历史」项：macOS ⌘-拖出（或右键「隐藏」）会在 Rust 侧把 menubarHistoryEnabled 置 false
+      // 并广播 config-change，这里同步回显——否则设置页开关会停在「已开启」而与菜单栏不符。
+      // 名称同理：后端归一化（trim / 截断 / 空串回落默认）后可能与本框输入不同，以配置为准。
+      setHistoryEnabled(cfg.settings?.menubarHistoryEnabled === true)
+      setHistoryLabelDraft(cfg.settings?.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+      setHistoryMode(cfg.settings?.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
     })
   }, [ports])
 
@@ -3683,6 +3702,41 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     setShowAmount(next)
     try {
       await updateSettings(ports, {menubarShowAmount: next})
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项总开关：即时保存。macOS 侧 ⌘-拖出 / 右键「隐藏」也会写该字段，
+   *  由 onConfigChange 同步回显（这里也以保存回包为准，保持 UI 与后端一致）。 */
+  async function handleHistoryEnabled(next: boolean) {
+    setHistoryEnabled(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryEnabled: next})
+      setHistoryEnabled(saved.menubarHistoryEnabled === true)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项上行名称：失焦/回车才提交（避免每按键触发后端刷新）。
+   *  后端归一化（trim / 超长截断 / 空串回落「历史」）后的值回显到输入框。 */
+  async function commitHistoryLabel(v: string) {
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryLabel: v.trim()})
+      setHistoryLabelDraft(saved.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项下行数值档：即时保存 */
+  async function handleHistoryModeChange(v: string) {
+    const next = v as MenubarHistoryMode
+    setHistoryMode(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryMode: next})
+      setHistoryMode(saved.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
     } catch {
       /* ignore */
     }
@@ -3912,6 +3966,111 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
           <SegmentedControl.Item value="percent">收益率</SegmentedControl.Item>
           <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
         </SegmentedControl.Root>
+      </div>
+
+      {/* 历史项（仅 tauri）：可选的全局实例，排在最前 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-ink">历史项</div>
+            <p className="mt-1 text-xs text-muted">
+              在{display}最前面增加一项，展示全部持仓的累计表现（口径与「总览」一致）：
+              历史收益涨跌幅、历史收益额或当前持仓额，三档任选。未录入成本的持仓不计入历史收益，
+              此时该档自动改为显示当前持仓额。
+            </p>
+          </div>
+          <Switch radius="full"
+            checked={historyEnabled}
+            disabled={saving}
+            onCheckedChange={(c) => void handleHistoryEnabled(c)}
+            aria-label="显示/隐藏历史项"
+          />
+        </div>
+        {historyEnabled ? (
+          <div className="space-y-3 rounded-md border border-line/50 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">名称</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  第一行文字，最多 8 个字；留空则用「{MENUBAR_HISTORY_LABEL_DEFAULT}」。
+                </div>
+              </div>
+              <TextField.Root
+                type="text"
+                value={historyLabelDraft}
+                maxLength={8}
+                disabled={saving}
+                onChange={(e) => setHistoryLabelDraft(e.target.value)}
+                onBlur={(e) => void commitHistoryLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+                className="w-28"
+                aria-label="历史项名称"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">第二行数值</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  历史收益 = 当前市值 − 已录入成本；当前持仓额与 popup 汇总口径一致。隐私模式下收益额档改显示涨跌幅、持仓额档显示 ****。
+                </div>
+              </div>
+              <SegmentedControl.Root
+                value={historyMode}
+                onValueChange={(v) => void handleHistoryModeChange(v)}
+              >
+                <SegmentedControl.Item value="cumPercent">历史涨跌幅</SegmentedControl.Item>
+                <SegmentedControl.Item value="cumAmount">历史收益额</SegmentedControl.Item>
+                <SegmentedControl.Item value="holdingAmount">当前持仓额</SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">第一行颜色</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  未开启则跟随全局上行颜色（全局也未自定义时跟随系统{isWindows ? '任务栏' : '菜单栏'}文字色，深浅色自适应）。选「当前持仓额」档时，第二行数值也跟随该颜色。
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={groupColors[MENUBAR_HISTORY_KEY] ?? topColor}
+                  disabled={!groupColors[MENUBAR_HISTORY_KEY] || saving}
+                  onChange={(e) => void commitGroupColor(MENUBAR_HISTORY_KEY, e.target.value)}
+                  aria-label="历史项 上行颜色"
+                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                  style={{opacity: groupColors[MENUBAR_HISTORY_KEY] ? 1 : 0.3}}
+                />
+                <Switch radius="full"
+                  checked={!!groupColors[MENUBAR_HISTORY_KEY]}
+                  disabled={saving}
+                  onCheckedChange={(c) => void toggleGroupColor(MENUBAR_HISTORY_KEY, c)}
+                  aria-label="历史项 自定义颜色"
+                />
+              </div>
+            </div>
+            {isWindows ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-ink-soft leading-none">位置</div>
+                  <div className="mt-1 text-[11px] text-muted">
+                    停靠任务栏左侧（靠近开始按钮）或右侧（靠近通知区域）；受「全局停靠」覆盖。
+                  </div>
+                </div>
+                <SegmentedControl.Root
+                  value={groupSides[MENUBAR_HISTORY_KEY] ?? 'right'}
+                  onValueChange={(v) =>
+                    void commitGroupSide(MENUBAR_HISTORY_KEY, v as MenubarGroupSide)
+                  }
+                >
+                  <SegmentedControl.Item value="left">左侧</SegmentedControl.Item>
+                  <SegmentedControl.Item value="right">右侧</SegmentedControl.Item>
+                </SegmentedControl.Root>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* 分组显示 */}

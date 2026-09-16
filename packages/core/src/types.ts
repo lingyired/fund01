@@ -194,6 +194,12 @@ export type MenubarGlobalSide = 'follow' | 'left' | 'right'
 /** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
 export type HoldingsNavPosition = 'top' | 'side'
 
+/**
+ * 菜单栏/任务栏「历史」实例的下行数值档（仅 tauri 生效）：
+ * cumPercent=历史收益涨跌幅（累计收益率）、cumAmount=历史收益额、holdingAmount=当前持仓额。
+ */
+export type MenubarHistoryMode = 'cumPercent' | 'cumAmount' | 'holdingAmount'
+
 export type AppSettings = {
   /** 定时刷新间隔配置（秒） */
   refreshInterval?: RefreshInterval
@@ -249,6 +255,23 @@ export type AppSettings = {
   menubarEqualFontSize?: number
   /** 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）。仅 tauri 生效 */
   menubarShowAmount?: boolean
+  /**
+   * 菜单栏/任务栏「历史」实例总开关（默认 false）。仅 tauri 生效。
+   * 开启后在全部实例最前面增加一项，展示整个组合的累计表现（口径见 menubarHistoryMode）。
+   * 关闭 = 该实例不存在；macOS ⌘-拖出该实例等价于把本项置 false。
+   */
+  menubarHistoryEnabled?: boolean
+  /**
+   * 「历史」实例的上行名称（默认「历史」）。仅 tauri 生效。
+   * trim 后为空回落默认值；超过 8 个字符截断（菜单栏横向空间有限）。
+   */
+  menubarHistoryLabel?: string
+  /**
+   * 「历史」实例的下行数值档（默认 cumPercent）。仅 tauri 生效。
+   * 历史收益涨跌幅 / 历史收益额 二档在未录入成本（算不出累计收益）时回退显示当前持仓额；
+   * 隐私模式下收益额档降级为涨跌幅档、持仓额档显示 ****。
+   */
+  menubarHistoryMode?: MenubarHistoryMode
   /** 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串/缺省=系统字体。仅 tauri 生效 */
   menubarTopFont?: string
   /** 菜单栏下行字体族名（macOS font family，如 Menlo）。空串/缺省=系统字体。仅 tauri 生效 */

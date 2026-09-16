@@ -46,6 +46,9 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_font_size: Some(11.0),
             menubar_equal_font_size: Some(9.0),
             menubar_show_amount: Some(false),
+            menubar_history_enabled: Some(false),
+            menubar_history_label: Some(MENUBAR_HISTORY_LABEL_DEFAULT.to_string()),
+            menubar_history_mode: Some(MENUBAR_HISTORY_MODE_DEFAULT.to_string()),
             menubar_top_font: Some(String::new()),
             menubar_bottom_font: Some(String::new()),
             menubar_top_bold: Some(false),
@@ -454,6 +457,21 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_show_amount = settings_raw
         .and_then(|s| s.get("menubarShowAmount").and_then(|v| v.as_bool()))
         .unwrap_or(false);
+    // 「历史」实例（仅 tauri）：开关 / 上行名称 / 下行数值档。
+    // ⚠️ 三项必须接入本重建对象——否则任何设置保存全量落盘时会把已保存值过滤成默认
+    //（表现为「开启历史项后改其它设置，历史项回落关闭」）。
+    let menubar_history_enabled = settings_raw
+        .and_then(|s| {
+            s.get("menubarHistoryEnabled")
+                .and_then(|v| v.as_bool())
+        })
+        .unwrap_or(false);
+    let menubar_history_label = normalize_menubar_history_label(
+        settings_raw.and_then(|s| s.get("menubarHistoryLabel").and_then(|v| v.as_str())),
+    );
+    let menubar_history_mode = normalize_menubar_history_mode(
+        settings_raw.and_then(|s| s.get("menubarHistoryMode").and_then(|v| v.as_str())),
+    );
     // 菜单栏展示自定义项：字体（trim，空串=系统字体）、加粗（bool）、颜色（#rrggbb hex，非法回落默认）
     let font_of = |key: &str, d: &str| {
         settings_raw
@@ -491,6 +509,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_top_align = align_of("menubarTopAlign");
     let menubar_bottom_align = align_of("menubarBottomAlign");
     let menubar_top_color = color_of("menubarTopColor", "#ffffff");
+    // menubarGroupColors（含总览/历史固定 key 与各分组）：key 限 ''/__overview__/__history__/有效分组，
+    // value 限合法 hex，非法条目直接丢弃（与 TS normalizeMenubarGroupColors 一致）
     let menubar_group_colors: HashMap<String, String> = settings_raw
         .and_then(|s| s.get("menubarGroupColors"))
         .and_then(|v| v.as_object())
@@ -498,7 +518,11 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             let mut map = HashMap::new();
             for (k, v) in obj {
                 let key = k.trim().to_string();
-                if key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key) {
+                if key.is_empty()
+                    || key == MENUBAR_OVERVIEW_KEY
+                    || key == MENUBAR_HISTORY_KEY
+                    || holding_groups.contains(&key)
+                {
                     if let Some(hex) = v
                         .as_str()
                         .map(|s| s.trim().to_string())
@@ -676,6 +700,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_bottom_font_size: Some(menubar_bottom_font_size),
             menubar_equal_font_size: Some(menubar_equal_font_size),
             menubar_show_amount: Some(menubar_show_amount),
+            menubar_history_enabled: Some(menubar_history_enabled),
+            menubar_history_label: Some(menubar_history_label),
+            menubar_history_mode: Some(menubar_history_mode),
             menubar_top_font: Some(menubar_top_font),
             menubar_bottom_font: Some(menubar_bottom_font),
             menubar_top_bold: Some(menubar_top_bold),
@@ -705,3 +732,35 @@ fn is_hex_color(s: &str) -> bool {
 
 /// 总览实例在 menubarGroupColors 中的固定 key（与 TS MENUBAR_OVERVIEW_KEY 对应）
 pub const MENUBAR_OVERVIEW_KEY: &str = "__overview__";
+
+/// 「历史」实例在 menubarGroupColors / menubarGroupSides 中的固定 key
+/// （与 TS MENUBAR_HISTORY_KEY 对应）。
+/// ⚠️ 只用于「上行自定义色」与「任务栏停靠侧」两张表；**不**写进 menubar_hidden_groups
+/// ——历史项的显隐由 menubar_history_enabled 独立控制（⌘-拖出 = 置 false）。
+pub const MENUBAR_HISTORY_KEY: &str = "__history__";
+
+/// 「历史」实例上行名称默认值（与 TS MENUBAR_HISTORY_LABEL_DEFAULT 一致）
+pub const MENUBAR_HISTORY_LABEL_DEFAULT: &str = "历史";
+/// 「历史」实例上行名称最大字符数（超出截断，与 TS MENUBAR_HISTORY_LABEL_MAX 一致）
+pub const MENUBAR_HISTORY_LABEL_MAX: usize = 8;
+/// 「历史」实例下行数值档默认值（与 TS MENUBAR_HISTORY_MODE_DEFAULT 一致）
+pub const MENUBAR_HISTORY_MODE_DEFAULT: &str = "cumPercent";
+
+/// 归一化「历史」实例上行名称：trim → 空回落默认 → 超长按字符截断（与 TS 口径一致）
+pub fn normalize_menubar_history_label(raw: Option<&str>) -> String {
+    let s = raw.unwrap_or("").trim();
+    if s.is_empty() {
+        return MENUBAR_HISTORY_LABEL_DEFAULT.to_string();
+    }
+    s.chars().take(MENUBAR_HISTORY_LABEL_MAX).collect()
+}
+
+/// 归一化「历史」实例下行数值档：仅接受三档字面量，非法/缺省回落默认（与 TS 口径一致）
+pub fn normalize_menubar_history_mode(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some("cumPercent") => "cumPercent".to_string(),
+        Some("cumAmount") => "cumAmount".to_string(),
+        Some("holdingAmount") => "holdingAmount".to_string(),
+        _ => MENUBAR_HISTORY_MODE_DEFAULT.to_string(),
+    }
+}

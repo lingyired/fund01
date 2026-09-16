@@ -12,6 +12,16 @@ use crate::model::{AppConfig, FundQuoteRow, QuoteUpdate};
 
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
 
+/// 「历史」实例 id（**可选实例**：由 `menubarHistoryEnabled` 决定存在与否）。
+/// ⚠️ 与总览「恒在、只翻 visible」的策略不同——历史项的开关状态本身持久化在设置里，
+/// 关闭即从 `desired_instances` 消失并被 `sync_instances` 真正销毁，无需靠实例存活保留位置。
+pub const INSTANCE_HISTORY: &str = "menubar-history";
+
+/// 历史实例「快照未就绪」时的下行占位文本（首次刷新前还没有 summary）
+pub const BOTTOM_PLACEHOLDER: &str = "-";
+/// 隐私模式下「当前持仓额」档的遮罩文本（金额档无百分比等价物，直接打码；与 popup 口径一致）
+pub const BOTTOM_MASKED: &str = "****";
+
 pub const COLOR_RISE_DEFAULT: &str = "#FF4F44"; // 涨/红（默认，可配置 menubarRiseColor）
 pub const COLOR_FALL_DEFAULT: &str = "#34C759"; // 跌/绿（默认，可配置 menubarFallColor）
 pub const COLOR_FLAT_DEFAULT: &str = "#8e8e93"; // 平/灰（默认，可配置 menubarFlatColor）
@@ -62,8 +72,73 @@ pub(crate) fn format_amount(v: f64) -> String {
     }
 }
 
+/// 持仓额显示（菜单栏/任务栏专用**第 5 套**格式化，与既有四套互斥隔离、勿混用：
+/// `menubar_common::format_amount`=带方向符号的收益额、`format.rs::format_short_amount`=badge 简写、
+/// `format.ts`=Dock badge、`packages/core/format.ts`=第 4 套）。
+///
+/// 规则：**无 +/- 方向前缀**（持仓额没有涨跌语义）；绝对值 ≥ 10 万用 `w`（万）缩写、
+/// 最多 1 位小数（整数不带小数）；否则四舍五入到整数。市值恒非负，负数按绝对值兜底。
+pub(crate) fn format_holding_amount(v: f64) -> String {
+    if !v.is_finite() {
+        return "0".to_string();
+    }
+    let abs = v.abs();
+    if abs >= 1e5 {
+        let n = abs / 1e4;
+        let is_int = (n - n.round()).abs() < 1e-9;
+        if is_int {
+            format!("{n:.0}w")
+        } else {
+            format!("{n:.1}w")
+        }
+    } else {
+        format!("{}", abs.round())
+    }
+}
+
 /// 行情行索引：code → quote 行（分组归属与份额以最新 config 为准，此处只取行情数值）
 type QuoteRows<'a> = HashMap<&'a str, &'a FundQuoteRow>;
+
+/// 「历史」实例下行数值档（对应设置 `menubarHistoryMode`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryMode {
+    /// 历史收益涨跌幅（累计收益率）
+    CumPercent,
+    /// 历史收益额
+    CumAmount,
+    /// 当前持仓额
+    HoldingAmount,
+}
+
+impl HistoryMode {
+    /// 解析设置字符串：非法/缺省回落 CumPercent（与 TS `normalizeMenubarHistoryMode` 口径一致）
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim) {
+            Some("cumAmount") => Self::CumAmount,
+            Some("holdingAmount") => Self::HoldingAmount,
+            _ => Self::CumPercent,
+        }
+    }
+}
+
+/// 实例下行的数值语义（决定取值来源与配色依据）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BottomKind {
+    /// 当日收益（总览 / 各分组 / 未分组）：受 `menubarShowAmount` 切换百分比↔金额，恒用涨跌色
+    DayPnl,
+    /// 历史累计（可选实例）：受 `menubarHistoryMode` 切换三档；
+    /// 收益两档用涨跌色，「当前持仓额」及其回退用跟随上行色
+    History,
+}
+
+/// 下行渲染结果：文本 + 配色依据。
+#[derive(Debug, Clone, PartialEq)]
+pub struct BottomDisplay {
+    pub text: String,
+    /// `Some(v)` → 按 v 取涨跌色（正=涨色 / 负=跌色 / 零=平色）；
+    /// `None` → 无涨跌语义，**跟随上行色**（`top_color_style` 解析链）
+    pub signed: Option<f64>,
+}
 
 fn quote_rows(quote: Option<&QuoteUpdate>) -> QuoteRows<'_> {
     quote
@@ -138,6 +213,7 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
 /// menubar/taskbar 是否全空（所有实例都被隐藏，用户把每个分组都移出了显示）。
 ///
 /// 判定（只依赖 config，与行情无关）：
+/// 0. 「历史」实例开着（`menubarHistoryEnabled`）→ 菜单栏必然非空；
 /// 1. 总览（`__overview__`）被隐藏——设置页无法关闭总览，只有 macOS ⌘-拖出会写入该标记
 ///    （Windows 无拖出通道，本判定恒 false，启动恢复逻辑在 Windows 上自然不触发）；
 /// 2. 每个持仓分组都在 `menubar_hidden_groups`；
@@ -146,6 +222,10 @@ fn has_ungrouped(config: &AppConfig, groups: &[String]) -> bool {
 /// ⚠️ 判定口径与前端 `isMenubarEmpty`（packages/ui/src/lib/fundOps.ts）保持一致（两端 1:1 铁律）。
 /// 调用场景：⌘-拖出最后一个实例后自动弹 popup-tab；窗口 Destroyed 后全空即退出；启动时全空恢复默认。
 pub fn menubar_all_hidden(config: &AppConfig) -> bool {
+    // 0. 历史项开着 → 菜单栏里还有东西，不算全空
+    if config.settings.menubar_history_enabled.unwrap_or(false) {
+        return false;
+    }
     let groups = config.settings.holding_groups.clone().unwrap_or_default();
     let hidden = config
         .settings
@@ -213,14 +293,40 @@ fn hex_val(c: u8) -> Option<u8> {
 /// - 不在列表里                 → 实例不该存在，`sync_instances` 才会真正 `remove` 销毁
 pub struct InstanceSpec {
     pub id: String,
-    /// 顶行文字（总览 / 分组名 / 未分组）
+    /// 顶行文字（历史 / 总览 / 分组名 / 未分组）
     pub top: String,
-    /// 涨跌百分比
+    /// 下行数值语义（当日收益 / 历史累计）
+    pub kind: BottomKind,
+    /// 当日收益涨跌百分比（`kind=DayPnl` 时用）
     pub pct: f64,
-    /// 收益额
+    /// 当日收益额（`kind=DayPnl` 时用）
     pub amount: f64,
+    /// 历史收益额（`kind=History`；`None` = 未录入成本，算不出累计收益）
+    pub cum_amount: Option<f64>,
+    /// 历史收益涨跌幅（`kind=History`；`None` 同上）
+    pub cum_pct: Option<f64>,
+    /// 当前持仓额（`kind=History`；`None` = 行情快照尚未就绪）。
+    /// 口径 = summary.total_amount，与 popup 顶部「持仓金额」一致；也是收益档无成本时的回退值
+    pub holding_amount: Option<f64>,
     /// 是否显示（false = 隐藏但保留实例）
     pub visible: bool,
+}
+
+impl InstanceSpec {
+    /// 构造「当日收益」类实例（总览 / 分组 / 未分组）
+    fn day_pnl(id: String, top: String, pct: f64, amount: f64, visible: bool) -> Self {
+        Self {
+            id,
+            top,
+            kind: BottomKind::DayPnl,
+            pct,
+            amount,
+            cum_amount: None,
+            cum_pct: None,
+            holding_amount: None,
+            visible,
+        }
+    }
 }
 
 /// 计算期望实例列表。
@@ -229,8 +335,12 @@ pub struct InstanceSpec {
 /// 销毁，开关分组不会丢失位置。只有「分组被删除/重命名」「未分组持仓清空」才会让
 /// 对应 id 从列表里消失，进而被 `sync_instances` 真正 remove。
 ///
+/// ⚠️ 例外：**「历史」实例**（`menubarHistoryEnabled`）关闭时不在列表里，会被真正销毁——
+/// 它的显隐状态持久化在设置项里，不需要靠实例存活保留位置（详见 INSTANCE_HISTORY 注释）。
+///
 /// 实例集合（分组归属/未分组判定）与份额一律以最新 config 为权威，行情仅取 quote。
-/// 顺序（同时是 Windows 任务栏 set_order 的依据）：总览 → 各分组（holdingGroups 顺序）→ 未分组。
+/// 顺序（同时是 Windows 任务栏 set_order 的依据，也是 macOS 首次创建的顺序）：
+/// 历史 → 总览 → 各分组（holdingGroups 顺序）→ 未分组。
 pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec<InstanceSpec> {
     let groups = config.settings.holding_groups.clone().unwrap_or_default();
     let hidden = config
@@ -244,51 +354,69 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
     let overview = quote
         .and_then(|q| q.holdings.as_ref())
         .map(|h| h.summary.clone());
+
+    // 「历史」实例（可选，排在最前）：整体组合的累计表现。
+    // 三档取数见 bottom_display：历史收益额/涨跌幅取自 summary.total_cum_pnl(_percent)，
+    // 当前持仓额取自 summary.total_amount（与 popup 汇总同口径，已按 overviewExcludedGroups 聚合）。
+    // 快照未就绪（quote=None）时 cum_* / holding_amount 均为 None → 下行显示占位符。
+    if config.settings.menubar_history_enabled.unwrap_or(false) {
+        out.push(InstanceSpec {
+            id: INSTANCE_HISTORY.to_string(),
+            top: crate::portfolio::normalize_menubar_history_label(
+                config.settings.menubar_history_label.as_deref(),
+            ),
+            kind: BottomKind::History,
+            pct: 0.0,
+            amount: 0.0,
+            cum_amount: overview.as_ref().and_then(|s| s.total_cum_pnl),
+            cum_pct: overview.as_ref().and_then(|s| s.total_cum_pnl_percent),
+            holding_amount: overview.as_ref().map(|s| s.total_amount),
+            visible: true,
+        });
+    }
+
     // 总览恒在（实例不销毁）；默认恒显示，但被用户 ⌘-拖出（写入 __overview__ 隐藏标记）后
     // visible=false——设置界面据此解锁总览为可重新开启，开启后恢复恒显。
     let overview_hidden = hidden
         .iter()
         .any(|h| h == crate::portfolio::MENUBAR_OVERVIEW_KEY);
-    out.push(InstanceSpec {
-        id: INSTANCE_OVERVIEW.to_string(),
-        top: "总览".to_string(),
-        pct: overview
-            .as_ref()
-            .map(|s| s.total_pnl_percent)
-            .unwrap_or(0.0),
-        amount: overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0),
-        visible: !overview_hidden,
-    });
+    out.push(InstanceSpec::day_pnl(
+        INSTANCE_OVERVIEW.to_string(),
+        "总览".to_string(),
+        overview.as_ref().map(|s| s.total_pnl_percent).unwrap_or(0.0),
+        overview.as_ref().map(|s| s.total_pnl).unwrap_or(0.0),
+        !overview_hidden,
+    ));
 
     // 每个分组一个实例：隐藏的分组**照样进列表**，只是 visible=false。
     // 实例 id 基于分组名（稳定）：持仓分组拖拽排序只改 holding_groups 顺序、不改 id，
     // 实例既不重建也不销毁 → 菜单栏位置（含 mac 原生 ⌘-拖拽结果）完整保留。
     for g in &groups {
-        out.push(InstanceSpec {
-            id: format!("menubar-group-{}", encode_group_id(g)),
-            top: g.clone(),
-            pct: group_percent(config, &rows, g),
-            amount: group_pnl(config, &rows, g),
-            visible: !hidden.iter().any(|h| h == g),
-        });
+        out.push(InstanceSpec::day_pnl(
+            format!("menubar-group-{}", encode_group_id(g)),
+            g.clone(),
+            group_percent(config, &rows, g),
+            group_pnl(config, &rows, g),
+            !hidden.iter().any(|h| h == g),
+        ));
     }
     // 未分组实例只在「确实存在未分组持仓」时才存在；隐藏同样只翻 visible
     if has_ungrouped(config, &groups) {
-        out.push(InstanceSpec {
-            id: "menubar-ungrouped".to_string(),
-            top: "未分组".to_string(),
-            pct: group_percent(config, &rows, ""),
-            amount: group_pnl(config, &rows, ""),
-            visible: !hidden.iter().any(|h| h.is_empty()),
-        });
+        out.push(InstanceSpec::day_pnl(
+            "menubar-ungrouped".to_string(),
+            "未分组".to_string(),
+            group_percent(config, &rows, ""),
+            group_pnl(config, &rows, ""),
+            !hidden.iter().any(|h| h.is_empty()),
+        ));
     }
     out
 }
 
 /// 点击实例 id → popup 分组 tab id（与前端 GroupTabs 的 tab id 对齐）：
-/// 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{enc} → 解码出的分组名。
+/// 历史 / 总览 → 'all'；未分组 → '__ungrouped__'；menubar-group-{enc} → 解码出的分组名。
 pub(crate) fn popup_tab_for(id: &str) -> Option<String> {
-    if id == INSTANCE_OVERVIEW {
+    if id == INSTANCE_OVERVIEW || id == INSTANCE_HISTORY {
         return Some("all".to_string());
     }
     if id == "menubar-ungrouped" {
@@ -299,10 +427,14 @@ pub(crate) fn popup_tab_for(id: &str) -> Option<String> {
         .filter(|name| !name.is_empty())
 }
 
-/// 实例 id → 人类可读标签（总览 / 未分组 / 分组名），用于日志排查
+/// 实例 id → 人类可读标签（历史 / 总览 / 未分组 / 分组名），用于日志排查。
+/// ⚠️ 「历史」恒返回固定名「历史」而非用户自定义标题：该标签用于日志与右键菜单文案，
+/// 固定名避免用户改名后日志/菜单项文案漂移难对。
 pub(crate) fn instance_label(id: &str) -> String {
     if id == INSTANCE_OVERVIEW {
         "总览".to_string()
+    } else if id == INSTANCE_HISTORY {
+        "历史".to_string()
     } else if id == "menubar-ungrouped" {
         "未分组".to_string()
     } else {
@@ -313,12 +445,83 @@ pub(crate) fn instance_label(id: &str) -> String {
     }
 }
 
-/// 计算实例下行文本（收益率百分比或收益额，与颜色判定共用同一数值）。
-pub(crate) fn bottom_text_of(spec: &InstanceSpec, show_amount: bool) -> String {
+/// 计算实例下行的**展示文本与配色依据**（macOS 菜单栏与 Windows 任务栏唯一共用口径）。
+///
+/// `show_amount` = 当日收益档（false=百分比 true=金额，隐私模式下由调用方强制 false）；
+/// `privacy` = 隐私模式（金额类一律降级/打码）；`history_mode` = 「历史」实例的数值档。
+///
+/// 规则表（`kind=History`）：
+/// | 档位 | 有成本 | 结果 |
+/// | --- | --- | --- |
+/// | 历史收益涨跌幅 | 是 | `format_pct(cum_pct)`，涨跌色 |
+/// | 历史收益额 | 是 | `format_amount(cum_amount)`，涨跌色 |
+/// | 任意收益档 | 否（未录入成本） | **回退**当前持仓额，跟随上行色 |
+/// | 当前持仓额 | — | `format_holding_amount(holding)`，跟随上行色 |
+///
+/// 隐私模式：收益额档降级为涨跌幅档；持仓额档（含无成本回退）无百分比等价物 → 打码 `****`。
+/// 快照未就绪（holding_amount=None）→ 占位符 `-`。
+pub(crate) fn bottom_display(
+    spec: &InstanceSpec,
+    show_amount: bool,
+    privacy: bool,
+    history_mode: HistoryMode,
+) -> BottomDisplay {
+    if spec.kind == BottomKind::History {
+        // 隐私模式：只暴露百分比，金额档降级为收益率档；持仓额档留在 holding 分支里打码
+        let mode = if privacy && history_mode == HistoryMode::CumAmount {
+            HistoryMode::CumPercent
+        } else {
+            history_mode
+        };
+        return match mode {
+            HistoryMode::HoldingAmount => holding_display(spec.holding_amount, privacy),
+            HistoryMode::CumAmount => match spec.cum_amount {
+                Some(v) => BottomDisplay {
+                    text: format_amount(v),
+                    signed: Some(v),
+                },
+                None => holding_display(spec.holding_amount, privacy),
+            },
+            HistoryMode::CumPercent => match spec.cum_pct {
+                Some(v) => BottomDisplay {
+                    text: format_pct(v),
+                    signed: Some(v),
+                },
+                None => holding_display(spec.holding_amount, privacy),
+            },
+        };
+    }
     if show_amount {
-        format_amount(spec.amount)
+        BottomDisplay {
+            text: format_amount(spec.amount),
+            signed: Some(spec.amount),
+        }
     } else {
-        format_pct(spec.pct)
+        BottomDisplay {
+            text: format_pct(spec.pct),
+            signed: Some(spec.pct),
+        }
+    }
+}
+
+/// 持仓额行的展示：无方向符号的金额、**跟随上行色**（`signed=None`）；
+/// 隐私模式打码，快照未就绪显示占位符。
+fn holding_display(holding_amount: Option<f64>, privacy: bool) -> BottomDisplay {
+    if privacy {
+        return BottomDisplay {
+            text: BOTTOM_MASKED.to_string(),
+            signed: None,
+        };
+    }
+    match holding_amount {
+        Some(v) => BottomDisplay {
+            text: format_holding_amount(v),
+            signed: None,
+        },
+        None => BottomDisplay {
+            text: BOTTOM_PLACEHOLDER.to_string(),
+            signed: None,
+        },
     }
 }
 
@@ -362,6 +565,148 @@ mod tests {
         assert_eq!(format_pct(12.345), "+12.35%");
         assert_eq!(format_pct(-0.5), "-0.50%");
         assert_eq!(format_pct(123.4), "+123%");
+    }
+
+    /// 持仓额（第 5 套格式）：无方向符号；≥10 万用 w，否则整数
+    #[test]
+    fn holding_amount_has_no_sign_and_uses_w_above_100k() {
+        assert_eq!(format_holding_amount(0.0), "0");
+        assert_eq!(format_holding_amount(12345.0), "12345");
+        assert_eq!(format_holding_amount(99999.6), "100000");
+        assert_eq!(format_holding_amount(100000.0), "10w");
+        assert_eq!(format_holding_amount(123456.0), "12.3w");
+        assert_eq!(format_holding_amount(150000.0), "15w");
+        assert_eq!(format_holding_amount(12345678.0), "1234.6w");
+        // 市值恒非负；负数/非法值兜底
+        assert_eq!(format_holding_amount(-12345.0), "12345");
+        assert_eq!(format_holding_amount(f64::NAN), "0");
+    }
+
+    /// 「历史」实例构造器（测试辅助）
+    fn history_spec(
+        cum_amount: Option<f64>,
+        cum_pct: Option<f64>,
+        holding_amount: Option<f64>,
+    ) -> InstanceSpec {
+        InstanceSpec {
+            id: INSTANCE_HISTORY.to_string(),
+            top: "历史".to_string(),
+            kind: BottomKind::History,
+            pct: 0.0,
+            amount: 0.0,
+            cum_amount,
+            cum_pct,
+            holding_amount,
+            visible: true,
+        }
+    }
+
+    /// 历史三档规则表：取值 + 配色依据（持仓额档必须 signed=None = 跟随上行色）
+    #[test]
+    fn history_bottom_display_rule_table() {
+        let spec = history_spec(Some(-12345.0), Some(-12.34), Some(98765.0));
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::CumPercent).text,
+            "-12.34%"
+        );
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::CumAmount).text,
+            "-12345"
+        );
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::HoldingAmount).text,
+            "98765"
+        );
+        // 收益档有涨跌语义 → signed=Some；持仓额档无 → signed=None
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::CumAmount).signed,
+            Some(-12345.0)
+        );
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::HoldingAmount).signed,
+            None
+        );
+        // 隐私模式：收益额档降级为收益率档；持仓额档打码（同样无涨跌语义）
+        assert_eq!(
+            bottom_display(&spec, true, true, HistoryMode::CumAmount).text,
+            "-12.34%"
+        );
+        let masked = bottom_display(&spec, true, true, HistoryMode::HoldingAmount);
+        assert_eq!(masked.text, BOTTOM_MASKED);
+        assert_eq!(masked.signed, None);
+        // show_amount 对历史项无影响（历史档由 history_mode 决定）
+        assert_eq!(
+            bottom_display(&spec, true, false, HistoryMode::CumPercent).text,
+            "-12.34%"
+        );
+    }
+
+    /// 未录入成本（算不出累计收益）→ 回退显示当前持仓额
+    #[test]
+    fn history_falls_back_to_holding_amount_when_cost_missing() {
+        let no_cost = history_spec(None, None, Some(52000.0));
+        for mode in [HistoryMode::CumPercent, HistoryMode::CumAmount] {
+            let d = bottom_display(&no_cost, false, false, mode);
+            assert_eq!(d.text, "52000", "mode={mode:?} 应回退显示持仓额");
+            assert_eq!(d.signed, None, "回退行无涨跌语义，须跟随上行色");
+        }
+        // 隐私模式下回退同为金额 → 打码
+        assert_eq!(
+            bottom_display(&no_cost, false, true, HistoryMode::CumAmount).text,
+            BOTTOM_MASKED
+        );
+    }
+
+    /// 行情快照未就绪（首次刷新前）→ 占位符，不显示误导性的 0
+    #[test]
+    fn history_shows_placeholder_before_first_quote() {
+        let empty = history_spec(None, None, None);
+        for mode in [
+            HistoryMode::CumPercent,
+            HistoryMode::CumAmount,
+            HistoryMode::HoldingAmount,
+        ] {
+            let d = bottom_display(&empty, false, false, mode);
+            assert_eq!(d.text, BOTTOM_PLACEHOLDER, "mode={mode:?}");
+            assert_eq!(d.signed, None);
+        }
+    }
+
+    /// 档位解析：仅接受三档字面量，非法/缺省回落默认
+    #[test]
+    fn history_mode_parse_accepts_known_values_only() {
+        assert_eq!(HistoryMode::parse(Some("cumPercent")), HistoryMode::CumPercent);
+        assert_eq!(HistoryMode::parse(Some("cumAmount")), HistoryMode::CumAmount);
+        assert_eq!(
+            HistoryMode::parse(Some("holdingAmount")),
+            HistoryMode::HoldingAmount
+        );
+        assert_eq!(HistoryMode::parse(Some(" bogus ")), HistoryMode::CumPercent);
+        assert_eq!(HistoryMode::parse(None), HistoryMode::CumPercent);
+    }
+
+    /// 当日收益实例路径不受本次改动影响（回归护栏）
+    #[test]
+    fn day_pnl_display_unchanged() {
+        let spec = InstanceSpec::day_pnl(
+            INSTANCE_OVERVIEW.to_string(),
+            "总览".to_string(),
+            1.234,
+            567.0,
+            true,
+        );
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::CumPercent).text,
+            "+1.23%"
+        );
+        assert_eq!(
+            bottom_display(&spec, true, false, HistoryMode::CumPercent).text,
+            "+567"
+        );
+        assert_eq!(
+            bottom_display(&spec, false, false, HistoryMode::CumPercent).signed,
+            Some(1.234)
+        );
     }
 
     #[test]
