@@ -126,6 +126,11 @@ pub struct AppSettings {
     /// 第一行自定义色不走本字段，而是复用 menubar_group_colors 的 "__history__" key。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_history_bottom_color: Option<String>,
+    /// 「历史」实例数值档的取数口径：latest(默认)=含今日（当前净值/盘中估值，实时跳动）/
+    /// confirmed=只用已公布净值（盘中即昨日净值，披露前数字稳定）。
+    /// 只影响历史实例三个数值档（收益额/涨跌幅/持仓额），不影响「当日收益」。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub menubar_history_valuation: Option<String>,
     /// 菜单栏上行字体族名（macOS font family，默认空=系统字体）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub menubar_top_font: Option<String>,
@@ -214,6 +219,7 @@ impl Default for AppSettings {
             menubar_history_top_mode: None,
             menubar_history_mode: None,
             menubar_history_bottom_color: None,
+            menubar_history_valuation: None,
             menubar_top_font: None,
             menubar_bottom_font: None,
             menubar_top_bold: None,
@@ -371,6 +377,14 @@ pub struct FundQuoteRow {
 #[serde(rename_all = "camelCase")]
 pub struct HoldingsSummary {
     pub total_amount: f64,
+    /// 全部纳入总览的持仓 @**含今日**市值（= Σ 份额 × 当前净值，盘中即估值净值）。
+    /// 与 `total_amount`（@已公布净值）成对，供菜单栏「历史」项数值口径切换
+    /// （`menubar_history_valuation=latest`）使用；popup 汇总仍用 `total_amount`。
+    pub total_amount_latest: f64,
+    /// **已录入成本**那部分持仓 @已公布净值市值。持有收益只统计录入成本的持仓，
+    /// 故「已确认」口径的总览收益 = `total_costed_amount − total_cost`；
+    /// 部分持仓未录成本时它小于 `total_amount`。
+    pub total_costed_amount: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bod_total: Option<f64>,
     pub total_pnl: f64,

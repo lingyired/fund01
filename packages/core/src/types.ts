@@ -88,6 +88,19 @@ export type FundQuoteRow = FundRecord & {
 export type HoldingsPayload = {
   summary: {
     totalAmount: number
+    /**
+     * 全部纳入总览的持仓 @**含今日**市值（= Σ 份额 × 当前净值，盘中即估值净值）。
+     * 与 `totalAmount`（@已公布净值）成对，供菜单栏「历史」项的数值口径切换
+     * （`menubarHistoryValuation=latest`）使用；popup 汇总仍用 `totalAmount`。
+     */
+    totalAmountLatest?: number
+    /**
+     * **已录入成本**那部分持仓 @已公布净值市值。持有收益只统计录入成本的持仓，
+     * 故 `总览收益 = totalCostedAmount − totalCost`（口径与 `totalCumPnl` 的
+     * 「含今日」版本对称）；部分持仓未录成本时，它小于 `totalAmount`。
+     * 只有菜单栏「历史」项的口径切换在读，popup 不用。
+     */
+    totalCostedAmount?: number
     bodTotal?: number
     totalPnl: number
     totalPnlPercent: number
@@ -207,6 +220,19 @@ export type MenubarHistorySlotMode = 'label' | 'cumPercent' | 'cumAmount' | 'hol
  */
 export type MenubarHistoryMode = 'cumPercent' | 'cumAmount' | 'holdingAmount'
 
+/**
+ * 「历史」实例数值档的**取数口径**（默认 `latest`）。仅 tauri 生效。
+ *
+ * 历史实例的三个数值档都由「当前市值 − 已录入成本」推出，本字段决定「当前市值」取哪一档：
+ * - `latest`    = 含今日：`份额 × 当前净值`（盘中取估值净值、披露后取今日确认净值）——
+ *                 三档数字随行情实时跳动，历史收益额默认含今天的盈亏；
+ * - `confirmed` = 只用**已公布净值**：盘中即昨日确认净值，当日净值披露后即切换为今日确认净值。
+ *                 数字在披露前保持稳定，且与 popup 顶部「持仓金额」同口径。
+ *
+ * 只影响历史实例的三个数值档；「总览 / 分组」下行的当日收益本来就是「今 vs 昨」的差，不受影响。
+ */
+export type MenubarHistoryValuation = 'latest' | 'confirmed'
+
 export type AppSettings = {
   /** 定时刷新间隔配置（秒） */
   refreshInterval?: RefreshInterval
@@ -293,6 +319,12 @@ export type AppSettings = {
    * （见 MENUBAR_HISTORY_KEY）——历史项与各分组共用同一套上行配色机制。
    */
   menubarHistoryBottomColor?: string
+  /**
+   * 「历史」实例数值档的**取数口径**（默认 `latest`=含今日）。仅 tauri 生效。
+   * `latest` 用当前净值（盘中估值即可，数字实时跳动）；`confirmed` 只用已公布净值
+   * （盘中即昨日净值，数字在披露前稳定）。详见 `MenubarHistoryValuation`。
+   */
+  menubarHistoryValuation?: MenubarHistoryValuation
   /** 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串/缺省=系统字体。仅 tauri 生效 */
   menubarTopFont?: string
   /** 菜单栏下行字体族名（macOS font family，如 Menlo）。空串/缺省=系统字体。仅 tauri 生效 */

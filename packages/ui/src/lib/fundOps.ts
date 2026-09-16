@@ -651,6 +651,13 @@ export async function updateSettings(
     // 空串 = 未自定义（按涨跌/跟随语义取色）；hex 合法性由 core normalizeConfig 与 Rust 侧校验
     config.settings.menubarHistoryBottomColor = patch.menubarHistoryBottomColor.trim()
   }
+  if (
+    patch.menubarHistoryValuation === 'latest' ||
+    patch.menubarHistoryValuation === 'confirmed'
+  ) {
+    // 数值口径：含今日（latest）/ 只用已公布净值（confirmed）
+    config.settings.menubarHistoryValuation = patch.menubarHistoryValuation
+  }
   // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
   if (typeof patch.silentStart === 'boolean') {
     config.settings.silentStart = patch.silentStart

@@ -48,6 +48,7 @@ import type {
   MenubarGroupSide,
   MenubarHistoryMode,
   MenubarHistorySlotMode,
+  MenubarHistoryValuation,
   MenubarLayout,
   QuoteSource,
   ResolveFundResult,
@@ -64,6 +65,7 @@ import {
   MENUBAR_HISTORY_LABEL_DEFAULT,
   MENUBAR_HISTORY_MODE_DEFAULT,
   MENUBAR_HISTORY_TOP_MODE_DEFAULT,
+  MENUBAR_HISTORY_VALUATION_DEFAULT,
   MENUBAR_ITEM_MARGIN_DEFAULT,
   MENUBAR_ITEM_MARGIN_MAX,
   MENUBAR_OVERVIEW_KEY,
@@ -3558,6 +3560,10 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     MENUBAR_HISTORY_TOP_MODE_DEFAULT,
   )
   const [historyMode, setHistoryMode] = useState<MenubarHistoryMode>(MENUBAR_HISTORY_MODE_DEFAULT)
+  // 数值口径：latest(默认)=含今日（当前净值/盘中估值） / confirmed=只用已公布净值
+  const [historyValuation, setHistoryValuation] = useState<MenubarHistoryValuation>(
+    MENUBAR_HISTORY_VALUATION_DEFAULT,
+  )
   const [historyBottomColor, setHistoryBottomColor] = useState('')
   const [hasUngrouped, setHasUngrouped] = useState(false)
   const [topFont, setTopFont] = useState(MENUBAR_DEFAULTS.topFont)
@@ -3602,6 +3608,7 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     setHistoryTopMode(s.menubarHistoryTopMode ?? MENUBAR_HISTORY_TOP_MODE_DEFAULT)
     setHistoryMode(s.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
     setHistoryBottomColor(s.menubarHistoryBottomColor ?? '')
+    setHistoryValuation(s.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT)
     setTopFont(s.menubarTopFont ?? '')
     setBottomFont(s.menubarBottomFont ?? '')
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
@@ -3656,6 +3663,9 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
       setHistoryTopMode(cfg.settings?.menubarHistoryTopMode ?? MENUBAR_HISTORY_TOP_MODE_DEFAULT)
       setHistoryMode(cfg.settings?.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
       setHistoryBottomColor(cfg.settings?.menubarHistoryBottomColor ?? '')
+      setHistoryValuation(
+        cfg.settings?.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT,
+      )
     })
   }, [ports])
 
@@ -3759,6 +3769,18 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     try {
       const saved = await updateSettings(ports, {menubarHistoryMode: next})
       setHistoryMode(saved.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项数值口径（含今日 / 只用已公布净值）：即时保存 */
+  async function handleHistoryValuationChange(v: string) {
+    const next = v as MenubarHistoryValuation
+    setHistoryValuation(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryValuation: next})
+      setHistoryValuation(saved.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT)
     } catch {
       /* ignore */
     }
@@ -4077,7 +4099,7 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
               <div className="min-w-0">
                 <div className="text-sm text-ink-soft leading-none">第二行</div>
                 <div className="mt-1 text-[11px] text-muted">
-                  历史收益 = 当前市值 − 已录入成本；当前持仓额与 popup 汇总口径一致。隐私模式下收益额档改显示涨跌幅、持仓额档显示 ****。
+                  历史收益 = 当前市值 − 已录入成本；市值取「最新」还是「已确认」见下方「数值口径」。隐私模式下收益额档改显示涨跌幅、持仓额档显示 ****。
                 </div>
               </div>
               <SegmentedControl.Root
@@ -4087,6 +4109,24 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
                 <SegmentedControl.Item value="cumPercent">历史涨跌幅</SegmentedControl.Item>
                 <SegmentedControl.Item value="cumAmount">历史收益额</SegmentedControl.Item>
                 <SegmentedControl.Item value="holdingAmount">当前持仓额</SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </div>
+            {/* 数值口径：决定上面两行的三档数值用哪一档市值 */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">数值口径</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  决定「历史收益额 / 历史收益涨跌幅 / 当前持仓额」三档用哪一档市值：
+                  「最新」含今日（盘中用估算净值，数字随行情跳动，历史收益额包含今天的盈亏）；
+                  「已确认」只用已公布净值（盘中即昨日净值，当天净值公布前数字稳定，与 popup「持仓金额」一致）。
+                </div>
+              </div>
+              <SegmentedControl.Root
+                value={historyValuation}
+                onValueChange={(v) => void handleHistoryValuationChange(v)}
+              >
+                <SegmentedControl.Item value="latest">最新</SegmentedControl.Item>
+                <SegmentedControl.Item value="confirmed">已确认</SegmentedControl.Item>
               </SegmentedControl.Root>
             </div>
             <div className="flex items-center justify-between gap-3">

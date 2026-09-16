@@ -1,4 +1,4 @@
-import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, MenubarGlobalSide, MenubarHistoryMode, MenubarHistorySlotMode, RefreshInterval} from './types'
+import type {AppConfig, AppSettings, FundRecord, MenubarAlign, MenubarLayout, MenubarGroupSide, MenubarGlobalSide, MenubarHistoryMode, MenubarHistorySlotMode, MenubarHistoryValuation, RefreshInterval} from './types'
 import {
   DEFAULT_SELECTED_INDICES,
   MAX_SELECTED_INDICES,
@@ -62,6 +62,15 @@ export const MENUBAR_HISTORY_TOP_MODE_DEFAULT = 'label' as const
  */
 export const MENUBAR_HISTORY_MODE_DEFAULT = 'cumAmount' as const
 
+/**
+ * 「历史」实例数值档取数口径默认值：含今日（当前净值/盘中估值）。
+ *
+ * 与历史收益额默认「含今天」的既有行为一致，属**向后兼容**选择（老配置缺该字段 →
+ * 与升级前显示完全相同）；选 `confirmed` 才会切换成「只用已公布净值」。
+ * ⚠️ 三处默认值（本常量 / DEFAULT_CONFIG / Rust normalize_config 的默认分支）必须同步。
+ */
+export const MENUBAR_HISTORY_VALUATION_DEFAULT = 'latest' as const
+
 /** 任务栏外边距默认值（物理像素，仅 tauri Windows 生效；与插件 set_edge_margins 默认一致） */
 export const MENUBAR_EDGE_MARGINS_DEFAULT: {left: number; right: number} = {
   left: 0,
@@ -114,6 +123,14 @@ export function normalizeMenubarHistoryBottomColor(v: unknown): string {
   return typeof v === 'string' && HEX_RE.test(v.trim()) ? v.trim() : ''
 }
 
+/**
+ * 归一化「历史」实例数值档取数口径：只接受 `latest` / `confirmed`，非法/缺省回落默认。
+ * 与 `normalizeMenubarHistoryMode` 同风格（精确匹配）；Rust 侧对应函数额外做 trim（更宽松，无害）。
+ */
+export function normalizeMenubarHistoryValuation(v: unknown): MenubarHistoryValuation {
+  return v === 'latest' || v === 'confirmed' ? v : MENUBAR_HISTORY_VALUATION_DEFAULT
+}
+
 export const DEFAULT_CONFIG: AppConfig = {
   settings: {
     refreshInterval: {...DEFAULT_REFRESH_INTERVAL},
@@ -144,6 +161,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     menubarHistoryTopMode: MENUBAR_HISTORY_TOP_MODE_DEFAULT,
     menubarHistoryMode: MENUBAR_HISTORY_MODE_DEFAULT,
     menubarHistoryBottomColor: '',
+    menubarHistoryValuation: MENUBAR_HISTORY_VALUATION_DEFAULT,
     menubarTopFont: MENUBAR_DEFAULTS.topFont,
     menubarBottomFont: MENUBAR_DEFAULTS.bottomFont,
     menubarTopBold: MENUBAR_DEFAULTS.topBold,
@@ -562,6 +580,9 @@ export function normalizeConfig(payload: LegacyAppConfig | null | undefined): Ap
       ),
       menubarHistoryBottomColor: normalizeMenubarHistoryBottomColor(
         payload?.settings?.menubarHistoryBottomColor,
+      ),
+      menubarHistoryValuation: normalizeMenubarHistoryValuation(
+        payload?.settings?.menubarHistoryValuation,
       ),
       menubarTopFont: normalizeFontFamily(
         payload?.settings?.menubarTopFont,

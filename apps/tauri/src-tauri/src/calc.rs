@@ -8,7 +8,7 @@ pub struct PersistPatch {
     pub sectors: Option<Vec<String>>,
 }
 
-fn round2(n: f64) -> f64 {
+pub(crate) fn round2(n: f64) -> f64 {
     (n * 100.0).round() / 100.0
 }
 
@@ -76,6 +76,8 @@ pub fn calc_holdings(
     let mut rows: Vec<FundQuoteRow> = Vec::with_capacity(local_funds.len());
     let mut persist_patches: Vec<PersistPatch> = Vec::new();
     let mut total_amount = 0.0f64;
+    let mut total_amount_latest = 0.0f64;
+    let mut total_costed_amount = 0.0f64;
     let mut total_pnl = 0.0f64;
     let mut total_cost = 0.0f64;
     let mut total_cum_pnl = 0.0f64;
@@ -187,12 +189,17 @@ pub fn calc_holdings(
         let ov_pnl = pnl.map(|p| round2(p * overview_ratio));
 
         total_amount += ov_amount;
+        // 含今日口径的同口径市值（Σ 份额 × 当前净值）：菜单栏「历史」项可选口径的基准之一
+        total_amount_latest += ov_live;
         total_pnl += ov_pnl.unwrap_or(0.0);
         if overview_has_cost {
             has_any_cost = true;
             total_cost += overview_cost_row;
             // 累计收益用总览口径最新市值减成本
             total_cum_pnl += round2(ov_live - overview_cost_row);
+            // 持有收益只统计录入成本的持仓 → 单独留一份「已录成本部分」的已公布净值市值
+            // （供「总览收益 = 该市值 − 总成本」的已确认口径使用，见 HoldingsSummary）
+            total_costed_amount += ov_amount;
         }
         // 开盘前基数（总览口径）：总览份额 × 昨净值（与涨幅无关）
         if overview_shares > 0.0 && prev_nav.is_some_and(|p| p > 0.0) {
@@ -298,6 +305,8 @@ pub fn calc_holdings(
 
     let summary = HoldingsSummary {
         total_amount: round2(total_amount),
+        total_amount_latest: round2(total_amount_latest),
+        total_costed_amount: round2(total_costed_amount),
         bod_total: Some(bod_total),
         total_pnl: round2(total_pnl),
         total_pnl_percent: if bod_total > 0.0 {

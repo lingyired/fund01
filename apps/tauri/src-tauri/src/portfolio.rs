@@ -51,6 +51,7 @@ pub fn default_config() -> AppConfig {
             menubar_history_top_mode: Some(MENUBAR_HISTORY_TOP_MODE_DEFAULT.to_string()),
             menubar_history_mode: Some(MENUBAR_HISTORY_MODE_DEFAULT.to_string()),
             menubar_history_bottom_color: Some(String::new()),
+            menubar_history_valuation: Some(MENUBAR_HISTORY_VALUATION_DEFAULT.to_string()),
             menubar_top_font: Some(String::new()),
             menubar_bottom_font: Some(String::new()),
             menubar_top_bold: Some(false),
@@ -480,6 +481,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_history_bottom_color = normalize_menubar_history_bottom_color(
         settings_raw.and_then(|s| s.get("menubarHistoryBottomColor").and_then(|v| v.as_str())),
     );
+    let menubar_history_valuation = normalize_menubar_history_valuation(
+        settings_raw.and_then(|s| s.get("menubarHistoryValuation").and_then(|v| v.as_str())),
+    );
     // 菜单栏展示自定义项：字体（trim，空串=系统字体）、加粗（bool）、颜色（#rrggbb hex，非法回落默认）
     let font_of = |key: &str, d: &str| {
         settings_raw
@@ -713,6 +717,7 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_history_top_mode: Some(menubar_history_top_mode),
             menubar_history_mode: Some(menubar_history_mode),
             menubar_history_bottom_color: Some(menubar_history_bottom_color),
+            menubar_history_valuation: Some(menubar_history_valuation),
             menubar_top_font: Some(menubar_top_font),
             menubar_bottom_font: Some(menubar_bottom_font),
             menubar_top_bold: Some(menubar_top_bold),
@@ -759,6 +764,10 @@ pub const MENUBAR_HISTORY_TOP_MODE_DEFAULT: &str = "label";
 /// ⚠️ 2026-09-16 由 cumPercent 改为 cumAmount（用户定：默认「名称文字 + 历史收益额」）；
 /// 三处默认值（本常量 / normalize_config 的 Default / TS DEFAULT_CONFIG）必须同步。
 pub const MENUBAR_HISTORY_MODE_DEFAULT: &str = "cumAmount";
+/// 「历史」实例数值档取数口径默认值：含今日（当前净值/盘中估值）。
+/// 与历史收益额「含今天」的既有行为一致（老配置缺该字段 → 显示与升级前完全相同）；
+/// ⚠️ 三处默认值（本常量 / normalize_config 的默认分支 / TS MENUBAR_HISTORY_VALUATION_DEFAULT）必须同步。
+pub const MENUBAR_HISTORY_VALUATION_DEFAULT: &str = "latest";
 
 /// 归一化「历史」实例上行名称：trim → 空回落默认 → 超长按字符截断（与 TS 口径一致）
 pub fn normalize_menubar_history_label(raw: Option<&str>) -> String {
@@ -799,4 +808,14 @@ pub fn normalize_menubar_history_bottom_color(raw: Option<&str>) -> String {
         .filter(|s| is_hex_color(s))
         .map(str::to_string)
         .unwrap_or_default()
+}
+
+/// 归一化「历史」实例数值档取数口径：只接受 `latest` / `confirmed`，非法/缺省回落默认。
+/// 与 TS `normalizeMenubarHistoryValuation` 口径一致（本函数额外 trim，更宽松但无害）。
+pub fn normalize_menubar_history_valuation(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some("latest") => "latest".to_string(),
+        Some("confirmed") => "confirmed".to_string(),
+        _ => MENUBAR_HISTORY_VALUATION_DEFAULT.to_string(),
+    }
 }

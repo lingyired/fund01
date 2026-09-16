@@ -8,7 +8,8 @@
 
 use std::collections::HashMap;
 
-use crate::model::{AppConfig, FundQuoteRow, QuoteUpdate};
+use crate::calc::round2;
+use crate::model::{AppConfig, FundQuoteRow, HoldingsSummary, QuoteUpdate};
 
 pub const INSTANCE_OVERVIEW: &str = "menubar-overview";
 
@@ -134,6 +135,31 @@ impl HistoryMode {
             Some("cumPercent") => Self::CumPercent,
             Some("holdingAmount") => Self::HoldingAmount,
             _ => Self::CumAmount,
+        }
+    }
+}
+
+/// 「历史」实例数值档的**取数口径**（对应设置 `menubarHistoryValuation`）。
+///
+/// 历史实例的三个数值档都由「当前市值 − 已录入成本」推出，本枚举决定**市值**取哪一档，
+/// 换算见 `history_values`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryValuation {
+    /// 含今日：市值用「份额 × 当前净值」（盘中取估值净值、披露后取今日确认净值），
+    /// 三档数字随行情实时跳动 —— 历史收益额因此**包含今天的盈亏**
+    Latest,
+    /// 只用已公布净值：盘中即昨日确认净值，当日净值披露后切成今日确认净值，
+    /// 披露前数字保持稳定（与 popup 顶部「持仓金额」同口径）
+    Confirmed,
+}
+
+impl HistoryValuation {
+    /// 解析口径设置：只接受 `latest` / `confirmed`，非法/缺省回落 `Latest`
+    /// （与 TS `normalizeMenubarHistoryValuation` 口径一致）
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim) {
+            Some("confirmed") => Self::Confirmed,
+            _ => Self::Latest,
         }
     }
 }
@@ -331,7 +357,9 @@ pub struct InstanceSpec {
     /// 历史收益涨跌幅（`kind=History`；`None` 同上）
     pub cum_pct: Option<f64>,
     /// 当前持仓额（`kind=History`；`None` = 行情快照尚未就绪）。
-    /// 口径 = summary.total_amount，与 popup 顶部「持仓金额」一致；也是收益档无成本时的回退值
+    /// 口径受 `menubarHistoryValuation` 控制（见 `history_values`）：
+    /// latest = `summary.total_amount_latest`（全部持仓，含今日）；confirmed = `summary.total_amount`
+    /// （全部持仓，已公布净值，与 popup 顶部「持仓金额」一致）。也是收益档无成本时的回退值
     pub holding_amount: Option<f64>,
     /// 是否显示（false = 隐藏但保留实例）
     pub visible: bool,
@@ -351,6 +379,49 @@ impl InstanceSpec {
             holding_amount: None,
             visible,
         }
+    }
+}
+
+/// 按 `menubarHistoryValuation` 口径算出「历史」实例的三个数值档：
+/// `(历史收益额, 历史收益涨跌幅, 当前持仓额)`。
+///
+/// 三者共用同一个「市值」基准，本函数是**唯一**决定该基准取哪一档的地方：
+/// - `Latest`    ：收益两档直接复用 summary 的 `total_cum_pnl(_percent)`
+///                 （与「含今日市值」同口径，不再二次舍入，保证与升级前数值完全一致）；
+/// - `Confirmed` ：收益两档 = 「已录成本部分的已公布净值市值 − 总成本」现场推算。
+///
+/// ⚠️ 收益只统计**已录入成本**的持仓（与 popup 口径一致），故「已确认」口径下必须用
+/// `total_costed_amount` 而不是 `total_amount`——否则未录成本持仓的市值会被误算成收益。
+/// 「当前持仓额」反过来要展示**全部**持仓市值（用户要看的是总市值），故用 `total_amount`
+/// / `total_amount_latest`。
+///
+/// 未录入成本（`total_cost` ≤ 0，Rust 侧为 `Some(0.0)`）→ 收益两档均为 `None`
+/// （渲染层回落显示持仓额）；快照未就绪（`summary` 为 `None`）→ 三个值全 `None`（显示占位符）。
+pub fn history_values(
+    summary: Option<&HoldingsSummary>,
+    valuation: HistoryValuation,
+) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let Some(s) = summary else {
+        return (None, None, None);
+    };
+    let cost = s.total_cost.filter(|c| *c > 0.0);
+    match valuation {
+        HistoryValuation::Latest => (
+            s.total_cum_pnl,
+            s.total_cum_pnl_percent,
+            Some(s.total_amount_latest),
+        ),
+        HistoryValuation::Confirmed => match cost {
+            Some(c) => {
+                let profit = s.total_costed_amount - c;
+                (
+                    Some(round2(profit)),
+                    Some(round2(profit / c * 100.0)),
+                    Some(s.total_amount),
+                )
+            }
+            None => (None, None, Some(s.total_amount)),
+        },
     }
 }
 
@@ -381,11 +452,13 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
         .map(|h| h.summary.clone());
 
     // 「历史」实例（可选，排在最前）：整体组合的累计表现。
-    // 上下两行的取数与档位见 history_row_display：历史收益额/涨跌幅取自
-    // summary.total_cum_pnl(_percent)，当前持仓额取自 summary.total_amount
-    // （与 popup 汇总同口径，已按 overviewExcludedGroups 聚合）。
-    // 快照未就绪（quote=None）时 cum_* / holding_amount 均为 None → 该行显示占位符。
+    // 上下两行的取数与档位见 history_row_display；三档数值统一由 history_values 按
+    // `menubarHistoryValuation` 口径产出（latest=含今日市值，confirmed=只用已公布净值）。
+    // 快照未就绪（quote=None）时三值均为 None → 该行显示占位符。
     if config.settings.menubar_history_enabled.unwrap_or(false) {
+        let valuation =
+            HistoryValuation::parse(config.settings.menubar_history_valuation.as_deref());
+        let (cum_amount, cum_pct, holding_amount) = history_values(overview.as_ref(), valuation);
         out.push(InstanceSpec {
             id: INSTANCE_HISTORY.to_string(),
             top: crate::portfolio::normalize_menubar_history_label(
@@ -394,9 +467,9 @@ pub fn desired_instances(config: &AppConfig, quote: Option<&QuoteUpdate>) -> Vec
             kind: BottomKind::History,
             pct: 0.0,
             amount: 0.0,
-            cum_amount: overview.as_ref().and_then(|s| s.total_cum_pnl),
-            cum_pct: overview.as_ref().and_then(|s| s.total_cum_pnl_percent),
-            holding_amount: overview.as_ref().map(|s| s.total_amount),
+            cum_amount,
+            cum_pct,
+            holding_amount,
             visible: true,
         });
     }
@@ -657,6 +730,107 @@ mod tests {
             holding_amount,
             visible: true,
         }
+    }
+
+    /// 总览 summary 构造器（测试辅助）：只暴露与口径相关的字段
+    fn summary_for(
+        total_amount: f64,
+        total_amount_latest: f64,
+        total_costed_amount: f64,
+        total_cost: Option<f64>,
+        total_cum_pnl: Option<f64>,
+        total_cum_pnl_percent: Option<f64>,
+    ) -> HoldingsSummary {
+        HoldingsSummary {
+            total_amount,
+            total_amount_latest,
+            total_costed_amount,
+            bod_total: None,
+            total_pnl: 0.0,
+            total_pnl_percent: 0.0,
+            total_cost,
+            total_cum_pnl,
+            total_cum_pnl_percent,
+        }
+    }
+
+    /// 两口径对照：**部分持仓未录成本**时，「已确认」口径绝不能把未录成本部分的市值算成收益。
+    ///
+    /// 场景：A 录了成本（成本 1w、已确认市值 1w、含今日市值 1.05w）；
+    ///      B 未录成本（已确认市值 1000、含今日市值 1050）。
+    /// 总览：全部@已确认 11000、全部@含今日 11550、有成本部分@已确认 10000、总成本 10000。
+    #[test]
+    fn history_valuation_two_paths_exclude_uncosted_holdings_from_profit() {
+        let s = summary_for(11000.0, 11550.0, 10000.0, Some(10000.0), Some(500.0), Some(5.0));
+
+        // 含今日（默认）：收益额/涨跌幅直接复用 total_cum_pnl(_percent)，持仓额=全部@含今日
+        let latest = history_values(Some(&s), HistoryValuation::Latest);
+        assert_eq!(latest, (Some(500.0), Some(5.0), Some(11550.0)));
+
+        // 已确认：收益 = 有成本部分@已确认 − 成本 = 10000 − 10000 = 0（B 的 1000 不得计入）
+        //          持仓额 = 全部@已确认 = 11000
+        let confirmed = history_values(Some(&s), HistoryValuation::Confirmed);
+        assert_eq!(confirmed, (Some(0.0), Some(0.0), Some(11000.0)));
+    }
+
+    /// 「已确认」口径的收益/涨跌幅由市值现场推算（含负数与四舍五入到分）
+    #[test]
+    fn history_valuation_confirmed_computes_from_costed_amount() {
+        // 有成本部分@已确认 9750.5、成本 10000 → 亏损 -249.5 / -2.495% → round2 = -2.5
+        let s = summary_for(10750.5, 10900.0, 9750.5, Some(10000.0), Some(900.0), Some(9.0));
+        assert_eq!(
+            history_values(Some(&s), HistoryValuation::Confirmed),
+            (Some(-249.5), Some(-2.5), Some(10750.5))
+        );
+    }
+
+    /// 未录成本（total_cost = Some(0.0)，与 calc 的「未录成本」表示一致）：
+    /// 收益两档算不出 → None（渲染层回落显示持仓额），持仓额仍按口径给全部市值
+    #[test]
+    fn history_valuation_without_cost_returns_none_profit() {
+        let s = summary_for(11000.0, 11550.0, 0.0, Some(0.0), None, None);
+        assert_eq!(
+            history_values(Some(&s), HistoryValuation::Latest),
+            (None, None, Some(11550.0))
+        );
+        assert_eq!(
+            history_values(Some(&s), HistoryValuation::Confirmed),
+            (None, None, Some(11000.0))
+        );
+        // total_cost 为 None 同样判为未录成本
+        let s_none_cost = summary_for(11000.0, 11550.0, 0.0, None, None, None);
+        assert_eq!(
+            history_values(Some(&s_none_cost), HistoryValuation::Confirmed),
+            (None, None, Some(11000.0))
+        );
+    }
+
+    /// 快照未就绪（summary=None）→ 三值全 None（渲染层显示占位符）
+    #[test]
+    fn history_valuation_without_snapshot_returns_all_none() {
+        for v in [HistoryValuation::Latest, HistoryValuation::Confirmed] {
+            assert_eq!(history_values(None, v), (None, None, None));
+        }
+    }
+
+    /// 口径解析：只认 latest/confirmed（含 trim），非法/缺省回落 latest
+    #[test]
+    fn history_valuation_parse_accepts_two_values() {
+        assert_eq!(
+            HistoryValuation::parse(Some("latest")),
+            HistoryValuation::Latest
+        );
+        assert_eq!(
+            HistoryValuation::parse(Some("confirmed")),
+            HistoryValuation::Confirmed
+        );
+        assert_eq!(
+            HistoryValuation::parse(Some(" confirmed ")),
+            HistoryValuation::Confirmed
+        );
+        assert_eq!(HistoryValuation::parse(Some("bogus")), HistoryValuation::Latest);
+        assert_eq!(HistoryValuation::parse(None), HistoryValuation::Latest);
+        assert_eq!(HistoryValuation::parse(Some("")), HistoryValuation::Latest);
     }
 
     /// 「历史」两行共用的档位规则表：取值 + 配色依据。

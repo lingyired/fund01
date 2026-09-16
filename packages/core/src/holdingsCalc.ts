@@ -106,6 +106,8 @@ export function calcHoldings(
     sectors?: string[]
   }> = []
   let totalAmount = 0
+  let totalAmountLatest = 0
+  let totalCostedAmount = 0
   let totalPnl = 0
   let totalCost = 0
   let totalCumPnl = 0
@@ -195,12 +197,17 @@ export function calcHoldings(
     const ovPnl = pnl == null ? null : round2(pnl * overviewRatio)
 
     totalAmount += ovAmount
+    // 含今日口径的同口径市值（Σ 份额 × 当前净值）：菜单栏「历史」项可选口径的基准之一
+    totalAmountLatest += ovLive
     totalPnl += ovPnl ?? 0
     if (overviewHasCost) {
       hasAnyCost = true
       totalCost += overviewCostRow
       // 累计收益用总览口径最新市值减成本
       totalCumPnl += round2(ovLive - overviewCostRow)
+      // 持有收益只统计录入成本的持仓 → 单独留一份「已录成本部分」的已公布净值市值，
+      // 供「总览收益 = 该市值 − 总成本」的已确认口径使用（见 types.totalCostedAmount）
+      totalCostedAmount += ovAmount
     }
     // 开盘前基数（总览口径）：总览份额 × 昨净值（与涨幅无关）
     if (overviewShares > 0 && prevNav != null && prevNav > 0) {
@@ -273,6 +280,8 @@ export function calcHoldings(
   return {
     summary: {
       totalAmount: round2(totalAmount),
+      totalAmountLatest: round2(totalAmountLatest),
+      totalCostedAmount: round2(totalCostedAmount),
       bodTotal,
       // 总收益 = 各基金已截尾收益之和（与支付宝单只加总一致）
       totalPnl: round2(totalPnl),
