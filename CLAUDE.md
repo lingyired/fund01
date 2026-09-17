@@ -463,3 +463,5 @@ declare module '*.css';
 - **chrome.alarms 最小间隔**：浏览器强制最小 0.5 分钟（30 秒），低于此值会被截断。`scheduleNextAlarm` 中 `Math.max(0.5, delaySec / 60)` 已处理
 - **Popup 关闭即销毁**：Popup 关闭后 DOM 和 JS 全部销毁，不能依赖 popup 做后台轮询。所有定时逻辑必须在 Service Worker + chrome.alarms 中
 - **popup 模式 vs dashboard 标签页**：原 wzk-fund 是 dashboard 标签页（全屏浏览器窗口），CSS 用 min-height: 100vh 是为标签页设计。重构为 popup 模式后，100vh = popup 视口高度但视口本身未定义 → 内容为 0 高度。修复：popup/index.html 内联 <style> 用 !important 强制固定尺寸（666x600）。详见 ARCHITECTURE.md §9.7
+- **`<input type="color">` 不是低频操作**：原生取色面板在**拖动过程中**会连续触发 `input` 事件（React 的 `onChange` 绑定的就是 input 事件），一次拖拽可产生上百次回调；每次回调写后端都会让菜单栏/任务栏把**全部实例**重新渲染一遍（Windows：每个可见实例各一次分层窗口重绘；macOS：重建内容）→ 拖动卡顿、不跟手（用户 2026-09-17 实测反馈）。凡「连续触发的输入 → 写后端」都必须节流：颜色类走 `packages/ui/src/lib/boundedThrottle.ts` 的 `createBoundedThrottle`（有界速率 + 末尾兜底，纯逻辑可注入虚拟时钟验证）；字号 Slider 用 Radix 的 `onValueCommit`（松手才存）；文本 / 数字输入用草稿 + 失焦或回车提交。**新增任何「拖动即改」的设置项时，先确认它是连续触发还是离散触发**。
+- **延迟写入必须读「最新值」而不是调度时的快照**：节流后写后端被推后，若闭包捕获的是当时算出的值，会出现两类错——① 整表写入的字段（如 `menubarGroupColors`）在同一次窗口内先后改两个 key 时互相覆盖；② 「拖完立刻关开关」被挂起的写入反悔回去。做法：把最新值放进 `ref`（状态 → ref 镜像），job 在 flush 时读 ref。

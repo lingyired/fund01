@@ -104,6 +104,7 @@ import {
   type EditRow,
 } from './lib/batchEdit'
 import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings'
+import {createBoundedThrottle} from './lib/boundedThrottle'
 import {FundFormBody} from './components/FundFormDialog'
 import {ConfirmedUpdatedBadge} from './components/fundBits'
 import {HOLD_PROFIT_TERMS_NOTE} from './components/fundBits'
@@ -3532,6 +3533,20 @@ function clampToRange(
 }
 
 /**
+ * 颜色类设置的写入节流参数（见 `MenubarSection` 的 `colorPersist`）。
+ *
+ * `<input type="color">` 的原生取色面板在**拖动过程中连续触发** `input` 事件（React 的
+ * `onChange` 绑定的就是 input 事件），一次拖拽可产生上百次回调；而每次回调写后端都会让
+ * 任务栏/菜单栏把**全部实例**重新渲染一遍（Windows：每个可见实例各一次分层窗口重绘；
+ * macOS：重建菜单栏内容）。所以这不是「低频操作」——必须合并。
+ *
+ * 采用「有界速率 + 末尾兜底」而不是纯 debounce：拖动过程中每 `MAX_WAIT` 最多落一次盘
+ * （有实时反馈、不卡手），停手后 `DELAY` 内落最后一次（值一定不丢）。
+ */
+const COLOR_PERSIST_DELAY_MS = 150
+const COLOR_PERSIST_MAX_WAIT_MS = 400
+
+/**
  * 菜单栏/任务栏设置分区（仅 tauri 显示）。
  * platform='macos' → macOS 顶部菜单栏（multiline-menubar 插件）；
  * platform='windows' → Windows 任务栏（multiline-taskband 插件）：
@@ -3589,6 +3604,33 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
   // 外边距输入框草稿（字符串）：允许中间态输入（如清空、输入 "12" 的过程），失焦/回车才提交
   const [marginLeftDraft, setMarginLeftDraft] = useState('0')
   const [marginRightDraft, setMarginRightDraft] = useState('0')
+
+  // ── 颜色类设置的写入节流 ────────────────────────────────────────────────────
+  // 取色面板**拖动时会连续触发** onChange，若每次都写后端，任务栏/菜单栏会把全部实例
+  // 重渲染一遍。用「有界速率 + 末尾兜底」合并（实现与参数说明见 lib/boundedThrottle.ts）。
+  const [colorPersist] = useState(() =>
+    createBoundedThrottle({
+      delayMs: COLOR_PERSIST_DELAY_MS,
+      maxWaitMs: COLOR_PERSIST_MAX_WAIT_MS,
+    }),
+  )
+  // 延迟写入必须读「最新值」而不是调度时的快照：`menubarGroupColors` 是**整表写入**，
+  // 若同一次拖拽窗口内先后改了不同分组，各自拿旧快照会互相覆盖。
+  const groupColorsRef = useRef<Record<string, string>>({})
+  // 第二行颜色虽是标量，但「关闭自定义」会把它置为空串；延迟写入同样要读最新值，
+  // 否则「拖完立刻关开关」会被挂起的写入反悔回自定义色。
+  const historyBottomColorRef = useRef('')
+
+  // 状态 → ref 镜像：flush 时读 ref，永远拿到最新值（不依赖调度时刻的闭包快照）
+  useEffect(() => {
+    groupColorsRef.current = groupColors
+  }, [groupColors])
+  useEffect(() => {
+    historyBottomColorRef.current = historyBottomColor
+  }, [historyBottomColor])
+
+  // 卸载兜底：Radix Tabs 切走 / 关窗会卸载本分区，挂起的颜色写入立即落盘（值不丢）
+  useEffect(() => () => colorPersist.flush(), [colorPersist])
 
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
@@ -3798,16 +3840,18 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 「历史」项第二行颜色：选色即保存（空串=未自定义，按涨跌/跟随语义取色） */
-  async function commitHistoryBottomColor(v: string) {
-    const hex = normalizeHexColor(v, MENUBAR_DEFAULTS.flatColor)
-    setHistoryBottomColor(hex)
-    try {
-      const saved = await updateSettings(ports, {menubarHistoryBottomColor: hex})
-      setHistoryBottomColor(saved.menubarHistoryBottomColor ?? '')
-    } catch {
-      /* ignore */
-    }
+  /** 「历史」项第二行颜色：选色即保存（空串=未自定义，按涨跌/跟随语义取色）。
+   *  ⚠️ 取色面板**拖动过程中会连续触发** onChange，故走 colorPersist.schedule 合并写后端，
+   *  否则每一次拖动都让任务栏/菜单栏全部实例重渲染一遍。 */
+  function commitHistoryBottomColor(v: string) {
+    setHistoryBottomColor(normalizeHexColor(v, MENUBAR_DEFAULTS.flatColor))
+    colorPersist.schedule('historyBottomColor', () => {
+      void updateSettings(ports, {menubarHistoryBottomColor: historyBottomColorRef.current})
+        .then((saved) => setHistoryBottomColor(saved.menubarHistoryBottomColor ?? ''))
+        .catch(() => {
+          /* ignore */
+        })
+    })
   }
 
   /** 字号 Slider：拖动仅本地预览，松手才保存（避免连续触发后端刷新） */
@@ -3877,31 +3921,40 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 颜色：input[type=color] 选择即保存（低频操作） */
+  /**
+   * 颜色：input[type=color] 选色即保存。
+   * ⚠️ 原生取色面板**拖动时会连续触发** onChange（React 的 onChange 绑定的就是 input 事件），
+   * 并非「低频操作」——故统一走 colorPersist.schedule 合并写后端。四个 key 各自独立调度，
+   * 一次 flush 会分别下发（写的是不同字段，互不覆盖）。
+   */
   const COLOR_DEFAULTS = {
     top: MENUBAR_DEFAULTS.topColor,
     rise: MENUBAR_DEFAULTS.riseColor,
     fall: MENUBAR_DEFAULTS.fallColor,
     flat: MENUBAR_DEFAULTS.flatColor,
   } as const
-  async function commitColor(key: keyof typeof COLOR_DEFAULTS, v: string) {
+  function commitColor(key: keyof typeof COLOR_DEFAULTS, v: string) {
     const hex = normalizeHexColor(v, COLOR_DEFAULTS[key])
-    try {
-      if (key === 'top') {
-        setTopColor(hex)
-        await updateSettings(ports, {menubarTopColor: hex})
-      } else if (key === 'rise') {
-        setRiseColor(hex)
-        await updateSettings(ports, {menubarRiseColor: hex})
-      } else if (key === 'fall') {
-        setFallColor(hex)
-        await updateSettings(ports, {menubarFallColor: hex})
-      } else {
-        setFlatColor(hex)
-        await updateSettings(ports, {menubarFlatColor: hex})
-      }
-    } catch {
-      /* ignore */
+    // 本地即时反馈 + 合并写后端（每次写都是独立字段，延迟写入不会互相覆盖）
+    const persist = (patch: Parameters<typeof updateSettings>[1]) => {
+      colorPersist.schedule(`color:${key}`, () => {
+        void updateSettings(ports, patch).catch(() => {
+          /* ignore */
+        })
+      })
+    }
+    if (key === 'top') {
+      setTopColor(hex)
+      persist({menubarTopColor: hex})
+    } else if (key === 'rise') {
+      setRiseColor(hex)
+      persist({menubarRiseColor: hex})
+    } else if (key === 'fall') {
+      setFallColor(hex)
+      persist({menubarFallColor: hex})
+    } else {
+      setFlatColor(hex)
+      persist({menubarFlatColor: hex})
     }
   }
 
@@ -3922,16 +3975,17 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 分组自定义上行颜色：选色即保存 */
-  async function commitGroupColor(g: string, v: string) {
-    const hex = normalizeHexColor(v, topColor)
-    const next = {...groupColors, [g]: hex}
-    setGroupColors(next)
-    try {
-      await updateSettings(ports, {menubarGroupColors: next})
-    } catch {
-      /* ignore */
-    }
+  /** 分组自定义上行颜色：选色即保存。
+   *  ⚠️ 取色面板拖动时会连续触发 onChange；`menubarGroupColors` 是**整表写入**，所以延迟写入
+   *  必须读 groupColorsRef（最新整表）而非调度时的快照 —— 否则同一次拖拽窗口内先后改了不同
+   *  分组时，两次写入各自拿旧快照，后一次会把前一次的颜色抹掉。 */
+  function commitGroupColor(g: string, v: string) {
+    setGroupColors({...groupColors, [g]: normalizeHexColor(v, topColor)})
+    colorPersist.schedule('groupColors', () => {
+      void updateSettings(ports, {menubarGroupColors: groupColorsRef.current}).catch(() => {
+        /* ignore */
+      })
+    })
   }
 
   /** 任务栏分组停靠侧（仅 Windows）：切换即保存；'right' 为默认，仍保留显式条目便于 UI 直观回显 */
