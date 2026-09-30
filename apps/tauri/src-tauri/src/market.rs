@@ -175,7 +175,87 @@ pub async fn fetch_market_intraday(code: &str) -> Result<FundIntradayPayload, St
             Err(error) => last_error = Some(error),
         }
     }
-    Err(last_error.unwrap_or_else(|| "场内分时加载失败".to_string()))
+    // `push2his` 在部分网络（尤其是启用了企业代理时）会直接断开连接。
+    // 报价已使用腾讯兜底，分时也必须同样兜底；不能再退回 fund123，
+    // 因为场内证券代码不是场外基金的 productId。
+    fetch_tencent_market_intraday(code).await.map_err(|fallback_error| {
+        let primary_error = last_error.unwrap_or_else(|| "东财场内分时加载失败".to_string());
+        format!("{primary_error}；腾讯分时兜底也失败：{fallback_error}")
+    })
+}
+
+/// 腾讯分钟行情兜底。接口返回 `0930 价格 …`，昨收位于 qt 数组第 5 项。
+/// 与东财同样按昨收换算涨跌幅，保证图表口径一致。
+async fn fetch_tencent_market_intraday(code: &str) -> Result<FundIntradayPayload, String> {
+    let normalized = format!("{:0>6}", code.trim());
+    if normalized.len() != 6 || !normalized.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("无效场内代码 {code}"));
+    }
+    let market = if normalized.starts_with('5') || normalized.starts_with('6') || normalized.starts_with('9') {
+        "sh"
+    } else if normalized.starts_with('4') || normalized.starts_with('8') {
+        "bj"
+    } else {
+        "sz"
+    };
+    let symbol = format!("{market}{normalized}");
+    let url = format!("https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}");
+    let data = http::http_get_json(
+        &url,
+        &HashMap::new(),
+        DESKTOP_UA,
+        Some("https://gu.qq.com/"),
+        Duration::from_secs(12),
+    ).await?;
+    let item = data.get("data").and_then(|value| value.get(&symbol)).unwrap_or(&Value::Null);
+    let pre_close = item
+        .get("qt")
+        .and_then(|value| value.get(&symbol))
+        .and_then(Value::as_array)
+        .and_then(|quote| quote.get(4))
+        .and_then(|value| value.as_str().and_then(|text| text.parse::<f64>().ok()))
+        .filter(|value| *value > 0.0)
+        .ok_or_else(|| "腾讯分时缺少昨收价".to_string())?;
+    let points: Vec<TrendPoint> = item
+        .get("data")
+        .and_then(|value| value.get("data"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            let text = row.as_str()?;
+            let mut fields = text.split_whitespace();
+            let raw_time = fields.next()?;
+            let price = fields.next()?.parse::<f64>().ok().filter(|value| *value > 0.0)?;
+            let time = if raw_time.len() == 4 {
+                format!("{}:{}", &raw_time[..2], &raw_time[2..])
+            } else {
+                raw_time.to_string()
+            };
+            Some(TrendPoint {
+                time,
+                growth: Some(((price / pre_close) - 1.0) * 100.0),
+                net_value: Some(price),
+            })
+        })
+        .collect();
+    if points.is_empty() {
+        return Err("腾讯分时暂无数据（休市或停牌）".to_string());
+    }
+    let latest = points.last().cloned();
+    Ok(FundIntradayPayload {
+        points,
+        latest,
+        fund_key: format!("tencent:{symbol}"),
+        name: item
+            .get("qt")
+            .and_then(|value| value.get(&symbol))
+            .and_then(Value::as_array)
+            .and_then(|quote| quote.get(1))
+            .and_then(Value::as_str)
+            .unwrap_or(code)
+            .to_string(),
+    })
 }
 
 const KLINE_HOSTS: &[&str] = &[

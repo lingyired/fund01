@@ -952,7 +952,7 @@ function GeneralSection({
       <div className="space-y-2 border-t border-line/50 pt-3">
         <div className="text-sm font-medium text-ink">数据源</div>
         <p className="text-xs text-muted">
-          基金当日净值/估值/涨跌幅的来源。盘中分时走势均走 fund123。
+          基金当日净值/估值/涨跌幅的来源。场外基金分时走 fund123；场内 ETF 与 A 股分时优先走东方财富，失败时自动切换腾讯行情。
         </p>
         <div className="space-y-1 pt-1">
           <Select.Root
@@ -2885,7 +2885,7 @@ function DataDocsSection() {
           <p>
             基金净值、估值、涨跌幅来自两个数据源：<b className="text-ink">FundMNFInfo</b>（天天基金）与 <b className="text-ink">fund123</b>（蚂蚁基金）。
           </p>
-          <p>两种数据源的<b className="text-ink">盘中分时走势</b>均走 fund123。</p>
+          <p>场外基金的<b className="text-ink">盘中分时走势</b>走 fund123；场内 ETF、A 股则使用证券实时行情，东方财富失败时自动切换腾讯行情。</p>
           <p>
             「预估收益」与「实际收益」计算方式不同，同一基金在两个源下可能不同；<b className="text-ink">实际当日收益以官方披露净值为准</b>（一般当日 20:00 后开始更新）。
           </p>
