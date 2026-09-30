@@ -1,3 +1,5 @@
+import type {AssetKind} from '@fund01/core'
+
 /**
  * 导入持仓的纯解析逻辑（与具体 UI 解耦）。
  * 原 ImportHoldingsDialog 依赖 Dialog，这里把解析单独抽出来，
@@ -7,6 +9,8 @@
 /** 一条导入记录：一个 (基金, 分组, 金额[, 成本]) 元组 */
 export type ImportEntry = {
   code: string
+  /** 场外基金 / 场内 ETF / A 股股票。导入后明确写入配置，不依赖代码推断。 */
+  assetKind: AssetKind
   amount: number
   /**
    * amount 对应哪一版确认净值的市值 —— 直接对应持仓截图上的「今日收益已更新」字样：
@@ -51,6 +55,21 @@ export type ImportEntry = {
    * 2) 两者都有时做成本交叉校验：holdProfit / rate 应 ≈ amount − holdProfit
    */
   holdProfitRate?: number
+}
+
+function inferAssetKind(code: string): AssetKind {
+  if (/^(15|16|5[1-9])\d{4}$/.test(code)) return 'etf'
+  if (/^(000|001|002|003|300|301|600|601|603|605|688|689|920)\d{3}$/.test(code) || /^[48]\d{5}$/.test(code)) return 'stock'
+  return 'fund'
+}
+
+function parseAssetKind(raw: unknown, code: string, index: number): AssetKind {
+  if (raw == null || String(raw).trim() === '') return inferAssetKind(code)
+  const value = String(raw).trim().toLowerCase().replace(/\s+/g, '')
+  if (value === 'fund' || value === '场外基金') return 'fund'
+  if (value === 'etf' || value === '场内etf' || value === '场内基金') return 'etf'
+  if (value === 'stock' || value === 'a股股票' || value === '股票') return 'stock'
+  throw new Error(`第 ${index + 1} 项 assetKind 无效，应为 fund、etf 或 stock`)
 }
 
 /**
@@ -126,6 +145,7 @@ export function parseImport(input: string): ImportEntry[] {
     if (!/^\d{6}$/.test(code)) {
       throw new Error(`第 ${i + 1} 项基金代码无效`)
     }
+    const assetKind = parseAssetKind(obj.assetKind ?? obj.assetType ?? obj.标的类型, code, i)
     const rawAmount = Number(obj.amount ?? obj.money ?? 0)
     if (!Number.isFinite(rawAmount) || rawAmount < 0) {
       throw new Error(`第 ${i + 1} 项金额无效`)
@@ -182,6 +202,7 @@ export function parseImport(input: string): ImportEntry[] {
     )
     return {
       code,
+      assetKind,
       amount: rawAmount,
       amountBasis,
       navDate,
@@ -197,4 +218,4 @@ export function parseImport(input: string): ImportEntry[] {
 }
 
 /** 导入 JSON 格式示例（用于占位与说明） */
-export const IMPORT_SAMPLE = `请将 AI 生成的 JSON 粘贴到此处，格式如下：\n[\n  { "code": "012697", "name": "广发中证白酒指数C", "amount": 12890.12, "amountBasis": "prev", "shares": 12345.67, "cost": 1.0234 },\n  { "code": "025687", "name": "国泰半导体制造精选混合发起C", "amount": 27538.49, "amountBasis": "today", "group": "人工智能", "holdProfit": 2401.57, "holdProfitRate": "9.95%", "dailyProfit": 768.29 },\n  { "code": "025687", "name": "国泰半导体制造精选混合发起C", "amount": 3000, "amountBasis": "prev", "navDate": "2026-08-01", "group": "核心" }\n]`
+export const IMPORT_SAMPLE = `请将 AI 生成的 JSON 粘贴到此处，格式如下：\n[\n  { "code": "012697", "assetKind": "fund", "name": "广发中证白酒指数C", "amount": 12890.12, "amountBasis": "prev", "shares": 12345.67, "cost": 1.0234 },\n  { "code": "159655", "assetKind": "etf", "name": "华夏标普500ETF(QDII)", "amount": 100951.20, "amountBasis": "today", "holdProfit": 9777.60 },\n  { "code": "601288", "assetKind": "stock", "name": "农业银行", "amount": 6246.00, "amountBasis": "today", "holdProfit": 548.10 }\n]`

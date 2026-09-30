@@ -1,7 +1,23 @@
-/** A 股简易交易日：仅跳过周末（不含法定节假日） */
+/**
+ * A 股交易日历。除周末外，内置交易所公布的 2026 年休市日；调休上班的周末
+ * 仍不是交易日。年度数据尚未内置时保守地仅按周末判断。
+ */
+const A_SHARE_CLOSED_2026 = new Set([
+  '2026-01-01', '2026-01-02',
+  '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20', '2026-02-23',
+  '2026-04-06', '2026-05-01', '2026-05-04', '2026-05-05', '2026-06-19',
+  '2026-09-25', '2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07',
+])
 
 export function todayDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** A 股是否开市；调休工作日不交易。 */
+export function isAShareTradingDay(now = new Date()): boolean {
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+  return !A_SHARE_CLOSED_2026.has(todayDateStr(now))
 }
 
 /** 统一成 YYYY-MM-DD（兼容 MM-DD） */
@@ -25,13 +41,13 @@ function parseDateStr(s: string): Date {
   return new Date(y, m - 1, day)
 }
 
-/** 给定交易日之后的下一个交易日（周末顺延） */
+/** 给定交易日之后的下一个交易日（周末和交易所休市日顺延） */
 export function nextTradingDay(dateStr: string): string {
   const normalized = normalizeNetValueDate(dateStr) || dateStr
   const d = parseDateStr(normalized)
   do {
     d.setDate(d.getDate() + 1)
-  } while (d.getDay() === 0 || d.getDay() === 6)
+  } while (!isAShareTradingDay(d))
   return todayDateStr(d)
 }
 
@@ -72,8 +88,7 @@ export function shouldShowConfirmedUpdatedBadge(
 
 /* ============================================================ *
  * 市场时段判断 —— 用于 SW 定时刷新时跳过非交易时段的数据源
- * 仅按"周一到周五"判断，不识别法定节假日（节假日时刷新到的是
- * 静态数据，不会出错，只是浪费少量请求）。
+ * 使用交易所休市日历，调休工作日不发起盘中请求。
  * ============================================================ */
 
 function hmsToMinutes(now: Date): number {
@@ -82,8 +97,7 @@ function hmsToMinutes(now: Date): number {
 
 /** A 股交易日（周一到周五）的盘中时段：09:15 - 15:30 */
 export function isAShareTradingTime(now = new Date()): boolean {
-  const day = now.getDay()
-  if (day === 0 || day === 6) return false
+  if (!isAShareTradingDay(now)) return false
   const m = hmsToMinutes(now)
   return m >= 9 * 60 + 15 && m <= 15 * 60 + 30
 }
@@ -97,16 +111,14 @@ export function isAShareTradingTime(now = new Date()): boolean {
  * - A 股交易日 20:00-23:00（晚间官方确认涨跌更新）
  */
 export function shouldRefreshFund(now = new Date()): boolean {
-  const day = now.getDay()
-  if (day === 0 || day === 6) return false
+  if (!isAShareTradingDay(now)) return false
   const m = hmsToMinutes(now)
   return m >= 9 * 60 && m <= 23 * 60
 }
 
 /** A 股指数 / 大盘（涨跌家数、板块排行）：交易日 09:00-15:30（09:00 起覆盖黄金 AU9999 日盘 09:00 开盘，避免 09:00-09:15 空窗） */
 export function shouldRefreshAShareMarket(now = new Date()): boolean {
-  const day = now.getDay()
-  if (day === 0 || day === 6) return false
+  if (!isAShareTradingDay(now)) return false
   const m = hmsToMinutes(now)
   return m >= 9 * 60 && m <= 15 * 60 + 30
 }

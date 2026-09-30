@@ -221,6 +221,7 @@ pub async fn trigger_refresh(app: AppHandle, reset_timer: bool) {
 fn to_input(f: &FundRecord) -> FundQuoteInput {
     FundQuoteInput {
         code: f.code.clone(),
+        asset_kind: f.asset_kind.clone(),
         fund_key: f.fund_key.clone(),
         name: Some(f.name.clone()),
         sectors: f.sectors.clone(),
@@ -448,8 +449,16 @@ async fn refresh_day(app: &AppHandle, force: bool) {
             for f in &holdings_funds {
                 inputs.push(to_input(f));
             }
+            let input_count = inputs.len();
+            let (fund_inputs, market_inputs): (Vec<_>, Vec<_>) = inputs
+                .into_iter()
+                .partition(|input| crate::market::infer_asset_kind(&input.code, input.asset_kind.as_deref()) == "fund");
             let provider = get_quote_provider(source);
-            let mut quotes = provider.fetch_quotes(&inputs).await;
+            let (mut quotes, mut market_quotes) = tokio::join!(
+                provider.fetch_quotes(&fund_inputs),
+                crate::market::fetch_market_quotes(&market_inputs),
+            );
+            quotes.append(&mut market_quotes);
             // 本轮 provider **原始**产出里真正可用的基金集合：必须在 merge_stale_estimate
             // 之前统计 —— 合并会把上一份快照的估算值写回空 quote，若在其后统计，整体断网
             // （全部为空）也会被误判成「拿到了新数据」，导致「数据更新于」时间戳前移。
@@ -470,7 +479,7 @@ async fn refresh_day(app: &AppHandle, force: bool) {
                         .quote_source
                         .as_deref()
                         .unwrap_or("fundmnfinfo"),
-                    inputs.len(),
+                    input_count,
                     quotes.len(),
                     with_percent,
                     with_nav

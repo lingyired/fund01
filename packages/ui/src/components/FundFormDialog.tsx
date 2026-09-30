@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react'
 import {X} from 'lucide-react'
 import {Button, Dialog, TextField} from '@radix-ui/themes'
-import type {FundQuoteRow} from '@fund01/core'
+import type {AssetKind, FundQuoteRow} from '@fund01/core'
 import {usePorts} from '../context'
 
 type Payload = {
@@ -12,6 +12,14 @@ type Payload = {
   group?: string
   /** 该分组的持有收益（元，可选；用于反推成本单价） */
   holdProfit?: number
+  assetKind?: AssetKind
+}
+
+function inferAssetKind(code: string): AssetKind {
+  const normalized = code.trim().padStart(6, '0')
+  if (/^(15|16|5[1-9])\d{4}$/.test(normalized)) return 'etf'
+  if (/^(000|001|002|003|300|301|600|601|603|605|688|689|920)\d{3}$/.test(normalized) || /^[48]\d{5}$/.test(normalized)) return 'stock'
+  return 'fund'
 }
 
 /** 表单内容（不含 Dialog 包装），可在弹窗里用，也可在设置页里内联常驻。
@@ -60,6 +68,7 @@ export function FundFormBody({
   const [addingGroup, setAddingGroup] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [assetKind, setAssetKind] = useState<AssetKind>('fund')
 
   // 内联常驻场景：始终以最新 props 同步表单（settings 页里打开即空白/预填）
   useEffect(() => {
@@ -70,6 +79,7 @@ export function FundFormBody({
     setSelectedGroup(editingGroup ?? '')
     setAddingGroup(false)
     setError('')
+    setAssetKind(initial?.assetKind || inferAssetKind(initial?.code || ''))
   }, [initial, editingGroup, initialAmount, initialHoldProfit])
 
   return (
@@ -83,6 +93,7 @@ export function FundFormBody({
           const payload: Payload = {
             code: code.trim(),
             type: mode,
+            assetKind,
           }
           if (mode === 'hold') {
             payload.amount = Number(amount) || 0
@@ -114,17 +125,27 @@ export function FundFormBody({
     >
       <div className="space-y-1.5">
         <label htmlFor="code" className="text-sm font-medium text-ink-soft leading-none">
-          基金代码
+          证券代码
         </label>
         <TextField.Root
           id="code"
           value={code}
           disabled={!!initial}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="如 001618"
+          placeholder="如 001618、159655 或 601288"
           inputMode="numeric"
           required
         />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-ink-soft leading-none">标的类型</label>
+        <div className="flex gap-2">
+          {([['fund', '场外基金'], ['etf', '场内 ETF'], ['stock', 'A 股股票']] as const).map(([kind, label]) => (
+            <Button key={kind} type="button" size="1" variant={assetKind === kind ? 'solid' : 'outline'} onClick={() => setAssetKind(kind)} disabled={saving}>{label}</Button>
+          ))}
+        </div>
+        {initial ? <p className="text-[11px] text-muted">修改类型后，保存时会按新类型使用对应行情源刷新。</p> : null}
       </div>
 
       {mode === 'hold' ? (

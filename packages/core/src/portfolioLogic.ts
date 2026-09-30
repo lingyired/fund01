@@ -184,6 +184,10 @@ export function normalizeFund(
   return {
     code,
     name: raw.name ?? prev?.name ?? code,
+    assetKind:
+      raw.assetKind === 'fund' || raw.assetKind === 'etf' || raw.assetKind === 'stock'
+        ? raw.assetKind
+        : prev?.assetKind,
     fundKey: raw.fundKey ?? prev?.fundKey ?? '',
     type:
       raw.type === 'hold' || raw.type === 'watch'

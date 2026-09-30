@@ -1,5 +1,5 @@
 import {httpGet, httpPost, MOBILE_UA, fmtDate} from './http'
-import {PUSH_HOSTS} from './market'
+import {PUSH_HOSTS, getMarketSecurityQuotes, inferAssetKind, inferSecurityExchange} from './market'
 import {
   isAShareTradingTime,
   isConfirmedSessionActive,
@@ -826,6 +826,8 @@ export async function getFundQuote(fund: {
  */
 export type FundQuoteInput = {
   code: string
+  assetKind?: 'fund' | 'etf' | 'stock'
+  exchange?: string
   fundKey?: string
   name?: string
   sectors?: string[]
@@ -854,6 +856,7 @@ export type FundQuote = {
   useCalc?: boolean
   /** 是否为 QDII/海外延迟披露基金（UI 区分：盘中「-」、基金列次行净值日期） */
   isQdii?: boolean
+  isMarketQuote?: boolean
 }
 
 export interface FundQuoteProvider {
@@ -1768,14 +1771,35 @@ export async function getFundsQuotes(
   funds: any[],
   source: QuoteSource = 'fundmnfinfo',
 ): Promise<FundQuote[]> {
-  const provider = getQuoteProvider(source)
   const inputs: FundQuoteInput[] = funds.map((f) => ({
     code: f.code,
+    assetKind: inferAssetKind(f.code, f.assetKind),
+    exchange: f.exchange,
     fundKey: f.fundKey,
     name: f.name,
     sectors: f.sectors,
   }))
-  return provider.fetchQuotes(inputs)
+  const fundInputs = inputs.filter((input) => input.assetKind === 'fund')
+  const marketInputs = inputs.filter((input) => input.assetKind !== 'fund')
+  const provider = getQuoteProvider(source)
+  const [fundQuotes, marketQuotes] = await Promise.all([
+    fundInputs.length ? provider.fetchQuotes(fundInputs) : Promise.resolve([]),
+    marketInputs.length ? getMarketSecurityQuotes(marketInputs) : Promise.resolve([]),
+  ])
+  const fundByCode = new Map(fundQuotes.map((quote) => [quote.code, quote]))
+  const marketByCode = new Map(marketQuotes.map((quote) => [quote.code, quote]))
+  return inputs.map((input) => {
+    const code = String(input.code).padStart(6, '0')
+    const market = marketByCode.get(code)
+    if (!market) return fundByCode.get(code) || emptyQuote(input, '未获取到行情')
+    return {
+      ...emptyQuote(input), code, name: market.name || input.name || code,
+      netValue: market.price, estimateNetValue: market.price, prevNetValue: market.previousClose,
+      percent: market.percent, percentSource: 'confirmed' as const,
+      dayGrowth: market.percent, estimateGrowth: market.percent,
+      netValueDate: market.time.slice(0, 10), time: market.time || null, isMarketQuote: true,
+    }
+  })
 }
 
 export async function resolveFund(payload: {
@@ -1783,8 +1807,20 @@ export async function resolveFund(payload: {
   type?: 'hold' | 'watch'
   name?: string
   sectors?: string[]
+  assetKind?: 'fund' | 'etf' | 'stock'
 }) {
   let code = String(payload.code || '').trim()
+  const assetKind = inferAssetKind(code, payload.assetKind)
+  if (assetKind !== 'fund') {
+    const [quote] = await getMarketSecurityQuotes([{code, exchange: inferSecurityExchange(code) || undefined}])
+    if (!quote?.price) throw new Error(`未找到证券代码 ${code} 的场内行情，请核对代码`)
+    return {
+      code: quote.code, name: quote.name || payload.name || quote.code, fundKey: '', sectors: [],
+      netValue: quote.price, prevNetValue: quote.previousClose, prevNetValueDate: '',
+      netValueDate: quote.time.slice(0, 10), confirmedSession: true,
+      officialName: quote.name, assetKind,
+    }
+  }
   let meta: any = {}
   try {
     meta = await searchFund(code)

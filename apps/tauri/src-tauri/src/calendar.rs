@@ -1,10 +1,23 @@
 //! 交易日历 —— 对应 `packages/core/src/tradingCalendar.ts` 1:1 迁移。
-//! A 股简易交易日：仅跳周末（不含法定节假日，与 TS 版一致）。
+//! A 股交易日历。除周末外，内置交易所公布的 2026 年休市日，避免将调休工作日误判为可交易。
 
-use chrono::{DateTime, Datelike, Local, NaiveDate, Timelike, Weekday};
+use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone, Timelike, Weekday};
 
 fn now_local() -> DateTime<Local> {
     Local::now()
+}
+
+/// 上交所 2026 年休市安排（不含天然周末）。年度数据更新前，未知年份仅按周末判断。
+const A_SHARE_CLOSED_2026: &[&str] = &[
+    "2026-01-01", "2026-01-02", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-23",
+    "2026-04-06", "2026-05-01", "2026-05-04", "2026-05-05", "2026-06-19",
+    "2026-09-25", "2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07",
+];
+
+/// A 股是否开市。调休工作日不交易；法定休市日优先于星期判断。
+pub fn is_a_share_trading_day(now: &DateTime<Local>) -> bool {
+    if matches!(now.weekday(), Weekday::Sat | Weekday::Sun) { return false; }
+    !A_SHARE_CLOSED_2026.contains(&today_date_str(now).as_str())
 }
 
 pub fn today_date_str(d: &DateTime<Local>) -> String {
@@ -61,8 +74,8 @@ pub fn next_trading_day(date_str: &str, now: &DateTime<Local>) -> String {
     };
     loop {
         d = d.succ_opt().unwrap_or(d);
-        let wd = d.weekday();
-        if wd != Weekday::Sat && wd != Weekday::Sun {
+        let next = d.and_hms_opt(12, 0, 0).and_then(|v| Local.from_local_datetime(&v).single());
+        if next.is_some_and(|v| is_a_share_trading_day(&v)) {
             break;
         }
     }
@@ -123,8 +136,7 @@ fn hms_to_minutes(d: &DateTime<Local>) -> u32 {
 
 /// A 股交易日（周一到周五）盘中时段：09:15 - 15:30
 pub fn is_a_share_trading_time(now: &DateTime<Local>) -> bool {
-    let day = now.weekday();
-    if day == Weekday::Sat || day == Weekday::Sun {
+    if !is_a_share_trading_day(now) {
         return false;
     }
     let m = hms_to_minutes(now);
@@ -135,8 +147,7 @@ pub fn is_a_share_trading_time(now: &DateTime<Local>) -> bool {
 /// 避免 09:00-09:15 定时器空转——开盘前拉到的是静态数据，无副作用；
 /// 盘中估值 + 空窗自算 + 晚间确认）
 pub fn should_refresh_fund(now: &DateTime<Local>) -> bool {
-    let day = now.weekday();
-    if day == Weekday::Sat || day == Weekday::Sun {
+    if !is_a_share_trading_day(now) {
         return false;
     }
     let m = hms_to_minutes(now);
@@ -146,8 +157,7 @@ pub fn should_refresh_fund(now: &DateTime<Local>) -> bool {
 /// A 股指数 / 大盘：交易日 09:00-15:30（09:00 起覆盖黄金 AU9999 日盘 09:00 开盘，
 /// 避免 09:00-09:15 空窗）
 pub fn should_refresh_a_share_market(now: &DateTime<Local>) -> bool {
-    let day = now.weekday();
-    if day == Weekday::Sat || day == Weekday::Sun {
+    if !is_a_share_trading_day(now) {
         return false;
     }
     let m = hms_to_minutes(now);

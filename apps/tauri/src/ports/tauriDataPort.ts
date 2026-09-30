@@ -51,9 +51,9 @@ export class TauriDataPort implements DataPort {
     return invoke<IndexHistoryPayload>('fetch_index_history', { code, range })
   }
 
-  async fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]> {
+  async fetchFundIntraday(code: string, fundKey?: string): Promise<IntradayPoint[]> {
     const data = await invoke<{ points: IntradayPoint[] }>('fetch_fund_intraday', {
-      req: { code: fundKey, fundKey },
+      req: {code, fundKey: fundKey ?? null},
     })
     return data.points
   }
@@ -63,6 +63,7 @@ export class TauriDataPort implements DataPort {
     type?: 'hold' | 'watch'
     name?: string
     sectors?: string[]
+    assetKind?: 'fund' | 'etf' | 'stock'
   }): Promise<ResolveFundPayload> {
     return invoke<ResolveFundPayload>('resolve_fund', {
       req: {
@@ -70,7 +71,9 @@ export class TauriDataPort implements DataPort {
         type: payload.type ?? null,
         name: payload.name ?? null,
         sectors: payload.sectors ?? null,
+        assetKind: payload.assetKind ?? null,
       },
     })
   }
+
 }

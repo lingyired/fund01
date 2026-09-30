@@ -309,6 +309,22 @@ struct VerifyResult {
 pub async fn resolve_fund(
     payload: &crate::model::ResolveFundRequest,
 ) -> Result<ResolveFundPayload, String> {
+    let asset_kind = crate::market::infer_asset_kind(&payload.code, payload.asset_kind.as_deref());
+    if asset_kind != "fund" {
+        let input = crate::providers::FundQuoteInput {
+            code: payload.code.clone(), asset_kind: Some(asset_kind.to_string()), fund_key: None,
+            name: payload.name.clone(), sectors: payload.sectors.clone().unwrap_or_default(),
+        };
+        let quote = crate::market::fetch_market_quotes(&[input]).await.into_iter().next()
+            .ok_or_else(|| "未获取到场内证券行情，请核对代码".to_string())?;
+        let price = quote.net_value.ok_or_else(|| format!("未找到证券代码 {} 的场内行情，请核对代码", payload.code))?;
+        return Ok(ResolveFundPayload {
+            code: quote.code, name: quote.name.clone(), fund_key: String::new(), sectors: vec![],
+            asset_kind: Some(asset_kind.to_string()), net_value: Some(price), prev_net_value: quote.prev_net_value,
+            prev_net_value_date: None, net_value_date: Some(chrono::Local::now().format("%Y-%m-%d").to_string()),
+            confirmed_session: Some(true), official_name: Some(quote.name), name_mismatch: None, code_corrected: None,
+        });
+    }
     let mut code = payload.code.trim().to_string();
     let mut meta: Option<SearchMeta> = None;
     match search_fund(&code).await {
@@ -431,6 +447,7 @@ pub async fn resolve_fund(
             .map(|m| m.fund_key.clone())
             .unwrap_or_default(),
         sectors,
+        asset_kind: Some("fund".to_string()),
         net_value,
         prev_net_value,
         prev_net_value_date: if prev_net_value_date.is_empty() {

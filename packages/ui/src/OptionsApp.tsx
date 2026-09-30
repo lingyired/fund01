@@ -63,6 +63,7 @@ import {
   MENUBAR_OVERVIEW_KEY,
   MIN_REFRESH_INTERVAL,
   normalizeHexColor,
+  todayDateStr,
 } from '@fund01/core'
 import {cn} from '@fund01/core'
 import {buildInfo} from './buildInfo'
@@ -92,6 +93,7 @@ import {
 } from './lib/fundOps'
 import {
   deriveRowReadonly,
+  inferAssetKind,
   loadEditRows,
   type EditRow,
 } from './lib/batchEdit'
@@ -1505,7 +1507,7 @@ function AddFundSection({
   return (
     <SectionCard id="add-fund" title="添加持仓">
       <p className="text-xs text-muted">
-        录入基金代码与持有金额即可添加；持有收益可选填（与基金列表/截图一致）。同一基金可在多个分组各持有独立份额；添加后表单自动清空，方便连续录入。
+        支持场外基金、场内 ETF 和 A 股股票；录入证券代码与持有金额即可添加。持有收益可选填，同一标的可在多个分组各持有独立份额。
       </p>
       <FundFormBody
         mode="hold"
@@ -1521,6 +1523,7 @@ function AddFundSection({
             amount: payload.amount,
             group: payload.group,
             holdProfit: payload.holdProfit,
+            assetKind: payload.assetKind,
             type: 'hold',
           })
           setGroups(listHoldingGroups(ports))
@@ -1722,6 +1725,13 @@ function EditHoldingsSection({
     setRows((cur) => cur.map((r, i) => (i === index ? {...r, ...patch, touched: true} : r)))
   }
 
+  /** 同一证券可分属多个分组，但类别只能有一个；修改时同步所有分组行。 */
+  function updateAssetKind(index: number, assetKind: EditRow['assetKind']) {
+    const code = rows[index]?.code
+    if (!code) return
+    setRows((cur) => cur.map((r) => r.code === code ? {...r, assetKind, touched: true} : r))
+  }
+
   function removeRow(index: number) {
     setRows((cur) => cur.filter((_, i) => i !== index))
   }
@@ -1845,6 +1855,9 @@ function EditHoldingsSection({
           }
           continue
         }
+        // assetKind 是证券级字段（不是分组字段）；编辑页已同步同代码的各分组行。
+        funds[key].assetKind = list[0].assetKind
+        funds[key].updatedAt = new Date().toISOString()
         const rowGroups = new Set(list.map((r) => r.group))
         for (const r of list) {
           // 统一录入口径：金额 + 收益 → 份额 = 金额 ÷ 口径基准净值；成本单价 = (金额−收益) ÷ 份额（派生）
@@ -2077,6 +2090,7 @@ function EditHoldingsSection({
                   <table className="w-full table-fixed text-left text-xs">
                     <colgroup>
                       <col className="w-auto" />
+                      <col className="w-[100px]" />
                       <col className="w-[130px]" />
                       <col className="w-[110px]" />
                       <col className="w-[90px]" />
@@ -2088,6 +2102,7 @@ function EditHoldingsSection({
                     <thead className="sticky top-0 z-10 bg-paper-deep/40 text-muted">
                       <tr className="border-b border-line/40">
                         <th className="px-2 py-1.5 font-medium">基金</th>
+                        <th className="px-2 py-1.5 text-center font-medium">类别</th>
                         <th className="px-2 py-1.5 text-center font-medium">持有金额</th>
                         <th className="px-2 py-1.5 text-center font-medium">持有收益</th>
                         <th className="px-2 py-1.5 text-center font-medium">持有份额</th>
@@ -2120,6 +2135,21 @@ function EditHoldingsSection({
                                   </span>
                                 ) : null}
                               </div>
+                            </td>
+                            <td className="px-2 py-1.5 align-middle">
+                              <Select.Root
+                                value={r.assetKind}
+                                onValueChange={(value) => updateAssetKind(i, value as EditRow['assetKind'])}
+                                disabled={saving || refreshing}
+                                size="1"
+                              >
+                                <Select.Trigger className="w-full" aria-label={`${r.name} 的标的类别`} />
+                                <Select.Content position="popper">
+                                  <Select.Item value="fund">场外基金</Select.Item>
+                                  <Select.Item value="etf">场内 ETF</Select.Item>
+                                  <Select.Item value="stock">A 股股票</Select.Item>
+                                </Select.Content>
+                              </Select.Root>
                             </td>
                             <td className="px-2 py-1.5 align-middle">
                               <div className="relative">
@@ -2411,6 +2441,7 @@ function ImportSection({
           amountBasis: e.amountBasis,
           navDate: e.navDate,
           name: e.name,
+          assetKind: e.assetKind,
           type: 'hold',
           group,
           cost: e.cost,
@@ -2472,6 +2503,7 @@ function ImportSection({
         amountBasis: e.amountBasis,
         navDate: e.navDate,
         name: e.name,
+        assetKind: e.assetKind,
         type: 'hold',
         group,
         cost: e.cost,
@@ -2674,6 +2706,7 @@ function ImportSection({
               <tr>
                 <th className="px-1.5 py-1 font-medium">代码</th>
                 <th className="px-1.5 py-1 font-medium">名称</th>
+                <th className="px-1.5 py-1 font-medium">类别</th>
                 <th className="px-1.5 py-1 text-right font-medium">金额</th>
                 <th className="px-1.5 py-1 text-right font-medium">成本/累计</th>
                 <th className="px-1.5 py-1 font-medium">口径</th>
@@ -2692,6 +2725,9 @@ function ImportSection({
                   <tr key={`${e.code}-${i}`} className="border-t border-line/40">
                     <td className="px-1.5 py-1 font-mono">{e.code}</td>
                     <td className="px-1.5 py-1 text-muted">{e.name || '--'}</td>
+                    <td className="px-1.5 py-1 text-muted">
+                      {e.assetKind === 'fund' ? '场外基金' : e.assetKind === 'etf' ? '场内 ETF' : 'A 股股票'}
+                    </td>
                     <td className="px-1.5 py-1 text-right font-mono tabular-nums">
                       {e.amount.toFixed(2)}
                     </td>

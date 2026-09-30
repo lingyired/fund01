@@ -58,6 +58,58 @@ export const PUSH_HOSTS = [
   'https://82.push2.eastmoney.com',
 ]
 
+export type MarketSecurityInput = {code: string; exchange?: string}
+export type MarketSecurityQuote = {
+  code: string
+  name: string
+  exchange: string
+  price: number | null
+  previousClose: number | null
+  percent: number | null
+  time: string
+}
+
+/** 仅识别常见场内代码，避免将普通场外基金误当作股票。 */
+export function inferAssetKind(code: string, explicit?: string): 'fund' | 'etf' | 'stock' {
+  if (explicit === 'fund' || explicit === 'etf' || explicit === 'stock') return explicit
+  const c = String(code || '').padStart(6, '0')
+  if (/^(15|16|5[1-9])\d{4}$/.test(c)) return 'etf'
+  if (/^(000|001|002|003|300|301|600|601|603|605|688|689|4|8|92)\d{3}$/.test(c)) return 'stock'
+  return 'fund'
+}
+
+export function inferSecurityExchange(code: string, exchange?: string): string | null {
+  if (exchange === 'SH' || exchange === 'SZ' || exchange === 'BJ') return exchange
+  const c = String(code || '').padStart(6, '0')
+  if (/^(5|6|9)/.test(c)) return 'SH'
+  if (/^(0|1|2|3)/.test(c)) return 'SZ'
+  if (/^(4|8)/.test(c)) return 'BJ'
+  return null
+}
+
+/** 批量获取沪深北股票和场内 ETF 的最新成交价、昨收及涨跌幅。 */
+export async function getMarketSecurityQuotes(inputs: MarketSecurityInput[]): Promise<MarketSecurityQuote[]> {
+  const valid = inputs
+    .map((input) => ({code: String(input.code || '').padStart(6, '0'), exchange: inferSecurityExchange(input.code, input.exchange)}))
+    .filter((input): input is {code: string; exchange: string} => /^\d{6}$/.test(input.code) && !!input.exchange)
+  if (!valid.length) return []
+  const secids = valid.map(({code, exchange}) => `${exchange === 'SH' ? 1 : 0}.${code}`).join(',')
+  const data = await eastmoneyGet('/api/qt/ulist.np/get', {
+    fltt: 2, invt: 2, fields: 'f2,f3,f12,f13,f14,f18,f124', secids,
+  }, PUSH_HOSTS)
+  const rows = new Map<string, any>((data?.data?.diff || []).map((row: any) => [String(row.f12), row]))
+  return valid.map(({code, exchange}) => {
+    const row = rows.get(code)
+    return {
+      code, exchange, name: typeof row?.f14 === 'string' ? row.f14 : code,
+      price: typeof row?.f2 === 'number' && row.f2 > 0 ? row.f2 : null,
+      previousClose: typeof row?.f18 === 'number' && row.f18 > 0 ? row.f18 : null,
+      percent: typeof row?.f3 === 'number' ? row.f3 : null,
+      time: typeof row?.f124 === 'number' ? new Date(row.f124 * 1000).toISOString() : '',
+    }
+  })
+}
+
 async function eastmoneyGet(
   url: string,
   params: Record<string, any>,

@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 pub struct FundRecord {
     pub code: String,
     pub name: String,
+    /// fund / etf / stock；旧配置缺失时行情层按代码识别。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asset_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fund_key: Option<String>,
     /// 'hold' | 'watch'
@@ -283,6 +286,8 @@ pub struct FundQuote {
     pub use_calc: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_qdii: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_market_quote: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -432,6 +437,8 @@ pub struct ResolveFundPayload {
     #[serde(default)]
     pub sectors: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub asset_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub net_value: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_net_value: Option<f64>,
@@ -483,6 +490,7 @@ pub struct ResolveFundRequest {
     pub fund_type: Option<String>,
     pub name: Option<String>,
     pub sectors: Option<Vec<String>>,
+    pub asset_kind: Option<String>,
 }
 
 /// 前端「分时走势」命令入参

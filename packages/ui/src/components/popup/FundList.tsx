@@ -383,18 +383,8 @@ export function FundList({
                             净值{row.netValueDate.slice(5)}
                           </span>
                         ) : null}
-                        {row.time ? (
-                          <span
-                            className="shrink-0 font-mono text-[10px] leading-none text-muted opacity-60 tabular-nums"
-                            title="该基金行情最后更新时间"
-                          >
-                            {row.time}
-                          </span>
-                        ) : null}
                         <ConfirmedUpdatedBadge
                           show={row.confirmedUpdated}
-                          percent={row.dayGrowth ?? row.percent}
-                          netValue={row.netValue}
                         />
                       </div>
                     </div>

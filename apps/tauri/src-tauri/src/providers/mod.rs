@@ -17,6 +17,7 @@ use crate::model::FundQuote;
 #[derive(Debug, Clone, Default)]
 pub struct FundQuoteInput {
     pub code: String,
+    pub asset_kind: Option<String>,
     pub fund_key: Option<String>,
     pub name: Option<String>,
     pub sectors: Vec<String>,

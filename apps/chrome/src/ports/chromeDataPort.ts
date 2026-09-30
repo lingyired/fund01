@@ -89,10 +89,10 @@ export class ChromeDataPort implements DataPort {
     return sendMessage({ type: 'FETCH_INDEX_HISTORY', code, range })
   }
 
-  async fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]> {
+  async fetchFundIntraday(code: string, fundKey?: string): Promise<IntradayPoint[]> {
     const data = await sendMessage<FundIntradayPayload>({
       type: 'FETCH_FUND_INTRADAY',
-      code: fundKey,
+      code,
       fundKey,
     })
     return data.points

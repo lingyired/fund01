@@ -131,6 +131,9 @@ pub async fn fetch_fund_intraday(
     req: FundIntradayRequest,
 ) -> Result<FundIntradayPayload, String> {
     let _ = state;
+    if crate::market::infer_asset_kind(&req.code, None) != "fund" {
+        return crate::market::fetch_market_intraday(&req.code).await;
+    }
     crate::providers::fund123::fetch_intraday_for_dialog(
         &req.code,
         req.fund_key.as_deref(),

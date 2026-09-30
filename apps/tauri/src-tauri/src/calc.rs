@@ -149,9 +149,10 @@ pub fn calc_holdings(
         }
         let overview_has_cost = overview_cost_row > 0.0;
 
-        let using_estimate = q.percent_source.as_deref() == Some("estimate")
-            || (q.percent_source.as_deref() != Some("confirmed")
-                && latest_estimate_nav(q).is_some());
+        let using_estimate = !q.is_market_quote.unwrap_or(false)
+            && (q.percent_source.as_deref() == Some("estimate")
+                || (q.percent_source.as_deref() != Some("confirmed")
+                    && latest_estimate_nav(q).is_some()));
 
         let mut pnl: Option<f64> = None;
         if shares > 0.0 && prev_nav.is_some() && curr_nav.is_some() {
@@ -218,7 +219,13 @@ pub fn calc_holdings(
             persist_patches.push(patch);
         }
 
-        let confirmed_updated = should_show_confirmed_updated_badge(
+        // 「今日已更新」只描述场外基金的确认净值披露；场内 ETF/股票的
+        // 成交价本来就是实时行情，不应显示这个基金净值状态。
+        let is_off_exchange_fund = crate::market::infer_asset_kind(
+            &raw.code,
+            raw.asset_kind.as_deref(),
+        ) == "fund";
+        let confirmed_updated = is_off_exchange_fund && should_show_confirmed_updated_badge(
             q.percent_source.as_deref(),
             Some(if nav_day.is_empty() {
                 q.net_value_date.as_str()
@@ -239,6 +246,9 @@ pub fn calc_holdings(
         }
         row_fund.sectors = sectors.clone();
         row_fund.shares = Some(shares);
+        if q.is_market_quote.unwrap_or(false) && row_fund.asset_kind.is_none() {
+            row_fund.asset_kind = Some(crate::market::infer_asset_kind(&row_fund.code, None).to_string());
+        }
 
         rows.push(FundQuoteRow {
             fund: row_fund,
@@ -350,4 +360,5 @@ static EMPTY_QUOTE: FundQuote = FundQuote {
     error: None,
     use_calc: None,
     is_qdii: None,
+    is_market_quote: None,
 };
