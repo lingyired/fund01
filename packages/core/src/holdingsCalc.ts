@@ -8,6 +8,15 @@ function round2(n: number) {
   return Math.round(Number(n) * 100) / 100
 }
 
+/** 与桌面端 market::infer_asset_kind 同口径：旧配置缺失类别时识别场内代码。 */
+function isOffExchangeFund(raw: FundRecord): boolean {
+  if (raw.assetKind) return raw.assetKind === 'fund'
+  const code = String(raw.code || '').trim().padStart(6, '0')
+  if (/^(15|16|5[1-9])\d{4}$/.test(code)) return false
+  if (/^(000|001|002|003|300|301|600|601|603|605|688|689|920)\d{3}$/.test(code) || /^[48]\d{5}$/.test(code)) return false
+  return true
+}
+
 /** 收益取分：与支付宝一致，舍去厘（向 0 截断），不用四舍五入 */
 export function truncPnl2(n: number) {
   const x = Number(n)
@@ -33,6 +42,8 @@ export type QuoteLike = {
   /** 关联板块行情（仅 xiaobei 源填充）——板块指数涨跌幅，**不是本基金收益** */
   sectorQuotes?: SectorQuote[]
   isQdii?: boolean
+  /** 场内标的的最新成交价，不使用基金盘中估值的“昨收市值”展示口径。 */
+  isMarketQuote?: boolean
 }
 
 /** 从估值分时末点取净值（比涨幅更精确） */
@@ -161,8 +172,9 @@ export function calcHoldings(
     const overviewHasCost = overviewCostRow > 0
 
     const usingEstimate =
-      q.percentSource === 'estimate' ||
-      (q.percentSource !== 'confirmed' && latestEstimateNav(q) != null)
+      !q.isMarketQuote &&
+      (q.percentSource === 'estimate' ||
+        (q.percentSource !== 'confirmed' && latestEstimateNav(q) != null))
 
     let pnl: number | null = null
     if (shares > 0 && prevNav != null && currNav != null) {
@@ -251,7 +263,7 @@ export function calcHoldings(
       costs: hasCost ? costs : undefined,
       type: raw.type,
       code: raw.code,
-      confirmedUpdated: shouldShowConfirmedUpdatedBadge({
+      confirmedUpdated: isOffExchangeFund(raw) && shouldShowConfirmedUpdatedBadge({
         percentSource: q.percentSource || null,
         netValueDate: navDay || q.netValueDate || '',
         isQdii: q.isQdii,
@@ -289,4 +301,3 @@ export function calcHoldings(
     persistPatches,
   }
 }
-

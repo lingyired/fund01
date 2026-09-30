@@ -6,13 +6,15 @@
  * 口径（spec 持仓录入与展示统一 §4.3）：编辑表格可编辑列 = 持有金额 + 持有收益；
  * 持有份额 / 成本单价 / 持有成本 均为只读派生展示。落库仍写 allocations/costs。
  */
-import type {FundRecord, Ports} from '@fund01/core'
+import type {AssetKind, FundRecord, Ports} from '@fund01/core'
 import {getHoldingGroupOrder, listFunds, listHoldingGroups} from './fundOps'
 
 /** 一行可编辑项：某基金在某分组的持有金额与持有收益（编辑用），份额/成本只读派生 */
 export type EditRow = {
   code: string
   name: string
+  /** 标的类别；旧配置缺失时由代码推断，保存编辑后会显式写入。 */
+  assetKind: AssetKind
   group: string
   /** 持有份额（只读展示；loadEditRows 时为原值，UI 按 amount÷净值 实时派生） */
   shares: string
@@ -26,6 +28,13 @@ export type EditRow = {
   initialized: boolean
   /** 用户是否手动编辑过该行（切换金额口径时保留，不被重新预填覆盖） */
   touched?: boolean
+}
+
+/** 旧配置缺失类别时的兼容推断；新增功能应与编辑持仓使用同一口径。 */
+export function inferAssetKind(code: string): AssetKind {
+  if (/^(15|16|5[1-9])\d{4}$/.test(code)) return 'etf'
+  if (/^(000|001|002|003|300|301|600|601|603|605|688|689|920)\d{3}$/.test(code) || /^[48]\d{5}$/.test(code)) return 'stock'
+  return 'fund'
 }
 
 /**
@@ -100,6 +109,7 @@ export async function loadEditRows(
       rows.push({
         code: f.code,
         name: f.name || f.code,
+        assetKind: f.assetKind || inferAssetKind(f.code),
         group: g,
         // 0 份额也显示为「0」（0 金额关注基金），供只读列回退与预填判断用
         shares: shares > 0 ? String(shares) : shares === 0 ? '0' : '',

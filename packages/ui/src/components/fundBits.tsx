@@ -17,54 +17,23 @@ export const HOLD_PROFIT_TERMS_NOTE = (
   </div>
 )
 
-/** 已确认涨跌的徽标：展示「已更新 + 当日涨跌% + 最新净值」，仅 confirmedUpdated 时渲染 */
+/** 已确认涨跌的徽标：只表达确认状态，涨跌和净值由表格右侧专栏展示，避免重复。 */
 export function ConfirmedUpdatedBadge({
   show,
-  percent,
-  netValue,
   compact,
 }: {
   show?: boolean
-  percent?: number | null
-  netValue?: number | null
   compact?: boolean
 }) {
   if (!show) return null
-  if (compact) {
-    return (
-      <span
-        className="inline-flex shrink-0 items-center rounded border border-emerald-400/40 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-500"
-        title="该基金今日已披露确认净值，录入金额按今日净值折算份额"
-      >
-        已更新
-      </span>
-    )
-  }
-  const pctText = formatPct(percent)
-  const navText =
-    netValue != null && Number.isFinite(netValue) ? netValue.toFixed(4) : '--'
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium leading-none tabular-nums ${
-        percent == null || Number.isNaN(percent)
-          ? 'border-line bg-paper text-muted'
-          : percent >= 0
-            ? 'border-rise/35 bg-rise/10 text-rise'
-            : 'border-fall/35 bg-fall/10 text-fall'
-      }`}
+      className="inline-flex shrink-0 items-center rounded border border-emerald-400/40 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-500"
       title={
         '已拉到官方确认涨跌，持仓金额与收益已按确认值更新；下一交易日开盘后自动清除'
       }
     >
-      <span>已更新</span>
-      {pctText !== '--' ? (
-        <>
-          <span className="opacity-50">｜</span>
-          <span>{pctText}</span>
-        </>
-      ) : null}
-      <span className="opacity-50">｜</span>
-      <span>{navText}</span>
+      {compact ? '已更新' : '今日已更新'}
     </span>
   )
 }

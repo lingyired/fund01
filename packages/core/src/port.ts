@@ -49,12 +49,14 @@ export interface DataPort {
   fetchRefreshSchedule?(): Promise<RefreshSchedule>
   fetchFundHistory(code: string, range?: FundHistoryRange): Promise<FundHistoryPayload>
   fetchIndexHistory(code: string, range: string): Promise<IndexHistoryPayload>
-  fetchFundIntraday(fundKey: string): Promise<IntradayPoint[]>
+  /** 场外基金传 code + 可选 fundKey；场内 ETF/股票传证券 code 以走实时分时行情。 */
+  fetchFundIntraday(code: string, fundKey?: string): Promise<IntradayPoint[]>
   resolveFund(payload: {
     code: string
     type?: 'hold'
     name?: string
     sectors?: string[]
+    assetKind?: 'fund' | 'etf' | 'stock'
   }): Promise<ResolveFundPayload>
 }
 

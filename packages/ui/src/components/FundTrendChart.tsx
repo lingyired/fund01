@@ -18,6 +18,19 @@ const TABS: {key: TabKey; label: string}[] = [
 
 const HISTORY_RANGES: FundHistoryRange[] = ['3m', '1y', '3y', 'since']
 
+/** A 股连续竞价分钟：午间休市不生成点，横轴固定到 15:00。 */
+function aShareIntradayLabels(): string[] {
+  const labels: string[] = []
+  const append = (start: number, end: number) => {
+    for (let minute = start; minute <= end; minute += 1) {
+      labels.push(`${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`)
+    }
+  }
+  append(9 * 60 + 30, 11 * 60 + 30)
+  append(13 * 60, 15 * 60)
+  return labels
+}
+
 /**
  * 基金走势图（不含 Dialog 外壳），可独立嵌在任意位置（详情弹窗底部 / 独立走势弹窗内）。
  * - active：是否处于可视/激活状态；仅当为 true 时才拉取与渲染曲线，避免弹窗未打开时浪费请求。
@@ -77,7 +90,7 @@ export function FundTrendChart({
     let cancelled = false
     setLoadingIntraday(true)
     setIntradayError('')
-    ports.data.fetchFundIntraday(fundKey || code)
+    ports.data.fetchFundIntraday(code, fundKey)
       .then((points) => {
         if (cancelled) return
         setLazyIntraday(
@@ -181,15 +194,20 @@ export function FundTrendChart({
     if (range === 'intraday') {
       const points = effectiveIntraday
       if (!points.length) return null
-      const values = points.map((p) => p.value)
-      const lastPct = values[values.length - 1] ?? 0
+      // 场内分时固定显示完整交易日。尚未到达的分钟置空，曲线自然停在最新成交时刻，
+      // 不会把 11:00 的数据拉伸占满到右边界。
+      const labels = aShareIntradayLabels()
+      const valueByTime = new Map(points.map((p) => [p.time.slice(-5), p.value]))
+      const values = labels.map((time) => valueByTime.get(time) ?? null)
+      const numericValues = values.filter((value): value is number => value != null)
+      const lastPct = numericValues[numericValues.length - 1] ?? 0
       const up = lastPct >= 0
       const color = up ? '#d7263d' : '#0f8a5f'
       const lastLabel = `${lastPct > 0 ? '+' : ''}${lastPct.toFixed(2)}%`
       return buildChartOption({
-        labels: points.map((p) => p.time),
+        labels,
         values,
-        fullDates: points.map((p) => p.time),
+        fullDates: labels,
         extras: points.map(() => null as number | null),
         extraLabel: '',
         color,
@@ -313,7 +331,7 @@ function buildChartOption({
   lastLabel,
 }: {
   labels: string[]
-  values: number[]
+  values: (number | null)[]
   fullDates: string[]
   extras: (number | null)[]
   extraLabel: string
@@ -322,8 +340,9 @@ function buildChartOption({
   line: string
   lastLabel: string
 }) {
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  const numericValues = values.filter((value): value is number => value != null)
+  const min = Math.min(...numericValues)
+  const max = Math.max(...numericValues)
   const pad = Math.max((max - min) * 0.12, 0.05)
 
   return {

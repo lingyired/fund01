@@ -295,6 +295,7 @@ export async function createFund(
     type: 'hold',
     name: payload.name,
     sectors: payload.sectors,
+    assetKind: payload.assetKind,
   })
 
   // 代码 ↔ 名称核对结果（对持仓生效）。
@@ -407,6 +408,7 @@ export async function createFund(
     // 官方名优先：传入名可能来自 AI 识图，与代码不符时以数据源为准，
     // 否则会出现「显示的名字是对的、数据却是另一只基金」的隐形错配。
     name: meta.name || payload.name,
+    assetKind: meta.assetKind || payload.assetKind,
     fundKey: meta.fundKey,
     type: 'hold',
     allocations,

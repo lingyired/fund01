@@ -6,7 +6,9 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::http::{self, DESKTOP_UA};
-use crate::model::{IndexHistoryPayload, IndexHistoryPoint, IndexItem};
+use crate::model::{FundIntradayPayload, IndexHistoryPayload, IndexHistoryPoint, IndexItem, TrendPoint};
+use crate::model::FundQuote;
+use crate::providers::FundQuoteInput;
 
 /// 东财行情 host 兜底链（push2delay 延迟行情最稳，放第一；push2 主域名对无 cookie 请求常风控秒断）。
 /// getIndices 与 fundmnfinfo::fetch_stock_pct_changes 共用，保证行情类请求有三级 host 保险。
@@ -15,6 +17,246 @@ pub(crate) const PUSH_HOSTS: &[&str] = &[
     "https://push2.eastmoney.com",
     "https://82.push2.eastmoney.com",
 ];
+
+/// 只识别明确的场内代码，旧版配置未带 assetKind 时仍能平滑迁移。
+pub fn infer_asset_kind(code: &str, explicit: Option<&str>) -> &'static str {
+    match explicit {
+        Some("fund") => return "fund",
+        Some("etf") => return "etf",
+        Some("stock") => return "stock",
+        _ => {}
+    }
+    let c = format!("{:0>6}", code.trim());
+    if c.len() == 6
+        && ((c.starts_with("15") || c.starts_with("16"))
+            || (c.starts_with('5') && matches!(c.as_bytes().get(1), Some(b'1'..=b'9'))))
+    {
+        return "etf";
+    }
+    if ["000", "001", "002", "003", "300", "301", "600", "601", "603", "605", "688", "689", "920"]
+        .iter().any(|p| c.starts_with(p))
+        || c.starts_with('4') || c.starts_with('8')
+    { "stock" } else { "fund" }
+}
+
+fn security_secid(code: &str) -> Option<String> {
+    let c = format!("{:0>6}", code.trim());
+    if c.len() != 6 || !c.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    let market = if c.starts_with('5') || c.starts_with('6') || c.starts_with('9') { 1 } else { 0 };
+    Some(format!("{market}.{c}"))
+}
+
+/// 腾讯行情兜底：东财 push2 被网络/风控中断时，场内 ETF 与 A 股仍可正常更新。
+/// 名称字段可能是 GBK，故保留本地名称；价格、昨收和涨跌幅均为纯数字字段。
+async fn fetch_tencent_market_quotes(inputs: &[&FundQuoteInput]) -> Vec<FundQuote> {
+    if inputs.is_empty() { return Vec::new(); }
+    let symbols = inputs.iter().map(|input| {
+        let code = format!("{:0>6}", input.code.trim());
+        let market = if code.starts_with('5') || code.starts_with('6') || code.starts_with('9') { "sh" } else if code.starts_with('4') || code.starts_with('8') { "bj" } else { "sz" };
+        format!("{market}{code}")
+    }).collect::<Vec<_>>().join(",");
+    let url = format!("https://qt.gtimg.cn/q={symbols}");
+    let text = match http::http_get_text(&url, &HashMap::new(), DESKTOP_UA, Some("https://gu.qq.com/"), Duration::from_secs(12)).await {
+        Ok(text) => text,
+        Err(e) => return inputs.iter().map(|input| FundQuote {
+            code: format!("{:0>6}", input.code.trim()), name: input.name.clone().unwrap_or_else(|| input.code.clone()),
+            sectors: input.sectors.clone(), error: Some(e.clone()), ..Default::default()
+        }).collect(),
+    };
+    let mut rows: HashMap<String, Vec<&str>> = HashMap::new();
+    for line in text.split(';') {
+        let Some(start) = line.find('"') else { continue; };
+        let Some(end) = line.rfind('"') else { continue; };
+        let fields: Vec<&str> = line[start + 1..end].split('~').collect();
+        if fields.len() > 32 && fields[2].len() == 6 { rows.insert(fields[2].to_string(), fields); }
+    }
+    inputs.iter().map(|input| {
+        let code = format!("{:0>6}", input.code.trim());
+        let row = rows.get(&code);
+        let number = |idx: usize| row.and_then(|v| v.get(idx)).and_then(|v| v.parse::<f64>().ok()).filter(|v| *v > 0.0);
+        let price = number(3);
+        let previous_close = number(4);
+        let percent = row.and_then(|v| v.get(32)).and_then(|v| v.parse::<f64>().ok());
+        let time = row.and_then(|v| v.get(30)).filter(|v| v.len() >= 8).map(|v| format!("{}-{}-{}", &v[0..4], &v[4..6], &v[6..8]));
+        FundQuote {
+            code: code.clone(), name: input.name.clone().unwrap_or(code), fund_key: String::new(),
+            day_growth: percent, estimate_growth: percent, percent, percent_source: Some("confirmed".to_string()),
+            net_value: price, estimate_net_value: price, prev_net_value: previous_close,
+            net_value_date: time.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string()),
+            time: None, trend: vec![], sectors: input.sectors.clone(), is_market_quote: Some(true),
+            error: if price.is_none() { Some("腾讯行情未返回该代码".to_string()) } else { None }, ..Default::default()
+        }
+    }).collect()
+}
+
+/// 东财延迟行情：场内 ETF 与 A 股股票共用，返回的 netValue 即最新成交价。
+pub async fn fetch_market_quotes(inputs: &[FundQuoteInput]) -> Vec<FundQuote> {
+    let valid: Vec<(&FundQuoteInput, String)> = inputs.iter()
+        .filter_map(|input| security_secid(&input.code).map(|secid| (input, secid)))
+        .collect();
+    if valid.is_empty() { return Vec::new(); }
+    let secids = valid.iter().map(|(_, secid)| secid.as_str()).collect::<Vec<_>>().join(",");
+    let query = http::params(&[
+        ("fltt", "2"), ("invt", "2"),
+        ("fields", "f2,f3,f12,f14,f18,f124"), ("secids", &secids),
+    ]);
+    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await {
+        Ok(data) => data,
+        Err(e) => {
+            crate::err_log!("东财场内行情不可用，切换腾讯兜底: {e}");
+            let refs = valid.iter().map(|(input, _)| *input).collect::<Vec<_>>();
+            return fetch_tencent_market_quotes(&refs).await;
+        }
+    };
+    let rows: HashMap<String, &Value> = data.pointer("/data/diff").and_then(|v| v.as_array())
+        .map(|items| items.iter().filter_map(|row| row.get("f12").and_then(|v| v.as_str()).map(|code| (code.to_string(), row))).collect())
+        .unwrap_or_default();
+    valid.into_iter().map(|(input, _)| {
+        let code = format!("{:0>6}", input.code.trim());
+        let row = rows.get(&code).copied();
+        let price = row.and_then(|r| r.get("f2")).and_then(|v| v.as_f64()).filter(|v| *v > 0.0);
+        let previous_close = row.and_then(|r| r.get("f18")).and_then(|v| v.as_f64()).filter(|v| *v > 0.0);
+        let percent = row.and_then(|r| r.get("f3")).and_then(|v| v.as_f64());
+        let name = row.and_then(|r| r.get("f14")).and_then(|v| v.as_str()).unwrap_or_else(|| input.name.as_deref().unwrap_or(&code)).to_string();
+        FundQuote {
+            code, name, fund_key: String::new(), day_growth: percent, estimate_growth: percent, percent,
+            percent_source: Some("confirmed".to_string()), net_value: price, estimate_net_value: price,
+            prev_net_value: previous_close, net_value_date: chrono::Local::now().format("%Y-%m-%d").to_string(),
+            time: row.and_then(|r| r.get("f124")).and_then(|v| v.as_i64()).map(|ts| chrono::DateTime::from_timestamp(ts, 0).map(|d| d.to_rfc3339()).unwrap_or_default()),
+            trend: vec![], sectors: input.sectors.clone(), is_market_quote: Some(true),
+            error: if price.is_none() { Some("未获取到行情".to_string()) } else { None }, ..Default::default()
+        }
+    }).collect()
+}
+
+/// 场内 ETF / A 股的当日分时：东财 trends2 返回每分钟成交价，以昨收换算涨跌幅。
+/// 这条路径与场外基金的 fund123 估值分时完全不同，不能混用。
+pub async fn fetch_market_intraday(code: &str) -> Result<FundIntradayPayload, String> {
+    let secid = security_secid(code).ok_or_else(|| format!("无效场内代码 {code}"))?;
+    let query = http::params(&[
+        ("fields1", "f1,f2,f3,f4,f5,f6,f7,f8"),
+        ("fields2", "f51,f52,f53,f54,f55,f56,f57,f58"),
+        ("ndays", "1"),
+        ("iscr", "0"),
+        ("secid", &secid),
+    ]);
+    let mut last_error = None;
+    for host in ["https://push2his.eastmoney.com", "https://push2delay.eastmoney.com", "https://push2.eastmoney.com"] {
+        match http::http_get_json(
+            &format!("{host}/api/qt/stock/trends2/get"),
+            &query,
+            DESKTOP_UA,
+            Some("https://quote.eastmoney.com/"),
+            Duration::from_secs(12),
+        ).await {
+            Ok(data) => {
+                let payload = data.get("data").unwrap_or(&Value::Null);
+                let pre_close = payload.get("preClose").and_then(Value::as_f64).filter(|v| *v > 0.0);
+                let Some(pre_close) = pre_close else { last_error = Some("场内分时缺少昨收价".to_string()); continue };
+                let points: Vec<TrendPoint> = payload.get("trends").and_then(Value::as_array).into_iter().flatten().filter_map(|item| {
+                    let row = item.as_str()?;
+                    let mut fields = row.split(',');
+                    let timestamp = fields.next()?;
+                    let price = fields.next()?.parse::<f64>().ok().filter(|v| *v > 0.0)?;
+                    let time = timestamp.rsplit_once(' ').map(|(_, time)| time).unwrap_or(timestamp).to_string();
+                    Some(TrendPoint { time, growth: Some(((price / pre_close) - 1.0) * 100.0), net_value: Some(price) })
+                }).collect();
+                if !points.is_empty() {
+                    let latest = points.last().cloned();
+                    return Ok(FundIntradayPayload {
+                        points,
+                        latest,
+                        fund_key: format!("market:{secid}"),
+                        name: payload.get("name").and_then(Value::as_str).unwrap_or(code).to_string(),
+                    });
+                }
+                last_error = Some("场内分时暂无数据（休市或停牌）".to_string());
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    // `push2his` 在部分网络（尤其是启用了企业代理时）会直接断开连接。
+    // 报价已使用腾讯兜底，分时也必须同样兜底；不能再退回 fund123，
+    // 因为场内证券代码不是场外基金的 productId。
+    fetch_tencent_market_intraday(code).await.map_err(|fallback_error| {
+        let primary_error = last_error.unwrap_or_else(|| "东财场内分时加载失败".to_string());
+        format!("{primary_error}；腾讯分时兜底也失败：{fallback_error}")
+    })
+}
+
+/// 腾讯分钟行情兜底。接口返回 `0930 价格 …`，昨收位于 qt 数组第 5 项。
+/// 与东财同样按昨收换算涨跌幅，保证图表口径一致。
+async fn fetch_tencent_market_intraday(code: &str) -> Result<FundIntradayPayload, String> {
+    let normalized = format!("{:0>6}", code.trim());
+    if normalized.len() != 6 || !normalized.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("无效场内代码 {code}"));
+    }
+    let market = if normalized.starts_with('5') || normalized.starts_with('6') || normalized.starts_with('9') {
+        "sh"
+    } else if normalized.starts_with('4') || normalized.starts_with('8') {
+        "bj"
+    } else {
+        "sz"
+    };
+    let symbol = format!("{market}{normalized}");
+    let url = format!("https://web.ifzq.gtimg.cn/appstock/app/minute/query?code={symbol}");
+    let data = http::http_get_json(
+        &url,
+        &HashMap::new(),
+        DESKTOP_UA,
+        Some("https://gu.qq.com/"),
+        Duration::from_secs(12),
+    ).await?;
+    let item = data.get("data").and_then(|value| value.get(&symbol)).unwrap_or(&Value::Null);
+    let pre_close = item
+        .get("qt")
+        .and_then(|value| value.get(&symbol))
+        .and_then(Value::as_array)
+        .and_then(|quote| quote.get(4))
+        .and_then(|value| value.as_str().and_then(|text| text.parse::<f64>().ok()))
+        .filter(|value| *value > 0.0)
+        .ok_or_else(|| "腾讯分时缺少昨收价".to_string())?;
+    let points: Vec<TrendPoint> = item
+        .get("data")
+        .and_then(|value| value.get("data"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|row| {
+            let text = row.as_str()?;
+            let mut fields = text.split_whitespace();
+            let raw_time = fields.next()?;
+            let price = fields.next()?.parse::<f64>().ok().filter(|value| *value > 0.0)?;
+            let time = if raw_time.len() == 4 {
+                format!("{}:{}", &raw_time[..2], &raw_time[2..])
+            } else {
+                raw_time.to_string()
+            };
+            Some(TrendPoint {
+                time,
+                growth: Some(((price / pre_close) - 1.0) * 100.0),
+                net_value: Some(price),
+            })
+        })
+        .collect();
+    if points.is_empty() {
+        return Err("腾讯分时暂无数据（休市或停牌）".to_string());
+    }
+    let latest = points.last().cloned();
+    Ok(FundIntradayPayload {
+        points,
+        latest,
+        fund_key: format!("tencent:{symbol}"),
+        name: item
+            .get("qt")
+            .and_then(|value| value.get(&symbol))
+            .and_then(Value::as_array)
+            .and_then(|quote| quote.get(1))
+            .and_then(Value::as_str)
+            .unwrap_or(code)
+            .to_string(),
+    })
+}
 
 const KLINE_HOSTS: &[&str] = &[
     "https://push2his.eastmoney.com",
@@ -209,6 +451,56 @@ pub async fn get_all_indices() -> Vec<IndexItem> {
     fetch_indices(&list).await
 }
 
+/// 顶栏仅在东财三级地址都不可用时使用腾讯实时行情兜底。
+/// 这里沿用 IndexMeta 的 tx 标识；名称固定使用本地配置，避免 GBK 编码影响显示。
+async fn fetch_tencent_indices(list: &[&IndexMeta], eastmoney_error: &str) -> Vec<IndexItem> {
+    let supported: Vec<&IndexMeta> = list.iter().copied().filter(|item| item.tx.is_some()).collect();
+    if supported.is_empty() {
+        let code = error_code_of(eastmoney_error).to_string();
+        return list.iter().map(|item| IndexItem {
+            code: item.code.to_string(), name: item.name.to_string(), percent: None,
+            price: None, change: None, error: Some(code.clone()),
+        }).collect();
+    }
+    let symbols = supported.iter().filter_map(|item| item.tx).collect::<Vec<_>>().join(",");
+    let url = format!("https://qt.gtimg.cn/q={symbols}");
+    let text = match http::http_get_text(
+        &url, &HashMap::new(), DESKTOP_UA, Some("https://gu.qq.com/"), Duration::from_secs(12),
+    ).await {
+        Ok(text) => text,
+        Err(e) => {
+            crate::err_log!("顶栏腾讯实时行情也失败: {e}");
+            let code = error_code_of(eastmoney_error).to_string();
+            return list.iter().map(|item| IndexItem {
+                code: item.code.to_string(), name: item.name.to_string(), percent: None,
+                price: None, change: None, error: Some(code.clone()),
+            }).collect();
+        }
+    };
+    let mut rows: HashMap<String, Vec<&str>> = HashMap::new();
+    for line in text.split(';') {
+        let Some(start) = line.find('"') else { continue; };
+        let Some(end) = line.rfind('"') else { continue; };
+        let fields: Vec<&str> = line[start + 1..end].split('~').collect();
+        let Some(code) = fields.get(2) else { continue; };
+        // 美股指数代码由腾讯以 .NDX/.INX 形式返回；界面内部使用 NDX/SPX。
+        rows.insert(code.trim_start_matches('.').to_string(), fields);
+    }
+    list.iter().map(|item| {
+        let lookup_code = if item.code == "SPX" { "INX" } else { item.code };
+        let fields = rows.get(lookup_code);
+        let number = |index: usize| fields.and_then(|row| row.get(index)).and_then(|value| value.parse::<f64>().ok());
+        let price = number(3).filter(|value| *value > 0.0);
+        let previous_close = number(4).filter(|value| *value > 0.0);
+        let change = number(31).or_else(|| price.zip(previous_close).map(|(now, prev)| now - prev));
+        let percent = number(32).or_else(|| price.zip(previous_close).map(|(now, prev)| (now - prev) / prev * 100.0));
+        IndexItem {
+            code: item.code.to_string(), name: item.name.to_string(), price, change, percent,
+            error: if price.is_some() { None } else { Some("NET".to_string()) },
+        }
+    }).collect()
+}
+
 /// 拉取指数实时行情（条目级容错：接口整体失败/条目缺失不抛错，对应条目带 error 码，
 /// 保证看板卡片始终能显示，数值处与底部展示错误状态）
 async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
@@ -223,18 +515,7 @@ async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
         Ok(d) => d,
         Err(e) => {
             crate::err_log!("getIndices 失败: {e}");
-            let code = error_code_of(&e).to_string();
-            return list
-                .iter()
-                .map(|i| IndexItem {
-                    code: i.code.to_string(),
-                    name: i.name.to_string(),
-                    percent: None,
-                    price: None,
-                    change: None,
-                    error: Some(code.clone()),
-                })
-                .collect();
+            return fetch_tencent_indices(list, &e).await;
         }
     };
     let diff = data

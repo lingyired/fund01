@@ -1,8 +1,13 @@
 // 共享类型定义
 
+/** 资产交易形态。缺省值为 fund，兼容旧版配置；ETF/股票会按交易价格刷新。 */
+export type AssetKind = 'fund' | 'etf' | 'stock'
+
 export type FundRecord = {
   code: string
   name: string
+  /** 场外基金 / 场内 ETF / A 股股票。旧配置缺失时由行情层按代码识别。 */
+  assetKind?: AssetKind
   fundKey?: string
   type: 'hold' | 'watch'
   /**
@@ -338,6 +343,7 @@ export type ResolveFundResult = {
   name: string
   fundKey: string
   sectors: string[]
+  assetKind?: AssetKind
   netValue?: number | null
   prevNetValue?: number | null
   prevNetValueDate?: string

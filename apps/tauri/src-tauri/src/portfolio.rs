@@ -224,6 +224,11 @@ pub fn normalize_fund(
     Some(FundRecord {
         code,
         name,
+        asset_kind: raw
+            .get("assetKind")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| prev.and_then(|p| p.asset_kind.clone())),
         fund_key: raw
             .get("fundKey")
             .and_then(|v| v.as_str())

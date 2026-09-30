@@ -143,8 +143,12 @@ export function App() {
       ? settings.selectedIndices
       : DEFAULT_SELECTED_INDICES
 
+  // 全局行情快照时间只在顶部展示，避免逐行时间戳与持仓的涨跌/净值信息抢空间。
   const updatedAt = lastUpdate
-    ? new Date(lastUpdate).toLocaleTimeString('zh-CN', {hour12: false})
+    ? (() => {
+        const d = new Date(lastUpdate)
+        return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`
+      })()
     : ''
 
   // 行情快照未就绪（后端首轮刷新进行中 / 切源清空待刷）时，用本地配置合成持仓骨架
@@ -194,7 +198,7 @@ export function App() {
             {quoteSourceBadge}
           </span>
           <span className="hidden font-mono text-[11px] text-muted sm:inline">
-            {updatedAt ? `更新 ${updatedAt}` : ''}
+            {updatedAt ? `更新：${updatedAt}` : ''}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
