@@ -70,7 +70,7 @@ export function IndexBar({
         <div className="truncate text-[11px] text-muted">{name}</div>
         {item?.error ? (
           <>
-            {/* 行情拉取失败：数值处提示接口错误，底部显示简短错误码 */}
+            {/* 行情拉取失败：数值处提示接口错误，底部显示简短错误码（如国内金 AU9999 当前东财 NET） */}
             <div className="mt-0.5 font-mono text-sm font-semibold leading-none text-muted">
               接口错误
             </div>

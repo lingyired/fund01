@@ -953,6 +953,10 @@ function GeneralSection({
             })}
           </div>
         ) : null}
+
+        <p className="pt-1 text-[11px] leading-relaxed text-muted">
+          提示：部分指数（如国内金「黄金9999」）当前可能暂无可用实时数据源，看板中会显示「接口错误」；数据源恢复后将自动正常显示，无需手动调整。
+        </p>
       </div>
 
       {/* 数据源 */}
