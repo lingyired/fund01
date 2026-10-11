@@ -118,14 +118,20 @@ jobs:
       # App Store Connect API 私钥是 p8 文件内容，GitHub secret 只能存字符串。
       # 先落盘再把路径写进 GITHUB_ENV，供下一步的公证使用。
       # （官方 APPLE_API_KEY_PATH 要的是文件路径，不是内容）
+      # 注意：secret 不能直接用在 step 级 if 里（GitHub 表达式上下文限制），
+      # 故无条件执行，脚本内自己判空 —— 没配公证就跳过落盘，tauri 侧检测不到
+      # APPLE_API_KEY_PATH 就只签名不公证，不阻塞构建。
       - name: Write App Store Connect API key
-        # secret 未配置时跳过（没配公证就只签名，Gatekeeper 会拦但不阻塞构建）
-        if: ${{ secrets.APPLE_API_KEY_CONTENT != '' }}
         env:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           set -euo pipefail
-          KEY_PATH="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          if [[ -z "${APPLE_API_KEY_CONTENT}" || -z "${APPLE_API_KEY}" ]]; then
+            echo "未配置 App Store Connect API key → 本次只签名，不公证"
+            exit 0
+          fi
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
           printf '%s' "$APPLE_API_KEY_CONTENT" > "$KEY_PATH"
           echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
           echo "API key 已落盘：$KEY_PATH"
