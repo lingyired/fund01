@@ -1,5 +1,5 @@
-//! menubar 多实例编排（macOS）：总览恒在 + 每个持仓分组一个实例 + 未分组兜底。
-//! 实例 id：menubar-overview / menubar-group-{分组名 hex 编码} / menubar-ungrouped。
+//! menubar 多实例编排（macOS）：每个持仓分组一个实例 + 未分组兜底 + 可选「历史」整体实例。
+//! 实例 id：menubar-history / menubar-overview / menubar-group-{分组名 hex 编码} / menubar-ungrouped。
 //!
 //! 纯逻辑（实例期望集合、涨跌口径、id 编解码等）已下沉到 `menubar_common.rs`
 //! 与 Windows 的 taskband.rs 共享；本模块只保留 macOS 插件（multiline-menubar）编排层。
@@ -12,7 +12,10 @@
 //! - **create 一次，终生不销毁**：分组只要还在 `holdingGroups` 里，对应实例就一直存在。
 //! - **显隐一律走 `set_visible`**：设置页开关分组、⌘-拖出，都只翻 `visible`，实例与它在菜单栏
 //!   里的 slot 保持不变，重新显示即原位复活。
-//! - **只有实例「真的不该存在」时才 `remove`**：分组被删除/重命名、未分组持仓清空。
+//! - **只有实例「真的不该存在」时才 `remove`**：分组被删除/重命名、未分组持仓清空；
+//!   以及 ⚠️ **「历史」实例被关掉**（`menubarHistoryEnabled=false`）——它是有别于上述模型的
+//!   唯一例外：显隐状态持久化在设置项里，不依赖实例存活保留 slot，关闭即销毁、重新开启即
+//!   重新 create（位置由 macOS 重新分配，用户可用 ⌘-拖拽调到想要的位置）。
 //!
 //! ⚠️ 绝对不要把 `remove` 当日常显隐开关用。插件原生层注释（`multiline_menubar.mm:723-730`）
 //! 写明：macOS 13+ 之所以用 `statusItem.visible` 而不是 `removeStatusItem`，正因为后者
@@ -35,9 +38,9 @@ use tauri::Manager;
 use tauri_plugin_multiline_menubar::{ColorStyle, MenuItemDescriptor, MultilineMenubarExt};
 
 use crate::menubar_common::{
-    bottom_text_of, color_for, desired_instances, instance_label, menubar_all_hidden,
-    popup_tab_for, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT, COLOR_RISE_DEFAULT,
-    COLOR_TOP_DEFAULT, INSTANCE_OVERVIEW,
+    color_for, desired_instances, instance_label, menubar_all_hidden, popup_tab_for, rows_of,
+    BottomKind, HistoryMode, InstanceSpec, COLOR_FALL_DEFAULT, COLOR_FLAT_DEFAULT,
+    COLOR_RISE_DEFAULT, COLOR_TOP_DEFAULT, INSTANCE_HISTORY, INSTANCE_OVERVIEW,
 };
 use crate::model::QuoteUpdate;
 use crate::window::{open_settings_window, show_popup};
@@ -241,7 +244,14 @@ fn ensure_remove_listener(app: &AppHandle, id: &str) {
     let app_listener = app.clone();
     let instance_id = id.to_string();
     let event_id = app_listener.clone().listen(event_name, move |_event| {
-        eprintln!("[fund01] menubar remove 事件：id={instance_id}（⌘-拖出，视作取消勾选）");
+        eprintln!("[fund01] menubar remove 事件：id={instance_id}（⌘-拖出）");
+        // 「历史」实例是这套「拖出=取消勾选」模型的例外：它的显隐由 menubarHistoryEnabled
+        // 独立控制（关闭即销毁实例，见 INSTANCE_HISTORY 注释），因此拖出 = 在设置页关掉该项，
+        // 不写 menubarHiddenGroups（`__history__` 不是隐藏 key）。
+        if instance_id == INSTANCE_HISTORY {
+            hide_history_from_menu(&app_listener);
+            return;
+        }
         // ⌘-拖出 = 用户不想在菜单栏显示该实例 → 同步隐藏到设置（menubarHiddenGroups），
         // 设置页对应分组的「显示」开关随之置灰。实例保留，重新勾选即原位复活。
         // 总览默认恒显不可隐藏，但 macOS 允许 ⌘-拖出 → 写入 __overview__ 标记，设置页解锁为可重新开启；
@@ -308,7 +318,7 @@ pub fn rebuild_menubar(
 /// `::` 分隔无歧义。
 const HIDE_GROUP_ITEM_PREFIX: &str = "hide-group::";
 
-/// 标准右键菜单（每个实例一份）：打开设置 + 隐藏该分组（仅分组/未分组）+ 退出。
+/// 标准右键菜单（每个实例一份）：打开设置 + 隐藏该分组（仅分组/未分组/历史）+ 退出。
 /// 幂等；由 sync_instances 创建实例时挂载 + rebuild_menubar 对全集重挂，
 /// 两条路径共用，保证任何创建途径的实例都带右键菜单。
 /// ⚠️ 不放版本号行：① 版本在设置窗口/浮窗头部都有显示（v{version}），菜单里重复且无用；
@@ -317,6 +327,8 @@ const HIDE_GROUP_ITEM_PREFIX: &str = "hide-group::";
 /// 「隐藏」语义 = 设置页取消勾选（写 menubarHiddenGroups，见 hide_group_from_menu）；
 /// 总览不挂该项——macOS 隐藏总览的唯一入口仍是 ⌘-拖出（ensure_remove_listener），
 /// 右键与 Windows 保持同一口径（对齐 taskband.rs::set_standard_menu）。
+/// 「历史」照挂该项，但语义是**关闭该功能**（写 menubarHistoryEnabled=false，
+/// 见 hide_group_from_menu 的历史分支）——与设置页开关、⌘-拖出三者等价。
 /// Item 字段用 `enabled`（插件 v1.7.0 起与 taskband 对齐；旧字段 `disabled` 仍接受但已弃用）。
 ///
 /// ⚠️ 退出项使用插件保留 id `quit`：插件 v1.6.1 起对该 id **延迟 ~200ms 异步** `app.exit(0)`
@@ -363,13 +375,15 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
         .clone();
     // 数值显示方式：false=收益率百分比，true=收益额（简写）。
     // 隐私模式（privacy_mode）下强制百分比（不暴露绝对金额），忽略用户设置的收益额偏好。
-    let show_amount = if config.settings.privacy_mode.unwrap_or(false) {
-        false
-    } else {
-        config.settings.menubar_show_amount.unwrap_or(false)
-    };
-    // 颜色：上行解析链见 top_color_style（未自定义 → 跟随系统色）；下行按涨跌
-    //（涨色/跌色/平色均可配置）
+    let privacy = config.settings.privacy_mode.unwrap_or(false);
+    let show_amount = !privacy && config.settings.menubar_show_amount.unwrap_or(false);
+    // 「历史」实例上下两行各自的档位：第一行四档（含 label=名称文字）、第二行三档数值，
+    // 解析口径与 TS normalizeMenubarHistoryTopMode / normalizeMenubarHistoryMode 一致。
+    let history_top_mode =
+        HistoryMode::parse_top(config.settings.menubar_history_top_mode.as_deref());
+    let history_mode = HistoryMode::parse_bottom(config.settings.menubar_history_mode.as_deref());
+    // 颜色：上行 = 该实例显式自定义色 > （第一行显示数值时）涨跌色 > 全局上行色（未自定义=系统色）；
+    // 下行 = 「历史」第二行自定义色 > 涨跌色 > 跟随上行已解析色（解析规则见 apply_colors_tooltip_one）
     let rise_color = config
         .settings
         .menubar_rise_color
@@ -399,11 +413,11 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     // `bottomH = bottomFontSize + 1` 未按字体真实 ascender/descender 留白，见插件仓库 issue；
     // 本顺序约定不解决该问题，仅作为合理的调用顺序保留。）
     for spec in &desired {
-        let _ = app.multiline_menubar().set_text(
-            spec.id.clone(),
-            spec.top.clone(),
-            bottom_text_of(spec, show_amount),
-        );
+        let (top_row, bottom_row) =
+            rows_of(spec, show_amount, privacy, history_top_mode, history_mode);
+        let _ = app
+            .multiline_menubar()
+            .set_text(spec.id.clone(), top_row.text, bottom_row.text);
     }
     apply_menubar_style(app, &config, &desired);
     for spec in &desired {
@@ -411,6 +425,9 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
             &config,
             spec,
             show_amount,
+            privacy,
+            history_top_mode,
+            history_mode,
             &rise_color,
             &fall_color,
             &flat_color,
@@ -419,22 +436,12 @@ pub fn update_menubar(app: &AppHandle, quote: Option<&QuoteUpdate>) {
     }
 }
 
-/// 上行颜色解析链（macOS，与 taskband.rs::top_color_style 两端口径一致）：分组自定义色
-///（menubarGroupColors，key 见 group_key_of）→ 全局自定义上行色（menubarTopColor，等于默认白
-/// #ffffff 视为未自定义——设置页「重置为系统默认」写回该值）→ `ColorStyle::Default`。
+/// 全局上行色兜底（macOS，与 taskband.rs 两端口径一致）：`menubarTopColor` 等于默认白
+/// `#ffffff` 视为未自定义（设置页「重置为系统默认」写回该值）→ `ColorStyle::Default`。
 /// Default 由插件在**绘制时**解析 `NSColor.labelColor` 并随深浅色模式自动重绘（插件 v1.7.0：
 /// native 层 KVO effectiveAppearance，切换即重绘，无需宿主干预）。此前 macOS 未自定义恒回落
 /// 白色 Solid，系统未开「暗色菜单栏」（浅色菜单栏）时白字对比度差。
-fn top_color_style(config: &crate::model::AppConfig, group_key: Option<&str>) -> ColorStyle {
-    if let Some(c) = group_key.and_then(|k| {
-        config
-            .settings
-            .menubar_group_colors
-            .as_ref()
-            .and_then(|m| m.get(k))
-    }) {
-        return ColorStyle::Solid { value: c.clone() };
-    }
+fn global_top_style(config: &crate::model::AppConfig) -> ColorStyle {
     match config.settings.menubar_top_color.as_deref().map(str::trim) {
         Some(v) if !v.is_empty() && !v.eq_ignore_ascii_case(COLOR_TOP_DEFAULT) => {
             ColorStyle::Solid {
@@ -445,30 +452,111 @@ fn top_color_style(config: &crate::model::AppConfig, group_key: Option<&str>) ->
     }
 }
 
+/// 该实例的**显式自定义上行色**（menubarGroupColors，key 见 group_key_of；「历史」实例复用
+/// `__history__` 这一格）。返回 None = 未自定义（此时才走涨跌色 / 全局色兜底）。
+fn custom_top_color<'a>(
+    config: &'a crate::model::AppConfig,
+    group_key: Option<&str>,
+) -> Option<&'a str> {
+    group_key
+        .and_then(|k| {
+            config
+                .settings
+                .menubar_group_colors
+                .as_ref()
+                .and_then(|m| m.get(k))
+        })
+        .map(|s| s.as_str())
+}
+
+/// 该实例的**显式自定义下行色**：目前仅「历史」实例有该通道（`menubarHistoryBottomColor`），
+/// 其余实例下行恒为涨跌语义色（无自定义入口）。空串/纯空白 = 未自定义。
+fn custom_bottom_color<'a>(
+    config: &'a crate::model::AppConfig,
+    spec: &InstanceSpec,
+) -> Option<&'a str> {
+    if spec.kind != BottomKind::History {
+        return None;
+    }
+    config
+        .settings
+        .menubar_history_bottom_color
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// 一行颜色的最终解析（macOS，与 taskband.rs 两端口径一致）：
+/// ① **显式自定义色**（用户意图，优先级最高——即便该行是数值也照用）；
+/// ② 否则该行**有涨跌语义**（`signed=Some`）→ 涨跌色（正红负绿）；
+/// ③ 否则 → `fallback`（上行=全局色/系统色；下行=已解析的上行色，深浅自适应）。
+fn resolve_row_style(
+    custom: Option<&str>,
+    signed: Option<f64>,
+    fallback: ColorStyle,
+    rise: &str,
+    fall: &str,
+    flat: &str,
+) -> ColorStyle {
+    if let Some(hex) = custom {
+        return ColorStyle::Solid {
+            value: hex.to_string(),
+        };
+    }
+    match signed {
+        Some(v) => ColorStyle::Solid {
+            value: color_for(v, rise, fall, flat),
+        },
+        None => fallback,
+    }
+}
+
 /// 对单个实例下发颜色与 tooltip（不影响 view 高度测量，可与文本分离）。
+///
+/// 配色规则（两行各自独立解析，见 `resolve_row_style`）：
+/// - **上行**：该实例自定义色 > （第一行档位为数值时）涨跌色 > 全局上行色 > 系统色；
+/// - **下行**：历史项第二行自定义色 > 涨跌色 > **跟随已解析的上行色**
+///   （持仓额档 / 无成本回退行没有涨跌语义，用涨跌色会被误读成当日涨跌）。
+#[allow(clippy::too_many_arguments)]
 fn apply_colors_tooltip_one(
     config: &crate::model::AppConfig,
     spec: &InstanceSpec,
     show_amount: bool,
+    privacy: bool,
+    top_mode: HistoryMode,
+    bottom_mode: HistoryMode,
     rise: &str,
     fall: &str,
     flat: &str,
     app: &AppHandle,
 ) {
     let mb = app.multiline_menubar();
-    let bottom = bottom_text_of(spec, show_amount);
-    let color = if show_amount {
-        color_for(spec.amount, rise, fall, flat)
-    } else {
-        color_for(spec.pct, rise, fall, flat)
-    };
-    // 上行：解析链见 top_color_style；下行涨跌色是语义色（无「系统默认」概念），恒为 Solid
-    let _ = mb.set_colors(
-        spec.id.clone(),
-        top_color_style(config, group_key_of(&spec.id).as_deref()),
-        ColorStyle::Solid { value: color },
+    let (top_row, bottom_row) = rows_of(spec, show_amount, privacy, top_mode, bottom_mode);
+    let group_key = group_key_of(&spec.id);
+    let top_style = resolve_row_style(
+        custom_top_color(config, group_key.as_deref()),
+        top_row.signed,
+        global_top_style(config),
+        rise,
+        fall,
+        flat,
     );
-    let _ = mb.set_tooltip(spec.id.clone(), format!("{} {bottom}", spec.top));
+    // 下行无涨跌语义时「跟随上行」= 复用同一份已解析 ColorStyle（Default 亦随之继承，
+    // 由插件在绘制时解析系统文字色，深浅色自适应）
+    let bottom_style = resolve_row_style(
+        custom_bottom_color(config, spec),
+        bottom_row.signed,
+        top_style.clone(),
+        rise,
+        fall,
+        flat,
+    );
+    let _ = mb.set_colors(spec.id.clone(), top_style, bottom_style);
+    // tooltip = 两行实际文本（上行可能是名称文字也可能是数值，一律照实拼接）
+    let _ = mb.set_tooltip(
+        spec.id.clone(),
+        format!("{} {}", top_row.text, bottom_row.text),
+    );
 }
 
 /// 菜单事件分发（open-settings / hide-group）。
@@ -494,11 +582,17 @@ pub fn on_menu_event(app: &AppHandle, item_id: &str) {
 }
 
 /// 实例 id → 分组 key（menubarHiddenGroups / menubarGroupColors 同 key 约定）：
-/// 总览 → `__overview__`；未分组 → `''`；menubar-group-{hex} → 分组名。
+/// 总览 → `__overview__`；历史 → `__history__`；未分组 → `''`；menubar-group-{hex} → 分组名。
 /// （与 taskband.rs::group_key_of 语义一致，Windows 侧因插件 id 强制带实例前缀而独立成文。）
+///
+/// ⚠️ `__history__` **只用于上行自定义色与任务栏停靠侧两张表**，不得写进 menubarHiddenGroups
+/// ——历史项的显隐由 menubarHistoryEnabled 独立控制（两条写入路径均已显式排除，见
+/// ensure_remove_listener / hide_group_from_menu）。
 fn group_key_of(id: &str) -> Option<String> {
     if id == INSTANCE_OVERVIEW {
         Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+    } else if id == INSTANCE_HISTORY {
+        Some(crate::portfolio::MENUBAR_HISTORY_KEY.to_string())
     } else if id == "menubar-ungrouped" {
         Some(String::new())
     } else {
@@ -516,6 +610,12 @@ fn group_key_of(id: &str) -> Option<String> {
 fn hide_group_from_menu(app: &AppHandle, id: &str) {
     // 总览不经右键隐藏（菜单层已不挂该项，此处防御性兜底；macOS 隐藏总览的唯一入口是 ⌘-拖出）
     if id == INSTANCE_OVERVIEW {
+        return;
+    }
+    // 「历史」项：隐藏 = 关闭该功能（menubarHistoryEnabled=false），
+    // 绝不能把 __history__ 写进 menubarHiddenGroups（见 group_key_of 注释）
+    if id == INSTANCE_HISTORY {
+        hide_history_from_menu(app);
         return;
     }
     let Some(group) = group_key_of(id) else {
@@ -547,6 +647,34 @@ fn hide_group_from_menu(app: &AppHandle, id: &str) {
     }
 }
 
+/// 「历史」实例被 ⌘-拖出 → 等价于在设置页关闭该项（写 `menubarHistoryEnabled = false`）。
+///
+/// ⚠️ 与分组/未分组的「拖出=写 menubarHiddenGroups、实例保留」不同：历史项的显隐状态本身
+/// 持久化在设置项里（`desired_instances` 据此决定实例存在与否），所以拖出就是关功能——
+/// 实例会被 `sync_instances` 真正 remove，设置页开关随 config-change 实时同步为关闭。
+/// Windows 无拖出通道（任务栏插件不 emit remove），只能从设置页关。
+fn hide_history_from_menu(app: &AppHandle) {
+    let state = app.state::<crate::state::AppState>();
+    let snapshot = {
+        let mut cfg = state.config.write().unwrap();
+        if !cfg.settings.menubar_history_enabled.unwrap_or(false) {
+            return;
+        }
+        cfg.settings.menubar_history_enabled = Some(false);
+        cfg.clone()
+    };
+    let quote = state.quote.read().unwrap().clone();
+    // 持久化 + 广播 config-change（设置页开关实时同步）+ 收敛实例（历史实例被销毁）
+    crate::commands::persist_config(app, &snapshot);
+    rebuild_menubar(app, &snapshot, quote.as_ref());
+    eprintln!("[fund01] ⌘-拖出 → 「历史」项已关闭（menubarHistoryEnabled=false 已同步）");
+    // 关掉之后菜单栏可能正好全空且无窗口（全静默）→ 同款兜底自动开 popup-tab 展示 banner
+    if menubar_all_hidden(&snapshot) && !crate::window::has_main_window(app) {
+        eprintln!("[fund01] menubar 全空且无窗口 → 自动打开 popup-tab");
+        crate::window::open_popup_tab_window(app);
+    }
+}
+
 /// 供 refresh 后调用（避免与 config 锁死）
 pub fn update_menubar_with(app: &AppHandle, quote: &Option<QuoteUpdate>) {
     update_menubar(app, quote.as_ref());
@@ -559,14 +687,19 @@ fn _unused(_: &Value) {}
 mod tests {
     use super::*;
 
-    /// group_key_of 四分支：总览 → __overview__、未分组 → ''、分组 → 原名、非法 id → None。
-    /// key 即 menubarHiddenGroups / menubarGroupColors 的写入 key（hide_group_from_menu /
+    /// group_key_of 五分支：总览 → __overview__、历史 → __history__、未分组 → ''、
+    /// 分组 → 原名、非法 id → None。
+    /// key 即 menubarGroupColors / menubarGroupSides 的写入 key（hide_group_from_menu /
     /// ensure_remove_listener / apply_colors_tooltip_one 共用），口径错了会隐藏错分组。
     #[test]
     fn group_key_of_maps_instance_ids_to_setting_keys() {
         assert_eq!(
             group_key_of(INSTANCE_OVERVIEW),
             Some(crate::portfolio::MENUBAR_OVERVIEW_KEY.to_string())
+        );
+        assert_eq!(
+            group_key_of(INSTANCE_HISTORY),
+            Some(crate::portfolio::MENUBAR_HISTORY_KEY.to_string())
         );
         assert_eq!(group_key_of("menubar-ungrouped"), Some(String::new()));
         assert_eq!(

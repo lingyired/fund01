@@ -46,6 +46,9 @@ import type {
   MenubarAlign,
   MenubarGlobalSide,
   MenubarGroupSide,
+  MenubarHistoryMode,
+  MenubarHistorySlotMode,
+  MenubarHistoryValuation,
   MenubarLayout,
   QuoteSource,
   ResolveFundResult,
@@ -58,6 +61,11 @@ import {
   MENUBAR_DEFAULTS,
   MENUBAR_EDGE_MARGINS_MAX,
   MENUBAR_FONT_RANGES,
+  MENUBAR_HISTORY_KEY,
+  MENUBAR_HISTORY_LABEL_DEFAULT,
+  MENUBAR_HISTORY_MODE_DEFAULT,
+  MENUBAR_HISTORY_TOP_MODE_DEFAULT,
+  MENUBAR_HISTORY_VALUATION_DEFAULT,
   MENUBAR_ITEM_MARGIN_DEFAULT,
   MENUBAR_ITEM_MARGIN_MAX,
   MENUBAR_OVERVIEW_KEY,
@@ -96,6 +104,7 @@ import {
   type EditRow,
 } from './lib/batchEdit'
 import {parseImport, IMPORT_SAMPLE, type ImportEntry} from './lib/importHoldings'
+import {createBoundedThrottle} from './lib/boundedThrottle'
 import {FundFormBody} from './components/FundFormDialog'
 import {ConfirmedUpdatedBadge} from './components/fundBits'
 import {HOLD_PROFIT_TERMS_NOTE} from './components/fundBits'
@@ -734,7 +743,7 @@ function GeneralSection({
         <div className="min-w-0">
           <div className="text-sm font-medium text-ink">隐私模式</div>
           <p className="text-xs text-muted">
-            开启后 popup 中所有金额（当日收益、持有收益、持仓金额）显示为 ****，只显示涨跌百分比；工具栏角标、菜单栏、分组收益详情也会强制显示百分比。仅影响显示，不影响数据计算。
+            开启后 popup 中所有金额（当日收益、持有收益、持仓金额）显示为 ****，只显示涨跌百分比；工具栏角标、菜单栏、分组收益详情也会强制显示百分比（菜单栏/任务栏「历史」项改为显示历史收益涨跌幅，该档选「当前持仓额」时显示 ****）。仅影响显示，不影响数据计算。
           </p>
         </div>
         <Switch
@@ -944,6 +953,10 @@ function GeneralSection({
             })}
           </div>
         ) : null}
+
+        <p className="pt-1 text-[11px] leading-relaxed text-muted">
+          提示：部分指数（如国内金「黄金9999」）当前可能暂无可用实时数据源，看板中会显示「接口错误」；数据源恢复后将自动正常显示，无需手动调整。
+        </p>
       </div>
 
       {/* 数据源 */}
@@ -2919,7 +2932,7 @@ function DataDocsSection() {
             <b className="text-ink">隐私模式</b>是一个只看百分比、不看金额的显示开关：开启后，所有金额数字都会被隐藏——单只基金和分组的持仓金额、当日收益额、持有收益额，在 popup 里都会显示为 <b className="text-ink">****</b>。
           </p>
           <p>
-            同时，工具栏角标、菜单栏文字、分组收益详情也会统一改为<b className="text-ink">只显示涨跌百分比</b>，不再显示金额。
+            同时，工具栏角标、菜单栏文字、分组收益详情也会统一改为<b className="text-ink">只显示涨跌百分比</b>，不再显示金额。菜单栏/任务栏的「历史」项若选的是「历史收益额」，会自动改为显示历史收益涨跌幅；若选的是「当前持仓额」，则显示为 <b className="text-ink">****</b>。
           </p>
           <p>
             隐私模式<b className="text-ink">只影响显示，不影响数据</b>：计算、刷新、净值走势都照常进行，关闭后金额立即恢复显示。适合在容易被旁人看到屏幕的场合（如工位、地铁）保护持仓隐私。
@@ -3524,6 +3537,20 @@ function clampToRange(
 }
 
 /**
+ * 颜色类设置的写入节流参数（见 `MenubarSection` 的 `colorPersist`）。
+ *
+ * `<input type="color">` 的原生取色面板在**拖动过程中连续触发** `input` 事件（React 的
+ * `onChange` 绑定的就是 input 事件），一次拖拽可产生上百次回调；而每次回调写后端都会让
+ * 任务栏/菜单栏把**全部实例**重新渲染一遍（Windows：每个可见实例各一次分层窗口重绘；
+ * macOS：重建菜单栏内容）。所以这不是「低频操作」——必须合并。
+ *
+ * 采用「有界速率 + 末尾兜底」而不是纯 debounce：拖动过程中每 `MAX_WAIT` 最多落一次盘
+ * （有实时反馈、不卡手），停手后 `DELAY` 内落最后一次（值一定不丢）。
+ */
+const COLOR_PERSIST_DELAY_MS = 150
+const COLOR_PERSIST_MAX_WAIT_MS = 400
+
+/**
  * 菜单栏/任务栏设置分区（仅 tauri 显示）。
  * platform='macos' → macOS 顶部菜单栏（multiline-menubar 插件）；
  * platform='windows' → Windows 任务栏（multiline-taskband 插件）：
@@ -3544,6 +3571,19 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
   const [bottom, setBottom] = useState(12)
   const [equal, setEqual] = useState(9)
   const [showAmount, setShowAmount] = useState(false)
+  // 「历史」项（仅 tauri）：总开关 / 上行名称草稿 / 上行档位 / 下行档位 / 下行自定义色。
+  // 名称用草稿（失焦或回车才提交，避免每按键触发后端刷新），其余即时保存。
+  const [historyEnabled, setHistoryEnabled] = useState(false)
+  const [historyLabelDraft, setHistoryLabelDraft] = useState(MENUBAR_HISTORY_LABEL_DEFAULT)
+  const [historyTopMode, setHistoryTopMode] = useState<MenubarHistorySlotMode>(
+    MENUBAR_HISTORY_TOP_MODE_DEFAULT,
+  )
+  const [historyMode, setHistoryMode] = useState<MenubarHistoryMode>(MENUBAR_HISTORY_MODE_DEFAULT)
+  // 数值口径：latest(默认)=含今日（当前净值/盘中估值） / confirmed=只用已公布净值
+  const [historyValuation, setHistoryValuation] = useState<MenubarHistoryValuation>(
+    MENUBAR_HISTORY_VALUATION_DEFAULT,
+  )
+  const [historyBottomColor, setHistoryBottomColor] = useState('')
   const [hasUngrouped, setHasUngrouped] = useState(false)
   const [topFont, setTopFont] = useState(MENUBAR_DEFAULTS.topFont)
   const [bottomFont, setBottomFont] = useState(MENUBAR_DEFAULTS.bottomFont)
@@ -3569,6 +3609,33 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
   const [marginLeftDraft, setMarginLeftDraft] = useState('0')
   const [marginRightDraft, setMarginRightDraft] = useState('0')
 
+  // ── 颜色类设置的写入节流 ────────────────────────────────────────────────────
+  // 取色面板**拖动时会连续触发** onChange，若每次都写后端，任务栏/菜单栏会把全部实例
+  // 重渲染一遍。用「有界速率 + 末尾兜底」合并（实现与参数说明见 lib/boundedThrottle.ts）。
+  const [colorPersist] = useState(() =>
+    createBoundedThrottle({
+      delayMs: COLOR_PERSIST_DELAY_MS,
+      maxWaitMs: COLOR_PERSIST_MAX_WAIT_MS,
+    }),
+  )
+  // 延迟写入必须读「最新值」而不是调度时的快照：`menubarGroupColors` 是**整表写入**，
+  // 若同一次拖拽窗口内先后改了不同分组，各自拿旧快照会互相覆盖。
+  const groupColorsRef = useRef<Record<string, string>>({})
+  // 第二行颜色虽是标量，但「关闭自定义」会把它置为空串；延迟写入同样要读最新值，
+  // 否则「拖完立刻关开关」会被挂起的写入反悔回自定义色。
+  const historyBottomColorRef = useRef('')
+
+  // 状态 → ref 镜像：flush 时读 ref，永远拿到最新值（不依赖调度时刻的闭包快照）
+  useEffect(() => {
+    groupColorsRef.current = groupColors
+  }, [groupColors])
+  useEffect(() => {
+    historyBottomColorRef.current = historyBottomColor
+  }, [historyBottomColor])
+
+  // 卸载兜底：Radix Tabs 切走 / 关窗会卸载本分区，挂起的颜色写入立即落盘（值不丢）
+  useEffect(() => () => colorPersist.flush(), [colorPersist])
+
   // Radix Tabs 切走会卸载内容，切回时重新挂载 → 每次进入都读最新配置
   useEffect(() => {
     const s = fetchSettings(ports)
@@ -3581,6 +3648,13 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     setBottom(clampToRange(s.menubarBottomFontSize, MENUBAR_FONT_RANGES[0].bottom, 11))
     setEqual(clampToRange(s.menubarEqualFontSize, MENUBAR_FONT_RANGES[2].top, 9))
     setShowAmount(s.menubarShowAmount === true)
+    // 「历史」项（仅 tauri）：开关 / 上行名称 / 上下行档位 / 下行自定义色
+    setHistoryEnabled(s.menubarHistoryEnabled === true)
+    setHistoryLabelDraft(s.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+    setHistoryTopMode(s.menubarHistoryTopMode ?? MENUBAR_HISTORY_TOP_MODE_DEFAULT)
+    setHistoryMode(s.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
+    setHistoryBottomColor(s.menubarHistoryBottomColor ?? '')
+    setHistoryValuation(s.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT)
     setTopFont(s.menubarTopFont ?? '')
     setBottomFont(s.menubarBottomFont ?? '')
     setTopBold(s.menubarTopBold ?? MENUBAR_DEFAULTS.topBold)
@@ -3627,6 +3701,17 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
       hiddenRef.current = h
       setHidden(h)
       setGroups(listHoldingGroups(ports))
+      // 「历史」项：macOS ⌘-拖出（或右键「隐藏」）会在 Rust 侧把 menubarHistoryEnabled 置 false
+      // 并广播 config-change，这里同步回显——否则设置页开关会停在「已开启」而与菜单栏不符。
+      // 名称同理：后端归一化（trim / 截断 / 空串回落默认）后可能与本框输入不同，以配置为准。
+      setHistoryEnabled(cfg.settings?.menubarHistoryEnabled === true)
+      setHistoryLabelDraft(cfg.settings?.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+      setHistoryTopMode(cfg.settings?.menubarHistoryTopMode ?? MENUBAR_HISTORY_TOP_MODE_DEFAULT)
+      setHistoryMode(cfg.settings?.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
+      setHistoryBottomColor(cfg.settings?.menubarHistoryBottomColor ?? '')
+      setHistoryValuation(
+        cfg.settings?.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT,
+      )
     })
   }, [ports])
 
@@ -3686,6 +3771,91 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     } catch {
       /* ignore */
     }
+  }
+
+  /** 「历史」项总开关：即时保存。macOS 侧 ⌘-拖出 / 右键「隐藏」也会写该字段，
+   *  由 onConfigChange 同步回显（这里也以保存回包为准，保持 UI 与后端一致）。 */
+  async function handleHistoryEnabled(next: boolean) {
+    setHistoryEnabled(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryEnabled: next})
+      setHistoryEnabled(saved.menubarHistoryEnabled === true)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项上行名称：失焦/回车才提交（避免每按键触发后端刷新）。
+   *  后端归一化（trim / 超长截断 / 空串回落「历史」）后的值回显到输入框。 */
+  async function commitHistoryLabel(v: string) {
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryLabel: v.trim()})
+      setHistoryLabelDraft(saved.menubarHistoryLabel ?? MENUBAR_HISTORY_LABEL_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项第一行档位（名称文字 / 三档数值）：即时保存 */
+  async function handleHistoryTopModeChange(v: string) {
+    const next = v as MenubarHistorySlotMode
+    setHistoryTopMode(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryTopMode: next})
+      setHistoryTopMode(saved.menubarHistoryTopMode ?? MENUBAR_HISTORY_TOP_MODE_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项第二行档位（三档数值）：即时保存 */
+  async function handleHistoryModeChange(v: string) {
+    const next = v as MenubarHistoryMode
+    setHistoryMode(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryMode: next})
+      setHistoryMode(saved.menubarHistoryMode ?? MENUBAR_HISTORY_MODE_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项数值口径（含今日 / 只用已公布净值）：即时保存 */
+  async function handleHistoryValuationChange(v: string) {
+    const next = v as MenubarHistoryValuation
+    setHistoryValuation(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryValuation: next})
+      setHistoryValuation(saved.menubarHistoryValuation ?? MENUBAR_HISTORY_VALUATION_DEFAULT)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项第二行自定义颜色开关：开启时以当前第一行颜色为初始值；关闭写空串（=回到语义取色） */
+  async function toggleHistoryBottomColor(on: boolean) {
+    const next = on ? groupColors[MENUBAR_HISTORY_KEY] ?? topColor : ''
+    setHistoryBottomColor(next)
+    try {
+      const saved = await updateSettings(ports, {menubarHistoryBottomColor: next})
+      setHistoryBottomColor(saved.menubarHistoryBottomColor ?? '')
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** 「历史」项第二行颜色：选色即保存（空串=未自定义，按涨跌/跟随语义取色）。
+   *  ⚠️ 取色面板**拖动过程中会连续触发** onChange，故走 colorPersist.schedule 合并写后端，
+   *  否则每一次拖动都让任务栏/菜单栏全部实例重渲染一遍。 */
+  function commitHistoryBottomColor(v: string) {
+    setHistoryBottomColor(normalizeHexColor(v, MENUBAR_DEFAULTS.flatColor))
+    colorPersist.schedule('historyBottomColor', () => {
+      void updateSettings(ports, {menubarHistoryBottomColor: historyBottomColorRef.current})
+        .then((saved) => setHistoryBottomColor(saved.menubarHistoryBottomColor ?? ''))
+        .catch(() => {
+          /* ignore */
+        })
+    })
   }
 
   /** 字号 Slider：拖动仅本地预览，松手才保存（避免连续触发后端刷新） */
@@ -3755,31 +3925,40 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 颜色：input[type=color] 选择即保存（低频操作） */
+  /**
+   * 颜色：input[type=color] 选色即保存。
+   * ⚠️ 原生取色面板**拖动时会连续触发** onChange（React 的 onChange 绑定的就是 input 事件），
+   * 并非「低频操作」——故统一走 colorPersist.schedule 合并写后端。四个 key 各自独立调度，
+   * 一次 flush 会分别下发（写的是不同字段，互不覆盖）。
+   */
   const COLOR_DEFAULTS = {
     top: MENUBAR_DEFAULTS.topColor,
     rise: MENUBAR_DEFAULTS.riseColor,
     fall: MENUBAR_DEFAULTS.fallColor,
     flat: MENUBAR_DEFAULTS.flatColor,
   } as const
-  async function commitColor(key: keyof typeof COLOR_DEFAULTS, v: string) {
+  function commitColor(key: keyof typeof COLOR_DEFAULTS, v: string) {
     const hex = normalizeHexColor(v, COLOR_DEFAULTS[key])
-    try {
-      if (key === 'top') {
-        setTopColor(hex)
-        await updateSettings(ports, {menubarTopColor: hex})
-      } else if (key === 'rise') {
-        setRiseColor(hex)
-        await updateSettings(ports, {menubarRiseColor: hex})
-      } else if (key === 'fall') {
-        setFallColor(hex)
-        await updateSettings(ports, {menubarFallColor: hex})
-      } else {
-        setFlatColor(hex)
-        await updateSettings(ports, {menubarFlatColor: hex})
-      }
-    } catch {
-      /* ignore */
+    // 本地即时反馈 + 合并写后端（每次写都是独立字段，延迟写入不会互相覆盖）
+    const persist = (patch: Parameters<typeof updateSettings>[1]) => {
+      colorPersist.schedule(`color:${key}`, () => {
+        void updateSettings(ports, patch).catch(() => {
+          /* ignore */
+        })
+      })
+    }
+    if (key === 'top') {
+      setTopColor(hex)
+      persist({menubarTopColor: hex})
+    } else if (key === 'rise') {
+      setRiseColor(hex)
+      persist({menubarRiseColor: hex})
+    } else if (key === 'fall') {
+      setFallColor(hex)
+      persist({menubarFallColor: hex})
+    } else {
+      setFlatColor(hex)
+      persist({menubarFlatColor: hex})
     }
   }
 
@@ -3800,16 +3979,17 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
     }
   }
 
-  /** 分组自定义上行颜色：选色即保存 */
-  async function commitGroupColor(g: string, v: string) {
-    const hex = normalizeHexColor(v, topColor)
-    const next = {...groupColors, [g]: hex}
-    setGroupColors(next)
-    try {
-      await updateSettings(ports, {menubarGroupColors: next})
-    } catch {
-      /* ignore */
-    }
+  /** 分组自定义上行颜色：选色即保存。
+   *  ⚠️ 取色面板拖动时会连续触发 onChange；`menubarGroupColors` 是**整表写入**，所以延迟写入
+   *  必须读 groupColorsRef（最新整表）而非调度时的快照 —— 否则同一次拖拽窗口内先后改了不同
+   *  分组时，两次写入各自拿旧快照，后一次会把前一次的颜色抹掉。 */
+  function commitGroupColor(g: string, v: string) {
+    setGroupColors({...groupColors, [g]: normalizeHexColor(v, topColor)})
+    colorPersist.schedule('groupColors', () => {
+      void updateSettings(ports, {menubarGroupColors: groupColorsRef.current}).catch(() => {
+        /* ignore */
+      })
+    })
   }
 
   /** 任务栏分组停靠侧（仅 Windows）：切换即保存；'right' 为默认，仍保留显式条目便于 UI 直观回显 */
@@ -3912,6 +4092,172 @@ function MenubarSection({platform}: {platform: 'macos' | 'windows'}) {
           <SegmentedControl.Item value="percent">收益率</SegmentedControl.Item>
           <SegmentedControl.Item value="amount">收益额</SegmentedControl.Item>
         </SegmentedControl.Root>
+      </div>
+
+      {/* 历史项（仅 tauri）：可选的全局实例，排在最前 */}
+      <div className="space-y-2 border-t border-line/50 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-ink">历史项</div>
+            <p className="mt-1 text-xs text-muted">
+              在{display}最前面增加一项，展示全部持仓的累计表现（口径与「总览」一致）。
+              上下两行内容各自可选：默认「名称文字 + 历史收益额」，也可把任一行改成历史收益涨跌幅、
+              历史收益额或当前持仓额。未录入成本的持仓不计入历史收益，此时收益档自动改为显示当前持仓额。
+            </p>
+          </div>
+          <Switch radius="full"
+            checked={historyEnabled}
+            disabled={saving}
+            onCheckedChange={(c) => void handleHistoryEnabled(c)}
+            aria-label="显示/隐藏历史项"
+          />
+        </div>
+        {historyEnabled ? (
+          <div className="space-y-3 rounded-md border border-line/50 p-3">
+            {/* 第一行：默认名称文字，可改为三档数值之一；选「名称」时才展开名称输入框 */}
+            <div className="space-y-1.5">
+              <div className="min-w-0">
+                <div className="text-sm text-ink-soft leading-none">第一行</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  默认显示名称文字；改为数值后第一行不再显示名称，未自定义颜色时按涨跌取色（正红负绿）。
+                </div>
+              </div>
+              <SegmentedControl.Root
+                value={historyTopMode}
+                onValueChange={(v) => void handleHistoryTopModeChange(v)}
+              >
+                <SegmentedControl.Item value="label">名称</SegmentedControl.Item>
+                <SegmentedControl.Item value="cumPercent">历史涨跌幅</SegmentedControl.Item>
+                <SegmentedControl.Item value="cumAmount">历史收益额</SegmentedControl.Item>
+                <SegmentedControl.Item value="holdingAmount">当前持仓额</SegmentedControl.Item>
+              </SegmentedControl.Root>
+              {historyTopMode === 'label' ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1 text-[11px] text-muted">
+                    名称最多 8 个字；留空则用「{MENUBAR_HISTORY_LABEL_DEFAULT}」。
+                  </div>
+                  <TextField.Root
+                    type="text"
+                    value={historyLabelDraft}
+                    maxLength={8}
+                    disabled={saving}
+                    onChange={(e) => setHistoryLabelDraft(e.target.value)}
+                    onBlur={(e) => void commitHistoryLabel(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                    }}
+                    className="w-28"
+                    aria-label="历史项名称"
+                  />
+                </div>
+              ) : null}
+            </div>
+            {/* 第二行：三档数值（不含名称档 —— 名称只在第一行的「名称」档出现） */}
+            <div className="space-y-1.5">
+              <div className="min-w-0">
+                <div className="text-sm text-ink-soft leading-none">第二行</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  历史收益 = 当前市值 − 已录入成本；市值取「最新」还是「已确认」见下方「数值口径」。隐私模式下收益额档改显示涨跌幅、持仓额档显示 ****。
+                </div>
+              </div>
+              <SegmentedControl.Root
+                value={historyMode}
+                onValueChange={(v) => void handleHistoryModeChange(v)}
+              >
+                <SegmentedControl.Item value="cumPercent">历史涨跌幅</SegmentedControl.Item>
+                <SegmentedControl.Item value="cumAmount">历史收益额</SegmentedControl.Item>
+                <SegmentedControl.Item value="holdingAmount">当前持仓额</SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </div>
+            {/* 数值口径：决定上面两行的三档数值用哪一档市值 */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">数值口径</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  决定「历史收益额 / 历史收益涨跌幅 / 当前持仓额」三档用哪一档市值：
+                  「最新」含今日（盘中用估算净值，数字随行情跳动，历史收益额包含今天的盈亏）；
+                  「已确认」只用已公布净值（盘中即昨日净值，当天净值公布前数字稳定，与 popup「持仓金额」一致）。
+                </div>
+              </div>
+              <SegmentedControl.Root
+                value={historyValuation}
+                onValueChange={(v) => void handleHistoryValuationChange(v)}
+              >
+                <SegmentedControl.Item value="latest">最新</SegmentedControl.Item>
+                <SegmentedControl.Item value="confirmed">已确认</SegmentedControl.Item>
+              </SegmentedControl.Root>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">第一行颜色</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  未自定义时：第一行是数值则按涨跌取色（正红负绿），是名称则跟随全局上行颜色（全局也未自定义时跟随系统{isWindows ? '任务栏' : '菜单栏'}文字色，深浅色自适应）。
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={groupColors[MENUBAR_HISTORY_KEY] ?? topColor}
+                  disabled={!groupColors[MENUBAR_HISTORY_KEY] || saving}
+                  onChange={(e) => void commitGroupColor(MENUBAR_HISTORY_KEY, e.target.value)}
+                  aria-label="历史项 上行颜色"
+                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                  style={{opacity: groupColors[MENUBAR_HISTORY_KEY] ? 1 : 0.3}}
+                />
+                <Switch radius="full"
+                  checked={!!groupColors[MENUBAR_HISTORY_KEY]}
+                  disabled={saving}
+                  onCheckedChange={(c) => void toggleGroupColor(MENUBAR_HISTORY_KEY, c)}
+                  aria-label="历史项 第一行自定义颜色"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-ink-soft leading-none">第二行颜色</div>
+                <div className="mt-1 text-[11px] text-muted">
+                  未自定义时：收益两档按涨跌取色（正红负绿），持仓额档跟随第一行颜色（该档没有涨跌语义，用涨跌色会被误读成当日涨跌）。
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={historyBottomColor || MENUBAR_DEFAULTS.flatColor}
+                  disabled={!historyBottomColor || saving}
+                  onChange={(e) => void commitHistoryBottomColor(e.target.value)}
+                  aria-label="历史项 第二行颜色"
+                  className="h-6 w-8 cursor-pointer rounded border border-line/50 bg-transparent p-0"
+                  style={{opacity: historyBottomColor ? 1 : 0.3}}
+                />
+                <Switch radius="full"
+                  checked={!!historyBottomColor}
+                  disabled={saving}
+                  onCheckedChange={(c) => void toggleHistoryBottomColor(c)}
+                  aria-label="历史项 第二行自定义颜色"
+                />
+              </div>
+            </div>
+            {isWindows ? (
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-ink-soft leading-none">位置</div>
+                  <div className="mt-1 text-[11px] text-muted">
+                    停靠任务栏左侧（靠近开始按钮）或右侧（靠近通知区域）；受「全局停靠」覆盖。
+                  </div>
+                </div>
+                <SegmentedControl.Root
+                  value={groupSides[MENUBAR_HISTORY_KEY] ?? 'right'}
+                  onValueChange={(v) =>
+                    void commitGroupSide(MENUBAR_HISTORY_KEY, v as MenubarGroupSide)
+                  }
+                >
+                  <SegmentedControl.Item value="left">左侧</SegmentedControl.Item>
+                  <SegmentedControl.Item value="right">右侧</SegmentedControl.Item>
+                </SegmentedControl.Root>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* 分组显示 */}

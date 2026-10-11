@@ -27,6 +27,8 @@
 //   - brew install nsis llvm lld
 //   - rustup target add aarch64-pc-windows-msvc x86_64-pc-windows-msvc
 //   - cargo install --locked cargo-xwin
+//   - locale：LANG/LC_ALL 为空或 C 时 makensis 会崩（NSIS bug #1165）——脚本会自动注入
+//     UTF-8 locale，无需手工设置；详见下方 utf8Locale() 处注释。
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -117,11 +119,23 @@ console.log(`归档目录: ${releaseDir}`)
 // 必须排在 LLVM 之前，否则 cc-rs 会先找到真实 clang。
 const shimDir = path.join(root, 'scripts/xwin-clang-shim')
 
+// ⚠️ makensis 需要**有效 locale**：LANG/LC_ALL 为空或为 C/POSIX 时，NSIS 编译 Unicode 安装包
+// 会抛 `libc++abi: terminating due to uncaught exception of type std::bad_alloc` 直接 abort
+// （NSIS 官方 bug #1165，macOS 可稳定复现：`LC_ALL=C makensis -V3 任意脚本.nsi` → exit 134，
+// `LC_ALL=en_US.UTF-8` → 正常出包）。
+// 症状极具误导性：**Rust 编译全部通过、只在 makensis 打包阶段崩**，且崩溃点每次不同
+// （曾见 `${StrCase}` 宏与 `PLACEHOLDER_INSTALL_DIR` 两处），看起来像脚本内容问题，其实与脚本无关
+// —— 连 4 行极简脚本也崩。agent / CI 的非交互 shell 通常**不带** LANG 与 LC_ALL（macOS 落到 C），
+// 所以这里必须显式注入 UTF-8 locale；已设且非 C/POSIX 时尊重原值。
+const utf8Locale = (v) => (!v || v === 'C' || v === 'POSIX' ? 'en_US.UTF-8' : v)
+
 // 构造构建环境：shim + LLD + LLVM 进 PATH（clang-cl / llvm-rc / lld-link 都在这）
 const buildEnv = {
   ...process.env,
   PATH: `${shimDir}:${lldBin}:${llvmBin}:${process.env.PATH || ''}`,
   LLVM_BIN: llvmBin,
+  LANG: utf8Locale(process.env.LANG),
+  LC_ALL: utf8Locale(process.env.LC_ALL),
 }
 
 mkdirSync(releaseDir, { recursive: true })

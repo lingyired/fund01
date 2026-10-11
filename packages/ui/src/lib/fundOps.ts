@@ -14,11 +14,13 @@ import {
   calcHoldings,
   clampRefreshInterval,
   MAX_SELECTED_INDICES,
+  MENUBAR_DEFAULTS,
   MENUBAR_OVERVIEW_KEY,
   normalizeConfig,
   normalizeFund,
   normalizeMenubarEdgeMargins,
   normalizeMenubarGlobalSide,
+  normalizeMenubarGroupColors,
   normalizeMenubarGroupSides,
   normalizeMenubarItemMargin,
   normalizeNetValueDate,
@@ -622,6 +624,42 @@ export async function updateSettings(
   if (typeof patch.menubarShowAmount === 'boolean') {
     config.settings.menubarShowAmount = patch.menubarShowAmount
   }
+  // 「历史」实例（仅 tauri）：开关 / 第一行档位 / 名称 / 第二行档位 / 第二行颜色
+  // ⚠️ 本函数是**逐字段白名单**（不是通用 merge）——新增 AppSettings 字段若漏在这里，
+  //    patch 会被静默丢弃，表现为「设置项点了没反应 / 开关弹回」（2026-09-16 踩）。
+  if (typeof patch.menubarHistoryEnabled === 'boolean') {
+    config.settings.menubarHistoryEnabled = patch.menubarHistoryEnabled
+  }
+  if (typeof patch.menubarHistoryLabel === 'string') {
+    // 只 trim；空串回落默认、超长截断由 core normalizeConfig 与 Rust normalize_config 负责
+    config.settings.menubarHistoryLabel = patch.menubarHistoryLabel.trim()
+  }
+  if (
+    patch.menubarHistoryTopMode === 'label' ||
+    patch.menubarHistoryTopMode === 'cumPercent' ||
+    patch.menubarHistoryTopMode === 'cumAmount' ||
+    patch.menubarHistoryTopMode === 'holdingAmount'
+  ) {
+    config.settings.menubarHistoryTopMode = patch.menubarHistoryTopMode
+  }
+  if (
+    patch.menubarHistoryMode === 'cumPercent' ||
+    patch.menubarHistoryMode === 'cumAmount' ||
+    patch.menubarHistoryMode === 'holdingAmount'
+  ) {
+    config.settings.menubarHistoryMode = patch.menubarHistoryMode
+  }
+  if (typeof patch.menubarHistoryBottomColor === 'string') {
+    // 空串 = 未自定义（按涨跌/跟随语义取色）；hex 合法性由 core normalizeConfig 与 Rust 侧校验
+    config.settings.menubarHistoryBottomColor = patch.menubarHistoryBottomColor.trim()
+  }
+  if (
+    patch.menubarHistoryValuation === 'latest' ||
+    patch.menubarHistoryValuation === 'confirmed'
+  ) {
+    // 数值口径：含今日（latest）/ 只用已公布净值（confirmed）
+    config.settings.menubarHistoryValuation = patch.menubarHistoryValuation
+  }
   // 静默启动（仅 tauri）：启动不打开设置界面，仅常驻菜单栏
   if (typeof patch.silentStart === 'boolean') {
     config.settings.silentStart = patch.silentStart
@@ -651,21 +689,16 @@ export async function updateSettings(
     config.settings.menubarTopColor = patch.menubarTopColor
   }
   if (patch.menubarGroupColors && typeof patch.menubarGroupColors === 'object') {
-    // 整体替换 menubarGroupColors：仅保留 ''(未分组)、总览或现有分组名，value 校验 hex
-    const valid = new Set(config.settings.holdingGroups || [])
-    const next: Record<string, string> = {}
-    for (const [g, color] of Object.entries(patch.menubarGroupColors)) {
-      const key = String(g ?? '').trim()
-      if (typeof color !== 'string') continue
-      const hex = color.trim()
-      if (
-        (key === '' || key === MENUBAR_OVERVIEW_KEY || valid.has(key)) &&
-        /^#[0-9a-fA-F]{6}$/.test(hex)
-      ) {
-        next[key] = hex
-      }
-    }
-    config.settings.menubarGroupColors = next
+    // 整体替换 menubarGroupColors：**直接复用 core 白名单**（''/总览/「历史」/现有分组名 + hex 校验），
+    // 与 normalizeConfig、Rust normalize_config 共用同一份 key 规则。
+    // ⚠️ 此处曾经手写白名单且漏了 MENUBAR_HISTORY_KEY → 「历史」第一行自定义色被静默丢弃
+    // （落盘 menubarGroupColors 恒为空对象，第二行因走独立字段而正常）。**勿再手写本白名单**：
+    // 新增固定 key 时只改 core，三处自动同步。
+    config.settings.menubarGroupColors = normalizeMenubarGroupColors(
+      patch.menubarGroupColors,
+      config.settings.holdingGroups || [],
+      MENUBAR_DEFAULTS.topColor,
+    )
   }
   if (
     patch.menubarGroupSides &&
@@ -762,6 +795,8 @@ export function hasUngroupedHoldings(cfg: AppConfig): boolean {
  *  ⚠️ 判定口径与 Rust `menubar_all_hidden`（apps/tauri/src-tauri/src/menubar.rs）保持一致（两端 1:1 铁律）。
  *  仅 Tauri 有意义；Chrome 端由 useMenubarEmpty 在 supportsMenubar 为假时短路，不走到这里。 */
 export function isMenubarEmpty(cfg: AppConfig): boolean {
+  // 「历史」项开着 → 菜单栏里还有东西，不算全空（与 Rust menubar_all_hidden 第 0 条 1:1 对齐）
+  if (cfg.settings.menubarHistoryEnabled === true) return false
   const hidden = new Set(cfg.settings.menubarHiddenGroups || [])
   if (!hidden.has(MENUBAR_OVERVIEW_KEY)) return false
   for (const g of cfg.settings.holdingGroups || []) {

@@ -56,7 +56,7 @@ Chrome 与 Tauri **共用同一个版本号**（基线 1.3.0）。任何一次�
 
 ### 语义化版本（SemVer）
 `MAJOR.MINOR.PATCH`：
-- `PATCH`：修复 / 小幅改动，准备 commit/push 时 +1
+- `PATCH`：修复 / 小幅改动（**正式发布时** +1，见「Bump 纪律」）
 - `MINOR`：一个功能或一批相关改动
 - `MAJOR`：保留（预发布阶段暂不使用）
 - 预发布基线已重置为 **1.0.0**（2026-08-18 落地：Chrome 1.2.80→1.0.0、Tauri 1.0.50→1.0.0，无历史包袱，重新计数）
@@ -77,14 +77,18 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
 
 **决策口诀**：打开后「能不能做一件之前做不到的事？」能 → MINOR；不能（只是之前能做的更对 / 更好 / 不崩）→ PATCH。**拿不准默认 PATCH**（保守），等一个功能分支整体做完、想给它一个里程碑时再 MINOR。
 
-**MINOR / PATCH 由 AI agent 在 commit/push 时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；**版本号两端必须一起 +1（统一版本号）**。关键：bump 在「改动完成、准备 commit/push」时一次定，不中途纠结。
+**MINOR / PATCH 由 AI agent 在「正式发布」时自行判定并 bump**（用户已授权 agent 拍板，无需用户逐次确认；**开发周期内不 bump**，见「Bump 纪律」）。Agent 按本节的「用户可感知能力是否新增」标准判断：纯修复 / 优化 / 重构 → PATCH；新增用户可控能力 / 可命名功能里程碑 → MINOR；**版本号两端必须一起 +1（统一版本号）**。
 
 **本项目实例参照（分类，具体号随基线重置后重新计数）**：popup 加载态修复 / 涨跌色值微调 / 缓存 bug = PATCH；持仓分组排序、指数 / 市场面板、QDII 夜盘刷新 = MINOR。
 
-### Bump 纪律（统一版本号，2026-08-24 起）
-- **发布版本只在「改动完成、准备 commit/push」时 bump 一次，不在每次中间尝试时 bump。**
-- **任何改动（chrome-only / tauri-only / 共享包）都两端同步 +1**：`apps/chrome/package.json` 与 Tauri 三处（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock` 的 fund01-tauri 条目）必须全部改为同一新版本。
-- 严禁「只 bump 一端」；提交前必须跑 `pnpm check:versions`（已实现两端相等校验）。
+### Bump 纪律（统一版本号，2026-08-24 起；**2026-09-16 修订**）
+- ⚠️ **开发周期内不 bump（2026-09-16 用户定）**：一个功能从开工、commit 到合并 main 都**沿用当前版本号**（现阶段 = `1.6.x`），**不要**在 commit 时顺手 +1。版本号在**正式发布（发 GitHub Release）那一次**统一提升，号段由用户拍板。
+  - 为什么：发布节奏由用户掌握。逐次 bump 会造出一串「开发中版本号」——它们在线上没有任何对应的 Release，与 `lingai.net` 版本检查接口的 `latestVersion` 形成假差异。
+  - CHANGELOG 里未发布的内容挂在 `## 未发布（正式发布时并入 1.6.x）` 标题下；发布时再改写为 `## v<ver> · <date>`。
+  - 例外：用户明确要求 bump（「bump 到 X.Y.Z」「准备发版」）时，照旧执行本文档的 bump 流程。
+- **不 bump ≠ 不校验**：`pnpm check:versions` 仍在 commit 前跑（校验四处**相等**，与「是否变更号」无关）。
+- **bump 发生时，任何改动（chrome-only / tauri-only / 共享包）都两端同步 +1**：`apps/chrome/package.json` 与 Tauri 三处（`tauri.conf.json` / `Cargo.toml` / `Cargo.lock` 的 fund01-tauri 条目）必须全部改为同一新版本。
+- 严禁「只 bump 一端」；bump 后必须跑 `pnpm check:versions`（已实现两端相等校验）。
 
 ### 构建戳（build stamp，已实现）
 - **发布版本不负责「我测的是不是刚编的最新版」——那由构建戳承担。**
@@ -125,6 +129,7 @@ Fund01 是预发布、自用型 app（使用者即你自己），没有外部 AP
   - **能力边界**：仅 **NSIS** 可交叉编译——MSI（WiX）只能在 Windows 上打；且官方标 experimental，适合自测兜底，正式发版仍建议 CI。
   - **前置依赖**：`brew install nsis llvm lld`、`rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc`、`cargo install --locked cargo-xwin`。
   - **arm64 必须配 clang shim（2026-08-31 实战）**：cc-rs 对 aarch64-msvc 调普通 `clang`，不认 cargo-xwin CFLAGS 里的 clang-cl 风格 `/imsvc` 参数 → `clang: error: no such file or directory: '/imsvc'`（ring 编译必挂，x64 无此问题）。修复 = `scripts/xwin-clang-shim/` 的 `clang`/`clang++` 包装脚本（强制 `--driver-mode=cl`，社区 soldr 方案），`build-release-windows-cross.mjs` 自动置 PATH 最前并导出 `LLVM_BIN`。
+  - **⚠️ makensis 必须有有效 locale（2026-09-16 实战，NSIS bug #1165）**：`LANG`/`LC_ALL` 为空或 `C`/`POSIX` 时，makensis 编译 **Unicode** 脚本直接 `libc++abi: terminating due to uncaught exception of type std::bad_alloc` **abort（exit 134）**。**症状极具误导性**：Rust 编译全部通过、只在 NSIS 打包阶段失败，且崩溃点随机（实测见过 `${StrCase}` 宏的 `Exch($1,0)` 与 `!define PLACEHOLDER_INSTALL_DIR` 两处），容易被误判成脚本/模板问题——**连 4 行极简脚本也照崩**，这是最快的判定手段。agent / CI 的**非交互 shell 通常不带 LANG**（`locale` 显示 `LANG=""` / `LC_CTYPE="C"`）→ 必踩；用户登录终端有 LANG，所以手工跑常看不出。修复 = `build-release-windows-cross.mjs` 在 `buildEnv` 注入 `LANG`/`LC_ALL`（为 C/POSIX 时回落 `en_US.UTF-8`，非 C 尊重原值）。手工验证口径：`LC_ALL=C makensis -V3 x.nsi` → 134；`LC_ALL=en_US.UTF-8 makensis -V3 x.nsi` → 正常出包。（另：`-OUTPUTCHARSET is disabled for non Win32 platforms` 是无害警告；`brew reinstall makensis` 在本机无 bottle 装不了。）
 - **产物来源标识（2026-08-31 定）**：CI 构建注入 `FUND01_EXE_SUFFIX=-ci`，归档名 `Fund01_<ver>_<arch>-ci-setup.exe`；本机打包不设该变量维持原名 `Fund01_<ver>_<arch>-setup.exe`。两者同目录混放也不会混淆。tauri 原始产物名不变，`SHA256SUMS.txt` 的 `-setup.exe` 过滤天然兼容。
 - **matrix 设计**：x64 必成；arm64 依赖 VS 的 ARM64 交叉工具（`x64_arm64`，runner 镜像可能未带该组件）→ 标 `continue-on-error: true` + `fail-fast: false`，单架构可用也好过全红，summary 会标出结果。
 - Windows 专属脚本 `scripts/build-release-windows.mjs` 的前置与坑见其头部注释（vcvarsall / VS ARM64 组件 / Parallels 共享目录符号链接导致 pnpm EINVAL，须在虚机本地磁盘副本构建）。
@@ -421,6 +426,17 @@ declare module '*.css';
 
 原 plan 设想 SW 读 `chrome.storage.session`。实际实现中，`ChromeConfigPort.saveConfig` 直接写 `chrome.storage.local`（key=`session-config`），SW 的 `getSessionConfig()` 也从 `chrome.storage.local` 读。`chrome.storage.session` 在 popup 关闭后仍可访问，但跨 SW 重启行为不如 local 稳定，统一用 local 更简单。
 
+### 7. Windows 任务栏：实例顺序与布局下发门控（2026-09-16，症状=改色卡死）
+
+实例顺序与下发时机在 Windows 侧**不是纯展示问题**，会直接影响系统稳定性：
+
+- **`desired_instances` 的返回下标 = Windows 的 `set_order`**（`taskband.rs::sync_instances` 直接用下标下发；macOS 不用它——菜单栏顺序由系统原生 ⌘-拖拽决定，所以 macOS 侧代码**不得**依赖下标）。插件按 order 升序从边缘向内排，**`order 0` 是边缘锚位**（贴通知区/最左缘），该位置**必须留给「总览」**。新增实例一律 `push` 到总览**之后**，不要插到最前。
+- **插件对 `set_visible` / `set_side` / `set_order` 每条命令都会触发一次全量 `relayout_all()`**，对每个可见实例执行 `MoveWindow` + `UpdateLayeredWindow` + `ShowWindow` —— 这些是**跨进程同步**窗口操作（任务栏窗口属于 `explorer.exe`）。而 `set_colors` 只是向 UI 线程 post 一条命令，**不 relayout**。
+- 因此**不允许「声明式全量重下」**：凡调用上述三个 setter 的地方，必须先过 `menubar_common.rs::layout_changed(id, (visible, 是否左缘, order))` 门控，只在值**变化**时下发；实例**新建 / 销毁**时调用 `layout_forget(id)`（缺席 = 下次强制下发一次），保证新实例收到完整状态。
+- 后果说明：全量重下使单次配置保存产生 `3 × 实例数 × 2` 条命令（rebuild 与 update 路径各一遍），叠加边缘锚位误占，可累积 **200+ 次跨进程窗口操作**，把 `explorer.exe` 的 UI 线程拖住 → 表现是**任务栏与桌面一起卡死**，而非应用窗口卡死。纯改颜色本不该有任何窗口操作。
+
+回归测试：`menubar_common.rs` 的 `overview_keeps_edge_anchor_history_follows_it`、`layout_push_skipped_unless_changed_or_forgotten`（这两个符号只被 Windows 目标使用，非 Windows 目标下挂 `#[cfg_attr(not(target_os = "windows"), allow(dead_code))]` 以免 `cargo check` 刷屏）。
+
 ## 样式系统：tw-shim 手写垫片（重要）
 
 本项目**没有 Tailwind 引擎**。原子类（`px-3` / `pb-3` / `flex` / `space-y-2` / `bg-paper-deep/50` 等）来自手写白名单 `packages/ui/src/tw-shim.css`，置于 `@layer utilities`（优先级高于 `radix-themes` 层）。Radix Themes 只提供组件与 CSS 变量（`--gray-*` / `--accent-*` / `--app-rise/-fall/-gold`），**不提供原子类**。
@@ -447,3 +463,5 @@ declare module '*.css';
 - **chrome.alarms 最小间隔**：浏览器强制最小 0.5 分钟（30 秒），低于此值会被截断。`scheduleNextAlarm` 中 `Math.max(0.5, delaySec / 60)` 已处理
 - **Popup 关闭即销毁**：Popup 关闭后 DOM 和 JS 全部销毁，不能依赖 popup 做后台轮询。所有定时逻辑必须在 Service Worker + chrome.alarms 中
 - **popup 模式 vs dashboard 标签页**：原 wzk-fund 是 dashboard 标签页（全屏浏览器窗口），CSS 用 min-height: 100vh 是为标签页设计。重构为 popup 模式后，100vh = popup 视口高度但视口本身未定义 → 内容为 0 高度。修复：popup/index.html 内联 <style> 用 !important 强制固定尺寸（666x600）。详见 ARCHITECTURE.md §9.7
+- **`<input type="color">` 不是低频操作**：原生取色面板在**拖动过程中**会连续触发 `input` 事件（React 的 `onChange` 绑定的就是 input 事件），一次拖拽可产生上百次回调；每次回调写后端都会让菜单栏/任务栏把**全部实例**重新渲染一遍（Windows：每个可见实例各一次分层窗口重绘；macOS：重建内容）→ 拖动卡顿、不跟手（用户 2026-09-17 实测反馈）。凡「连续触发的输入 → 写后端」都必须节流：颜色类走 `packages/ui/src/lib/boundedThrottle.ts` 的 `createBoundedThrottle`（有界速率 + 末尾兜底，纯逻辑可注入虚拟时钟验证）；字号 Slider 用 Radix 的 `onValueCommit`（松手才存）；文本 / 数字输入用草稿 + 失焦或回车提交。**新增任何「拖动即改」的设置项时，先确认它是连续触发还是离散触发**。
+- **延迟写入必须读「最新值」而不是调度时的快照**：节流后写后端被推后，若闭包捕获的是当时算出的值，会出现两类错——① 整表写入的字段（如 `menubarGroupColors`）在同一次窗口内先后改两个 key 时互相覆盖；② 「拖完立刻关开关」被挂起的写入反悔回去。做法：把最新值放进 `ref`（状态 → ref 镜像），job 在 flush 时读 ref。

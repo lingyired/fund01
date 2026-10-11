@@ -88,6 +88,19 @@ export type FundQuoteRow = FundRecord & {
 export type HoldingsPayload = {
   summary: {
     totalAmount: number
+    /**
+     * 全部纳入总览的持仓 @**含今日**市值（= Σ 份额 × 当前净值，盘中即估值净值）。
+     * 与 `totalAmount`（@已公布净值）成对，供菜单栏「历史」项的数值口径切换
+     * （`menubarHistoryValuation=latest`）使用；popup 汇总仍用 `totalAmount`。
+     */
+    totalAmountLatest?: number
+    /**
+     * **已录入成本**那部分持仓 @已公布净值市值。持有收益只统计录入成本的持仓，
+     * 故 `总览收益 = totalCostedAmount − totalCost`（口径与 `totalCumPnl` 的
+     * 「含今日」版本对称）；部分持仓未录成本时，它小于 `totalAmount`。
+     * 只有菜单栏「历史」项的口径切换在读，popup 不用。
+     */
+    totalCostedAmount?: number
     bodTotal?: number
     totalPnl: number
     totalPnlPercent: number
@@ -194,6 +207,32 @@ export type MenubarGlobalSide = 'follow' | 'left' | 'right'
 /** 设置页「持仓」tab 的浮动导航位置：top=顶部吸顶（默认）side=右侧悬浮 */
 export type HoldingsNavPosition = 'top' | 'side'
 
+/**
+ * 菜单栏/任务栏「历史」实例**某一行**可显示的内容档（仅 tauri 生效）：
+ * label=名称文字、cumPercent=历史收益涨跌幅（累计收益率）、cumAmount=历史收益额、
+ * holdingAmount=当前持仓额。上下两行共用这一组档位（默认 上行=label、下行=cumAmount）。
+ */
+export type MenubarHistorySlotMode = 'label' | 'cumPercent' | 'cumAmount' | 'holdingAmount'
+
+/**
+ * 「历史」实例**第二行（数值行）**的档位。与 `MenubarHistorySlotMode` 同义但**不含 label**
+ * ——第二行恒为数值，不显示名称文字（名称只在第一行的 label 档出现）。
+ */
+export type MenubarHistoryMode = 'cumPercent' | 'cumAmount' | 'holdingAmount'
+
+/**
+ * 「历史」实例数值档的**取数口径**（默认 `latest`）。仅 tauri 生效。
+ *
+ * 历史实例的三个数值档都由「当前市值 − 已录入成本」推出，本字段决定「当前市值」取哪一档：
+ * - `latest`    = 含今日：`份额 × 当前净值`（盘中取估值净值、披露后取今日确认净值）——
+ *                 三档数字随行情实时跳动，历史收益额默认含今天的盈亏；
+ * - `confirmed` = 只用**已公布净值**：盘中即昨日确认净值，当日净值披露后即切换为今日确认净值。
+ *                 数字在披露前保持稳定，且与 popup 顶部「持仓金额」同口径。
+ *
+ * 只影响历史实例的三个数值档；「总览 / 分组」下行的当日收益本来就是「今 vs 昨」的差，不受影响。
+ */
+export type MenubarHistoryValuation = 'latest' | 'confirmed'
+
 export type AppSettings = {
   /** 定时刷新间隔配置（秒） */
   refreshInterval?: RefreshInterval
@@ -249,6 +288,43 @@ export type AppSettings = {
   menubarEqualFontSize?: number
   /** 菜单栏数值显示方式：false=收益率百分比(默认) true=收益额（k/w/kw 简写）。仅 tauri 生效 */
   menubarShowAmount?: boolean
+  /**
+   * 菜单栏/任务栏「历史」实例总开关（默认 false）。仅 tauri 生效。
+   * 开启后在全部实例最前面增加一项，展示整个组合的累计表现（口径见 menubarHistoryMode）。
+   * 关闭 = 该实例不存在；macOS ⌘-拖出该实例等价于把本项置 false。
+   */
+  menubarHistoryEnabled?: boolean
+  /**
+   * 「历史」实例的上行名称（默认「历史」）。仅 tauri 生效。
+   * **只在该实例第一行档位为 `label` 时显示**（第一行改成数值档后名称不参与渲染，
+   * 但仍保留在配置里，切回 label 档即恢复）。trim 后为空回落默认值；超过 8 个字符截断。
+   */
+  menubarHistoryLabel?: string
+  /**
+   * 「历史」实例**第一行**的内容档（默认 `label`=名称文字）。仅 tauri 生效。
+   * 可改为三档数值之一 —— 此时第一行不再显示名称，且未自定义「第一行颜色」时
+   * 按涨跌语义取色（正红负绿），与第二行一致。
+   */
+  menubarHistoryTopMode?: MenubarHistorySlotMode
+  /**
+   * 「历史」实例**第二行**的内容档（默认 cumAmount=历史收益额）。仅 tauri 生效。
+   * 历史收益涨跌幅 / 历史收益额 二档在未录入成本（算不出累计收益）时回退显示当前持仓额；
+   * 隐私模式下收益额档降级为涨跌幅档、持仓额档显示 ****。
+   */
+  menubarHistoryMode?: MenubarHistoryMode
+  /**
+   * 「历史」实例**第二行**的自定义颜色（`#rrggbb`，默认 `''`=未自定义）。仅 tauri 生效。
+   * 未自定义时按语义取色：收益两档=涨跌色（正红负绿）、持仓额档=跟随第一行已解析颜色。
+   * 注：**第一行**自定义色不走本字段，而是复用分组色表 `menubarGroupColors['__history__']`
+   * （见 MENUBAR_HISTORY_KEY）——历史项与各分组共用同一套上行配色机制。
+   */
+  menubarHistoryBottomColor?: string
+  /**
+   * 「历史」实例数值档的**取数口径**（默认 `latest`=含今日）。仅 tauri 生效。
+   * `latest` 用当前净值（盘中估值即可，数字实时跳动）；`confirmed` 只用已公布净值
+   * （盘中即昨日净值，数字在披露前稳定）。详见 `MenubarHistoryValuation`。
+   */
+  menubarHistoryValuation?: MenubarHistoryValuation
   /** 菜单栏上行字体族名（macOS font family，如 Hiragino Sans GB）。空串/缺省=系统字体。仅 tauri 生效 */
   menubarTopFont?: string
   /** 菜单栏下行字体族名（macOS font family，如 Menlo）。空串/缺省=系统字体。仅 tauri 生效 */

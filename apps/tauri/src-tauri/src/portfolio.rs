@@ -46,6 +46,12 @@ pub fn default_config() -> AppConfig {
             menubar_bottom_font_size: Some(11.0),
             menubar_equal_font_size: Some(9.0),
             menubar_show_amount: Some(false),
+            menubar_history_enabled: Some(false),
+            menubar_history_label: Some(MENUBAR_HISTORY_LABEL_DEFAULT.to_string()),
+            menubar_history_top_mode: Some(MENUBAR_HISTORY_TOP_MODE_DEFAULT.to_string()),
+            menubar_history_mode: Some(MENUBAR_HISTORY_MODE_DEFAULT.to_string()),
+            menubar_history_bottom_color: Some(String::new()),
+            menubar_history_valuation: Some(MENUBAR_HISTORY_VALUATION_DEFAULT.to_string()),
             menubar_top_font: Some(String::new()),
             menubar_bottom_font: Some(String::new()),
             menubar_top_bold: Some(false),
@@ -454,6 +460,30 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_show_amount = settings_raw
         .and_then(|s| s.get("menubarShowAmount").and_then(|v| v.as_bool()))
         .unwrap_or(false);
+    // 「历史」实例（仅 tauri）：开关 / 上行名称 / 上下行档位 / 第二行颜色。
+    // ⚠️ 五项必须接入本重建对象——否则任何设置保存全量落盘时会把已保存值过滤成默认
+    //（表现为「开启历史项后改其它设置，历史项回落关闭 / 档位与颜色被重置」）。
+    let menubar_history_enabled = settings_raw
+        .and_then(|s| {
+            s.get("menubarHistoryEnabled")
+                .and_then(|v| v.as_bool())
+        })
+        .unwrap_or(false);
+    let menubar_history_label = normalize_menubar_history_label(
+        settings_raw.and_then(|s| s.get("menubarHistoryLabel").and_then(|v| v.as_str())),
+    );
+    let menubar_history_top_mode = normalize_menubar_history_top_mode(
+        settings_raw.and_then(|s| s.get("menubarHistoryTopMode").and_then(|v| v.as_str())),
+    );
+    let menubar_history_mode = normalize_menubar_history_mode(
+        settings_raw.and_then(|s| s.get("menubarHistoryMode").and_then(|v| v.as_str())),
+    );
+    let menubar_history_bottom_color = normalize_menubar_history_bottom_color(
+        settings_raw.and_then(|s| s.get("menubarHistoryBottomColor").and_then(|v| v.as_str())),
+    );
+    let menubar_history_valuation = normalize_menubar_history_valuation(
+        settings_raw.and_then(|s| s.get("menubarHistoryValuation").and_then(|v| v.as_str())),
+    );
     // 菜单栏展示自定义项：字体（trim，空串=系统字体）、加粗（bool）、颜色（#rrggbb hex，非法回落默认）
     let font_of = |key: &str, d: &str| {
         settings_raw
@@ -491,6 +521,8 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_top_align = align_of("menubarTopAlign");
     let menubar_bottom_align = align_of("menubarBottomAlign");
     let menubar_top_color = color_of("menubarTopColor", "#ffffff");
+    // menubarGroupColors（含总览/历史固定 key 与各分组）：key 限 ''/__overview__/__history__/有效分组，
+    // value 限合法 hex，非法条目直接丢弃（与 TS normalizeMenubarGroupColors 一致）
     let menubar_group_colors: HashMap<String, String> = settings_raw
         .and_then(|s| s.get("menubarGroupColors"))
         .and_then(|v| v.as_object())
@@ -498,7 +530,11 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             let mut map = HashMap::new();
             for (k, v) in obj {
                 let key = k.trim().to_string();
-                if key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key) {
+                if key.is_empty()
+                    || key == MENUBAR_OVERVIEW_KEY
+                    || key == MENUBAR_HISTORY_KEY
+                    || holding_groups.contains(&key)
+                {
                     if let Some(hex) = v
                         .as_str()
                         .map(|s| s.trim().to_string())
@@ -514,8 +550,9 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
     let menubar_rise_color = color_of("menubarRiseColor", "#FF4F44");
     let menubar_fall_color = color_of("menubarFallColor", "#34C759");
     let menubar_flat_color = color_of("menubarFlatColor", "#8e8e93");
-    // menubarGroupSides（仅 Windows 生效）：key 限 ''/__overview__/有效分组，value 限 'left'|'right'，
-    // 非法条目直接丢弃（= 回落右侧默认，与 TS normalizeMenubarGroupSides 一致）
+    // menubarGroupSides（仅 Windows 生效）：key 限 ''/__overview__/__history__/有效分组，
+    // value 限 'left'|'right'，非法条目直接丢弃（= 回落右侧默认，与 TS normalizeMenubarGroupSides 一致）
+    // ⚠️ __history__ 必须在内：任务栏「历史」项的左右停靠侧走这一格（补漏，原缺 → 设置静默丢弃）
     let menubar_group_sides: HashMap<String, String> = settings_raw
         .and_then(|s| s.get("menubarGroupSides"))
         .and_then(|v| v.as_object())
@@ -524,7 +561,10 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             for (k, v) in obj {
                 let key = k.trim().to_string();
                 let side = v.as_str().unwrap_or("");
-                if (key.is_empty() || key == MENUBAR_OVERVIEW_KEY || holding_groups.contains(&key))
+                if (key.is_empty()
+                    || key == MENUBAR_OVERVIEW_KEY
+                    || key == MENUBAR_HISTORY_KEY
+                    || holding_groups.contains(&key))
                     && (side == "left" || side == "right")
                 {
                     map.insert(key, side.to_string());
@@ -676,6 +716,12 @@ pub fn normalize_config(payload: &serde_json::Value) -> AppConfig {
             menubar_bottom_font_size: Some(menubar_bottom_font_size),
             menubar_equal_font_size: Some(menubar_equal_font_size),
             menubar_show_amount: Some(menubar_show_amount),
+            menubar_history_enabled: Some(menubar_history_enabled),
+            menubar_history_label: Some(menubar_history_label),
+            menubar_history_top_mode: Some(menubar_history_top_mode),
+            menubar_history_mode: Some(menubar_history_mode),
+            menubar_history_bottom_color: Some(menubar_history_bottom_color),
+            menubar_history_valuation: Some(menubar_history_valuation),
             menubar_top_font: Some(menubar_top_font),
             menubar_bottom_font: Some(menubar_bottom_font),
             menubar_top_bold: Some(menubar_top_bold),
@@ -705,3 +751,150 @@ fn is_hex_color(s: &str) -> bool {
 
 /// 总览实例在 menubarGroupColors 中的固定 key（与 TS MENUBAR_OVERVIEW_KEY 对应）
 pub const MENUBAR_OVERVIEW_KEY: &str = "__overview__";
+
+/// 「历史」实例在 menubarGroupColors / menubarGroupSides 中的固定 key
+/// （与 TS MENUBAR_HISTORY_KEY 对应）。
+/// ⚠️ 只用于「上行自定义色」与「任务栏停靠侧」两张表；**不**写进 menubar_hidden_groups
+/// ——历史项的显隐由 menubar_history_enabled 独立控制（⌘-拖出 = 置 false）。
+pub const MENUBAR_HISTORY_KEY: &str = "__history__";
+
+/// 「历史」实例上行名称默认值（与 TS MENUBAR_HISTORY_LABEL_DEFAULT 一致）
+pub const MENUBAR_HISTORY_LABEL_DEFAULT: &str = "历史";
+/// 「历史」实例上行名称最大字符数（超出截断，与 TS MENUBAR_HISTORY_LABEL_MAX 一致）
+pub const MENUBAR_HISTORY_LABEL_MAX: usize = 8;
+/// 「历史」实例第一行档位默认值：名称文字（与 TS MENUBAR_HISTORY_TOP_MODE_DEFAULT 一致）
+pub const MENUBAR_HISTORY_TOP_MODE_DEFAULT: &str = "label";
+/// 「历史」实例第二行档位默认值：历史收益额（与 TS MENUBAR_HISTORY_MODE_DEFAULT 一致）。
+/// ⚠️ 2026-09-16 由 cumPercent 改为 cumAmount（用户定：默认「名称文字 + 历史收益额」）；
+/// 三处默认值（本常量 / normalize_config 的 Default / TS DEFAULT_CONFIG）必须同步。
+pub const MENUBAR_HISTORY_MODE_DEFAULT: &str = "cumAmount";
+/// 「历史」实例数值档取数口径默认值：含今日（当前净值/盘中估值）。
+/// 与历史收益额「含今天」的既有行为一致（老配置缺该字段 → 显示与升级前完全相同）；
+/// ⚠️ 三处默认值（本常量 / normalize_config 的默认分支 / TS MENUBAR_HISTORY_VALUATION_DEFAULT）必须同步。
+pub const MENUBAR_HISTORY_VALUATION_DEFAULT: &str = "latest";
+
+/// 归一化「历史」实例上行名称：trim → 空回落默认 → 超长按字符截断（与 TS 口径一致）
+pub fn normalize_menubar_history_label(raw: Option<&str>) -> String {
+    let s = raw.unwrap_or("").trim();
+    if s.is_empty() {
+        return MENUBAR_HISTORY_LABEL_DEFAULT.to_string();
+    }
+    s.chars().take(MENUBAR_HISTORY_LABEL_MAX).collect()
+}
+
+/// 归一化「历史」实例**第一行**档位：接受四档（含 label=名称文字），非法/缺省回落 label
+pub fn normalize_menubar_history_top_mode(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some("label") => "label".to_string(),
+        Some("cumPercent") => "cumPercent".to_string(),
+        Some("cumAmount") => "cumAmount".to_string(),
+        Some("holdingAmount") => "holdingAmount".to_string(),
+        _ => MENUBAR_HISTORY_TOP_MODE_DEFAULT.to_string(),
+    }
+}
+
+/// 归一化「历史」实例**第二行**档位：只接受三档数值，非法/缺省回落默认（与 TS 口径一致）。
+/// `label` 属第一行专属档，传给本函数会被判非法并回落 —— 第二行恒为数值，不渲染名称文字。
+pub fn normalize_menubar_history_mode(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some("cumPercent") => "cumPercent".to_string(),
+        Some("cumAmount") => "cumAmount".to_string(),
+        Some("holdingAmount") => "holdingAmount".to_string(),
+        _ => MENUBAR_HISTORY_MODE_DEFAULT.to_string(),
+    }
+}
+
+/// 归一化「历史」实例第二行自定义色：仅接受 #rrggbb，**空串/非法一律回落空串（=未自定义）**。
+/// ⚠️ 与 is_hex_color 的其它用法不同：本字段的「空」有语义（按涨跌/跟随语义取色），
+/// 因此不能用某个默认色兜底（那会让「未自定义」与「自定义成默认色」无法区分）。
+pub fn normalize_menubar_history_bottom_color(raw: Option<&str>) -> String {
+    raw.map(str::trim)
+        .filter(|s| is_hex_color(s))
+        .map(str::to_string)
+        .unwrap_or_default()
+}
+
+/// 归一化「历史」实例数值档取数口径：只接受 `latest` / `confirmed`，非法/缺省回落默认。
+/// 与 TS `normalizeMenubarHistoryValuation` 口径一致（本函数额外 trim，更宽松但无害）。
+pub fn normalize_menubar_history_valuation(raw: Option<&str>) -> String {
+    match raw.map(str::trim) {
+        Some("latest") => "latest".to_string(),
+        Some("confirmed") => "confirmed".to_string(),
+        _ => MENUBAR_HISTORY_VALUATION_DEFAULT.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造只含 settings 的最小配置（其余字段走默认，与运行时相同入口 normalize_config）
+    fn cfg_with(settings: serde_json::Value) -> AppConfig {
+        normalize_config(&serde_json::json!({ "settings": settings }))
+    }
+
+    /// menubarGroupColors 白名单：''/总览/「历史」/有效分组保留，其余（未定义分组、非法 hex）丢弃。
+    /// ⚠️ 漏 `__history__` → 「历史」第一行自定义色**静默丢失**（TS 手写白名单与 Rust 各踩过一次）。
+    #[test]
+    fn normalize_group_colors_key_whitelist() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarGroupColors": {
+                "__history__": "#3a88fe",
+                "__overview__": "#112233",
+                "": "#445566",
+                "A": "#778899",
+                "B": "#aabbcc"
+            }
+        }));
+        let m = c.settings.menubar_group_colors.unwrap_or_default();
+        assert_eq!(
+            m.get(MENUBAR_HISTORY_KEY).map(String::as_str),
+            Some("#3a88fe")
+        );
+        assert_eq!(
+            m.get(MENUBAR_OVERVIEW_KEY).map(String::as_str),
+            Some("#112233")
+        );
+        assert_eq!(m.get("").map(String::as_str), Some("#445566"));
+        assert_eq!(m.get("A").map(String::as_str), Some("#778899"));
+        // 非现有分组：丢弃
+        assert_eq!(m.get("B"), None);
+        assert_eq!(m.len(), 4);
+    }
+
+    /// menubarGroupSides 白名单同样收录「历史」（任务栏「历史」项左右停靠，
+    /// 补漏前 __history__ 被丢弃 → 设置页切左右没反应）；value 仅 left/right。
+    #[test]
+    fn normalize_group_sides_key_whitelist() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarGroupSides": {
+                "__history__": "left",
+                "__overview__": "right",
+                "A": "left",
+                "B": "left"
+            }
+        }));
+        let m = c.settings.menubar_group_sides.unwrap_or_default();
+        assert_eq!(m.get(MENUBAR_HISTORY_KEY).map(String::as_str), Some("left"));
+        assert_eq!(m.get("A").map(String::as_str), Some("left"));
+        assert_eq!(m.get("B"), None);
+        assert_eq!(m.len(), 3);
+    }
+
+    /// menubarHiddenGroups **不得**收「历史」key：历史项显隐由 menubarHistoryEnabled 独立控制
+    /// （关闭 = 销毁实例），写进来会让「关历史项」与「隐藏分组」两条路径互相干扰。
+    #[test]
+    fn normalize_hidden_groups_rejects_history_key() {
+        let c = cfg_with(serde_json::json!({
+            "holdingGroups": ["A"],
+            "menubarHiddenGroups": ["__history__", "__overview__", "A", ""]
+        }));
+        let v = c.settings.menubar_hidden_groups.unwrap_or_default();
+        assert!(v.contains(&MENUBAR_OVERVIEW_KEY.to_string()));
+        assert!(v.contains(&"A".to_string()));
+        assert!(v.contains(&String::new()));
+        assert!(!v.contains(&MENUBAR_HISTORY_KEY.to_string()));
+    }
+}
