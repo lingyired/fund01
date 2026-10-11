@@ -177,10 +177,19 @@ jobs:
         run: |
           set -eo pipefail
           VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
+          REPO="lingyired/fund01"
+          # 显式给 --url：默认拼装用的是 releases/latest/download/，但资产名带版本号
+          # （latest release 才是当前版本时才成立）；显式写死 releases/download/<tag>/ 更稳。
+          # 清单里的 URL 指向 GitHub，部署到 lingai.net 时服务端会改写成镜像地址。
           node scripts/gen-updater-manifest.mjs \
             --out dist-updater-macos \
-            --platform darwin-aarch64 --file "release-macos/updater/Fund01_${VER}_arm64.app.tar.gz" \
-            --platform darwin-x86_64 --file "release-macos/updater/Fund01_${VER}_x86_64.app.tar.gz" \
+            --notes 'Fund01 update' \
+            --platform darwin-aarch64 \
+              --file "release-macos/updater/Fund01_${VER}_arm64.app.tar.gz" \
+              --url "https://github.com/${REPO}/releases/download/v${VER}/Fund01_${VER}_arm64.app.tar.gz" \
+            --platform darwin-x86_64 \
+              --file "release-macos/updater/Fund01_${VER}_x86_64.app.tar.gz" \
+              --url "https://github.com/${REPO}/releases/download/v${VER}/Fund01_${VER}_x86_64.app.tar.gz" \
             || echo "macOS updater 清单生成跳过（无 updater 产物）"
 
       - name: Generate checksums
@@ -316,11 +325,14 @@ jobs:
           $pattern = 'Fund01_*_{0}-setup.exe' -f $arch
           Write-Host "  查找模式：$pattern"
           $setup = Get-ChildItem -Path $nsisDir -Filter $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+          # 归档名统一带 -ci（与 release-windows/ 及 Release 资产名一致，清单的 URL 才对得上）。
+          # 注意：tauri 原始产物名无 -ci（Fund01_<ver>_<arch>-setup.exe），必须显式重命名，
+          # 否则 manifest 按 -ci 名去找会找不到文件。
+          $ciName = 'Fund01_{0}_{1}-ci-setup.exe' -f $ver, $arch
           if ($setup -and (Test-Path "$($setup.FullName).sig")) {
-            # 与 release-windows/ 的归档同名（含 -ci 后缀），清单 URL 才能对上
-            Copy-Item $setup.FullName "release-windows/updater/$($setup.Name)"
-            Copy-Item "$($setup.FullName).sig" "release-windows/updater/$($setup.Name).sig"
-            Write-Host "  OK $arch -> $($setup.Name)"
+            Copy-Item $setup.FullName "release-windows/updater/$ciName"
+            Copy-Item "$($setup.FullName).sig" "release-windows/updater/$ciName.sig"
+            Write-Host "  OK $arch -> $ciName"
           } else {
             Write-Host "  MISS $arch（缺 setup.exe 或 .sig，跳过）"
           }
@@ -332,15 +344,20 @@ jobs:
           $ver = (Get-Content 'apps/tauri/src-tauri/tauri.conf.json' | ConvertFrom-Json).version
           $arch = '${{ matrix.arch }}'
           $plat = if ($arch -eq 'arm64') { 'windows-aarch64' } else { 'windows-x86_64' }
+          $repo = 'lingyired/fund01'
           # 用 -f 格式化而非字符串插值：pwsh 里 "$x64" 会被当变量引用（未定义→空），
           # 那样文件名会变成 Fund01_1.7.0_-ci-setup.exe 导致找不到文件。
-          # 文件名与 Release 资产名一致：Fund01_<ver>_<arch>-ci-setup.exe
+          # 文件名与 Collect 步骤产出的归档名一致：Fund01_<ver>_<arch>-ci-setup.exe
           $fileName = 'Fund01_{0}_{1}-ci-setup.exe' -f $ver, $arch
+          # URL 用 releases/download/v<ver>/ 固定路径（而非 latest/download）：
+          # 清单在 lingai.net 长期驻留，latest 会随新 release 漂移导致老清单指向新版本资产。
+          $dlUrl = 'https://github.com/{0}/releases/download/v{1}/{2}' -f $repo, $ver, $fileName
           Write-Host "生成清单：$plat / $fileName"
+          Write-Host "下载地址：$dlUrl"
           node scripts/gen-updater-manifest.mjs --out dist-updater-windows --notes 'Fund01 update' `
             --platform $plat `
             --file "release-windows/updater/$fileName" `
-            --url "https://github.com/lingyired/fund01/releases/latest/download/$fileName"
+            --url $dlUrl
 
       - name: Upload installer
         if: always()
