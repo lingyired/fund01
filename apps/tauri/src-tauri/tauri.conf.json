@@ -40,8 +40,8 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc2NzAxNzdBMzQ2RTBCQjAKUldTd0MyNDBlaGR3ZHRnUjVJYStxSFcrYkV4QkMwWk5wTEJyMldJRGhrOS9nSjUwb3JVd0FsYWMK",
       "endpoints": [
         "https://lingai.net/fund01/latest.json",
-        "https://gh-proxy.com/https://raw.githubusercontent.com/lingyired/fund01/main/latest.json",
-        "https://raw.githubusercontent.com/lingyired/fund01/main/latest.json"
+        "https://gh-proxy.com/https://github.com/lingyired/fund01/releases/latest/download/latest.json",
+        "https://github.com/lingyired/fund01/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"
