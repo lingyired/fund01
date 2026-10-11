@@ -138,43 +138,49 @@ jobs:
           fi
           node scripts/build-release-all.mjs $ARCH_FLAG
 
-      # 收集 updater 产物到 release-macos/（build-release-all.mjs 只归档 .app 与 .dmg，
+      # 收集 updater 产物到 release-macos/updater/（build-release-all.mjs 只归档 .app 与 .dmg，
       # updater 用的 .app.tar.gz + .sig 由 tauri 直接产出在 target/*/bundle/macos/）。
-      # 单架构时只收集该架构；双架构时两个都收（清单生成阶段会跳过缺失的）。
+      # 注意：不使用 shell 函数 + set -u —— GitHub 表达式展开后与函数作用域组合易触发
+      # `unbound variable`（run 38144969351 实测），改为平铺写法。
       - name: Collect updater artifacts
+        env:
+          ARCH_INPUT: ${{ github.event.inputs.arch }}
         run: |
-          set -euxo pipefail
+          set -eo pipefail
+          VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
           mkdir -p release-macos/updater
-          collect() {
-            local target="$1" plat="$2" ver="$3"
-            local src="apps/tauri/src-tauri/target/$target/release/bundle/macos"
-            if [[ -f "$src/Fund01.app.tar.gz" && -f "$src/Fund01.app.tar.gz.sig" ]]; then
-              cp "$src/Fund01.app.tar.gz" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz"
-              cp "$src/Fund01.app.tar.gz.sig" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz.sig"
-              echo "  ✓ $plat"
+          echo "收集 updater 产物（v$VER，arch=${ARCH_INPUT:-all}）:"
+          copy_one() {
+            target="$1"; plat="$2"; ver="$3"
+            src="apps/tauri/src-tauri/target/${target}/release/bundle/macos"
+            if [ -f "${src}/Fund01.app.tar.gz" ] && [ -f "${src}/Fund01.app.tar.gz.sig" ]; then
+              cp "${src}/Fund01.app.tar.gz" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz"
+              cp "${src}/Fund01.app.tar.gz.sig" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz.sig"
+              echo "  OK ${plat}"
             else
-              echo "  ✗ $plat（缺 .app.tar.gz 或 .sig，跳过）"
+              echo "  MISS ${plat}（缺 .app.tar.gz 或 .sig，跳过）"
             fi
           }
-          VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
-          echo "收集 updater 产物（v$VER）:"
-          if [[ "${{ github.event.inputs.arch }}" == "x64" ]]; then
-            collect "x86_64-apple-darwin" "x86_64" "$VER"
-          elif [[ "${{ github.event.inputs.arch }}" == "arm64" ]]; then
-            collect "aarch64-apple-darwin" "arm64" "$VER"
+          if [ "${ARCH_INPUT}" = "x64" ]; then
+            copy_one "x86_64-apple-darwin" "x86_64" "${VER}"
+          elif [ "${ARCH_INPUT}" = "arm64" ]; then
+            copy_one "aarch64-apple-darwin" "arm64" "${VER}"
           else
-            collect "aarch64-apple-darwin" "arm64" "$VER"
-            collect "x86_64-apple-darwin" "x86_64" "$VER"
+            copy_one "aarch64-apple-darwin" "arm64" "${VER}"
+            copy_one "x86_64-apple-darwin" "x86_64" "${VER}"
           fi
 
-      # 生成 macOS 侧 latest.json 片段（最终合并由 manifest job 完成）
+      # 生成 macOS 侧 latest.json 片段（与 Windows 侧片段后续合并部署到 lingai.net）
       - name: Generate macOS updater manifest
+        env:
+          ARCH_INPUT: ${{ github.event.inputs.arch }}
         run: |
-          set -euxo pipefail
+          set -eo pipefail
+          VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
           node scripts/gen-updater-manifest.mjs \
             --out dist-updater-macos \
-            --platform darwin-aarch64 --file release-macos/updater/Fund01_$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")_arm64.app.tar.gz \
-            --platform darwin-x86_64 --file release-macos/updater/Fund01_$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")_x86_64.app.tar.gz \
+            --platform darwin-aarch64 --file "release-macos/updater/Fund01_${VER}_arm64.app.tar.gz" \
+            --platform darwin-x86_64 --file "release-macos/updater/Fund01_${VER}_x86_64.app.tar.gz" \
             || echo "macOS updater 清单生成跳过（无 updater 产物）"
 
       - name: Generate checksums
