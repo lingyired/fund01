@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Fund01",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "identifier": "com.lingyi.fund01",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -29,9 +29,23 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "createUpdaterArtifacts": true,
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc2NzAxNzdBMzQ2RTBCQjAKUldTd0MyNDBlaGR3ZHRnUjVJYStxSFcrYkV4QkMwWk5wTEJyMldJRGhrOS9nSjUwb3JVd0FsYWMK",
+      "endpoints": [
+        "https://lingai.net/fund01/latest.json",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/lingyired/fund01/main/latest.json",
+        "https://raw.githubusercontent.com/lingyired/fund01/main/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

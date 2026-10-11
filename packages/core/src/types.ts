@@ -464,10 +464,23 @@ export type QuoteUpdate = {
  * 检查更新结果（仅 Tauri 桌面版）。
  * 对应 Rust 侧 update.rs CheckUpdateResult（camelCase 序列化）。
  * latestVersion 为远端最新版本号（x.y.z）；homepage 为「前往项目主页」跳转地址；
- * downloadUrl 为可选下载地址，存在时提示条额外显示「下载新版本」按钮。
+ * downloadUrl 为安装包直链——**自动安装失败时用它兜底「手动下载」**（非公证包 /
+ * 非 admin 安装 / 杀软拦截等场景安装会失败，此路径不可省）；
+ * notes 为更新说明（清单 notes 字段，无则undefined）。
  */
 export type CheckUpdateResult = {
   latestVersion: string
   homepage: string
   downloadUrl?: string
+  notes?: string
+}
+
+/**
+ * 更新下载进度（仅 Tauri 桌面版）。
+ * 对应 Rust 侧 update.rs UpdateProgress（事件 fund01://update-progress）。
+ * total 为 undefined 时服务端未给 Content-Length，UI 应显示不确定态进度条。
+ */
+export type UpdateProgress = {
+  downloaded: number
+  total?: number
 }

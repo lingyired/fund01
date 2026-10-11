@@ -53,6 +53,7 @@ import type {
   QuoteSource,
   ResolveFundResult,
   SettingsTabId,
+  UpdateProgress,
 } from '@fund01/core'
 import {
   AVAILABLE_INDICES,
@@ -3112,34 +3113,86 @@ function LingyiredProjectCard({project}: {project: (typeof LINGYIRED_PROJECTS)[n
 
 /**
  * 「发现新版本」提示条（仅 Tauri 有更新时渲染）。
- * 「下载新版本」按钮始终显示：优先打开 downloadUrl，缺省 fallback 打开 homepage；
- * 「前往项目主页」仅在 downloadUrl 存在时显示（避免两个按钮指向同一地址）。
- * 均用系统浏览器打开，不自动跳转、不打断用户。
+ *
+ * 交互：点「立即更新」→ Rust 侧验签 → 下载（进度条）→ 安装 → 重启。
+ * - Windows：安装器自动退出应用，界面即将消失（Rust 侧无需额外处理）；
+ * - macOS：不自动退出，安装完成后 Rust 已调用 app.restart()。
+ *
+ * **手动降级路径不可省**：非公证包 / 非 admin 安装 / 杀软拦截等场景安装会失败，
+ * 此时展示错误 + 「手动下载」按钮打开 downloadUrl，否则用户会走进死路。
  */
 function UpdateBanner({update}: {update: CheckUpdateResult}) {
   const ports = usePorts()
-  const {latestVersion, homepage, downloadUrl} = update
+  const {latestVersion, homepage, downloadUrl, notes} = update
+  const [installing, setInstalling] = useState(false)
+  const [progress, setProgress] = useState<UpdateProgress | null>(null)
+  const [installError, setInstallError] = useState<string | null>(null)
+
+  const canInstall = !!ports.window.installUpdate
+
+  const startInstall = useCallback(async () => {
+    const install = ports.window.installUpdate
+    if (!install || installing) return
+    setInstalling(true)
+    setInstallError(null)
+    setProgress(null)
+    try {
+      await install((p) => setProgress(p))
+      // 成功路径不会走到这里：macOS 已 app.restart()；Windows 进程已被安装器终止
+    } catch (e) {
+      setInstallError(typeof e === 'string' ? e : String(e))
+      setInstalling(false)
+      setProgress(null)
+    }
+  }, [ports.window, installing])
+
+  // 下载进度百分比（total 缺失时为 null → 不确定态进度条）
+  const percent = progress?.total ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100)) : null
+
   return (
     <div
       id={UPDATE_BANNER_ID}
-      className="mb-3 flex items-center justify-between gap-2 rounded-md border border-accent bg-accent/10 px-3 py-2"
+      className="mb-3 rounded-md border border-accent bg-accent/10 px-3 py-2"
     >
-      <span className="text-xs text-ink-soft">
-        发现新版本{' '}
-        <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="solid"
-          size="1"
-          onClick={() => {
-            // 无下载地址时 fallback 打开项目主页（到主页自行找下载入口）
-            if (ports.window.openExternal) void ports.window.openExternal(downloadUrl ?? homepage)
-          }}
-        >
-          下载新版本
-        </Button>
-        {downloadUrl ? (
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-ink-soft">
+          发现新版本{' '}
+          <span className="font-mono text-[12px] text-accent">v{latestVersion}</span>
+        </span>
+        <div className="flex items-center gap-2">
+          {/* 安装失败时才出现的「手动下载」兜底（自动安装路径不可靠时的唯一出路） */}
+          {installError && downloadUrl ? (
+            <Button
+              variant="solid"
+              size="1"
+              onClick={() => {
+                if (ports.window.openExternal) void ports.window.openExternal(downloadUrl)
+              }}
+            >
+              手动下载
+            </Button>
+          ) : canInstall && !installing ? (
+            <Button variant="solid" size="1" onClick={() => void startInstall()}>
+              立即更新
+            </Button>
+          ) : installing ? (
+            <span className="flex items-center gap-1 text-xs text-muted">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {percent !== null ? `下载中 ${percent}%` : '下载中…'}
+            </span>
+          ) : null}
+          {/* 无应用内安装能力（port 未实现）时退回浏览器下载 */}
+          {!canInstall ? (
+            <Button
+              variant="solid"
+              size="1"
+              onClick={() => {
+                if (ports.window.openExternal) void ports.window.openExternal(downloadUrl ?? homepage)
+              }}
+            >
+              下载新版本
+            </Button>
+          ) : null}
           <Button
             variant="soft"
             size="1"
@@ -3149,8 +3202,23 @@ function UpdateBanner({update}: {update: CheckUpdateResult}) {
           >
             前往项目主页
           </Button>
-        ) : null}
+        </div>
       </div>
+      {/* 下载进度条（仅 total 已知时渲染百分比可视化） */}
+      {installing && progress?.total ? (
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-accent/10">
+          <div
+            className="h-full rounded-full bg-accent transition-all"
+            style={{width: `${percent ?? 0}%`}}
+          />
+        </div>
+      ) : null}
+      {/* 更新说明（清单 notes；无则不渲染，避免空行） */}
+      {notes ? <div className="mt-1.5 text-xs text-muted">{notes}</div> : null}
+      {/* 安装失败：显示简短错误 + 提示手动下载 */}
+      {installError ? (
+        <div className="mt-1.5 text-xs text-rise">更新失败：{installError}（可点「手动下载」）</div>
+      ) : null}
     </div>
   )
 }

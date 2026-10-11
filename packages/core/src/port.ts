@@ -11,6 +11,7 @@ import type {
   QuoteUpdate,
   RefreshSchedule,
   ResolveFundPayload,
+  UpdateProgress,
 } from './types'
 
 /** UI 数据访问抽象 —— 各 app 必须提供实现 */
@@ -158,10 +159,23 @@ export interface WindowPort {
   saveTextFileDialog?(defaultName: string, content: string): Promise<string | null>
   /**
    * 检查是否有新版本（仅 Tauri 实现；Chrome 不实现 → undefined → UI 自动跳过，保证「检查更新」仅桌面版生效）。
-   * 返回 null = 已是最新版本；网络失败 / JSON 非法由实现方抛错，UI 捕获后静默（不打扰用户）。
+   * 返回 null = 已是最新版本；网络失败 / JSON 非法 / 验签失败由实现方抛错，UI 捕获后静默（不打扰用户）。
    * @param force 手动检查（true）时绕过后端 1h 内存缓存，真正请求远端一次；自动检查不传。
    */
   checkUpdate?(force?: boolean): Promise<CheckUpdateResult | null>
+  /**
+   * 下载 + 安装 + 重启新版本（仅 Tauri 实现；Chrome 不实现 → undefined → UI 隐藏安装入口）。
+   *
+   * 进度通过事件回调回传（onProgress），由实现方从 Rust 事件订阅后转发。
+   *
+   * 平台差异（UI 需据此提示）：
+   * - Windows：安装器会**自动退出应用**，调用后界面即将消失；
+   * - macOS：不自动退出，安装完成后应用已自动重启。
+   *
+   * 失败时抛错（错误字符串可直接展示），UI 应同时提供「手动下载」兜底按钮
+   * （用 checkUpdate 返回的 downloadUrl）—— 安装失败路径真实存在，不可省。
+   */
+  installUpdate?(onProgress?: (p: UpdateProgress) => void): Promise<void>
 }
 
 /** UI 与具体 app 之间注入的 Port 集合 */
