@@ -34,8 +34,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 pub const PROGRESS_EVENT: &str = "fund01://update-progress";
 
 /// 下载累计字节。插件的 on_chunk 回调只给**增量**，需外部累加；
-/// 用全局原子量而非局部变量是因为两个回调闭包要共享同一计数器，
-/// 且 download_and_install 结束（闭包 drop）后计数即失效，无需重置。
+/// 用全局原子量而非局部变量是因为两个回调闭包要共享同一计数器。
+/// 每次 install_update 开头会 store(0) 重置（同一进程内可能先后装两次）。
 static DOWNLOADED: AtomicU64 = AtomicU64::new(0);
 
 /// 检查结果（camelCase 序列化对齐前端 CheckUpdateResult）
