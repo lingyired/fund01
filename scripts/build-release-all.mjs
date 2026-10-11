@@ -15,7 +15,11 @@ import { fileURLToPath } from 'url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-// 签名身份：默认 Fund01（自签名发布证书）；可用环境变量覆盖（Tauri 的 APPLE_SIGNING_IDENTITY 优先级高于 tauri.conf.json 的 signingIdentity）
+// 签名身份：默认 Fund01（历史自签发布证书，已被 Apple Developer ID 取代）；
+// CI 与正式发布一律用环境变量传 Developer ID 身份（Tauri 里 APPLE_SIGNING_IDENTITY
+// 优先级高于 tauri.conf.json 的 signingIdentity）。
+// 生产分发必须是 Developer ID Application —— 自签/ad-hoc 无公证，Gatekeeper 会拦，
+// 应用内自动更新（tauri-plugin-updater）也因此无法正常工作。
 process.env.APPLE_SIGNING_IDENTITY ||= 'Fund01'
 console.log(`[build-release-all] 签名身份: ${process.env.APPLE_SIGNING_IDENTITY}`)
 

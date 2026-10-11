@@ -115,17 +115,41 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERT_PASSWORD" "$KEYCHAIN"
           security find-identity -v -p codesigning
 
+      # App Store Connect API 私钥是 p8 文件内容，GitHub secret 只能存字符串。
+      # 先落盘再把路径写进 GITHUB_ENV，供下一步的公证使用。
+      # （官方 APPLE_API_KEY_PATH 要的是文件路径，不是内容）
+      - name: Write App Store Connect API key
+        # secret 未配置时跳过（没配公证就只签名，Gatekeeper 会拦但不阻塞构建）
+        if: ${{ secrets.APPLE_API_KEY_CONTENT != '' }}
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${{ secrets.APPLE_API_KEY }}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "API key 已落盘：$KEY_PATH"
+
       - name: Build macOS installers + DMG
         # 单架构时透传 --arch（x64 → x86_64，macOS 脚本的命名）；否则双架构全打。
-        # APPLE_SIGNING_IDENTITY 默认 Fund01；FUND01_DMG_SUFFIX=-ci 让 DMG 归档名
-        # 带来源标识（Fund01_<ver>_<arch>-ci.dmg），与本机产物区分（三端 CI 统一 -ci 约定）。
+        # FUND01_DMG_SUFFIX=-ci 让 DMG 归档名带来源标识（Fund01_<ver>_<arch>-ci.dmg），
+        # 与本机产物区分（三端 CI 统一 -ci 约定）。
         # TAURI_SIGNING_PRIVATE_KEY 供 tauri 生成 updater 产物签名（.app.tar.gz.sig）。
         # 该密钥丢失 = 已装用户永远收不到更新，务必妥善保管（对应私钥 ~/.tauri/com.lingyi.fund01.key）。
+        #
+        # 签名与公证（Apple Developer ID）：
+        # - APPLE_SIGNING_IDENTITY 用 Developer ID 证书（Team HCB7JKMQ2F）。
+        #   本机 tauri.conf.json 里是 "-"（ad-hoc），CI 用 env 覆盖 —— Tauri 里 env 优先级高于 conf。
+        # - 公证三件套齐了tauri build 会自动 notarize + staple；没齐则只签名不公证
+        #   （Gatekeeper 仍会拦，但至少能构建出来，不阻塞开发流程）。
         env:
-          APPLE_SIGNING_IDENTITY: Fund01
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Zhanghong Liu (HCB7JKMQ2F)"
           FUND01_DMG_SUFFIX: -ci
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         run: |
           set -euxo pipefail
           # 构建前再次解锁临时钥匙串（跨步骤解锁状态不保证持久，卡死元凶之一）
