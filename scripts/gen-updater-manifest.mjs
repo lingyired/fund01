@@ -79,8 +79,11 @@ if (!version) {
 }
 
 const entries = parseEntries()
-if (!entries.length) {
-  console.error('未提供任何 --platform/--file，跳过生成 latest.json')
+// 允许「零 --file 只做合并」：CI 里 macOS 分片可能要并进 Windows 分片，
+// 此时 platforms 全靠 --merge 填充，提前退出会静默丢平台。
+const hasMerge = process.argv.includes('--merge')
+if (!entries.length && !hasMerge) {
+  console.error('未提供任何 --platform/--file 或 --merge，跳过生成 latest.json')
   process.exit(0)
 }
 
@@ -123,6 +126,49 @@ if (skipped.length) {
   for (const s of skipped) console.log(`  - ${s}`)
 }
 
+// --merge <清单路径...>：把已有的分片清单合并进来。
+//
+// 为什么需要：CI 里macOS job 与 Windows job 各自生成一份 latest.json 分片
+//（macOS 只有 darwin-*，Windows 只有 windows-*），而 Tauri 的清单必须是
+// **一份包含全部平台** 的 JSON —— 官方明确说明会在比对 version 之前校验整个文件。
+// 缺条目会导致该平台的更新检查失败，所以最后必须合并。
+//
+// 合并时重新校验：URL 与 signature 必须都存在，version 必须一致（不一致说明
+// 混入了不同版本的产物，宁可报错也不要发出去）。
+const mergeArgs = process.argv.indexOf('--merge')
+if (mergeArgs !== -1) {
+  const mergeFiles = process.argv.slice(mergeArgs + 1).filter((a) => !a.startsWith('--'))
+  const incoming = []
+  for (const mf of mergeFiles) {
+    const abs = path.isAbsolute(mf) ? mf : path.join(root, mf)
+    if (!existsSync(abs)) {
+      console.error(`--merge 文件不存在：${mf}`)
+      process.exit(1)
+    }
+    const j = JSON.parse(readFileSync(abs, 'utf-8'))
+    if (j.version !== version) {
+      console.error(`版本不一致：${mf} 是 v${j.version}，期望 v${version}`)
+      process.exit(1)
+    }
+    for (const [plat, val] of Object.entries(j.platforms || {})) {
+      if (!val?.url || !val?.signature) {
+        console.error(`分片 ${mf} 的 ${plat} 缺少 url/signature，拒绝合并`)
+        process.exit(1)
+      }
+      if (platforms[plat]) {
+        console.error(`平台重复：${plat} 同时出现在 --file 与 --merge 中`)
+        process.exit(1)
+      }
+      platforms[plat] = val
+      incoming.push(plat)
+    }
+  }
+  if (incoming.length) {
+    console.log(`\n合并 ${mergeFiles.length} 份分片，新增平台：${incoming.join(', ')}`)
+  }
+}
+
+// 空检查放在 --merge 之后：合并进来的平台也算数
 const platformKeys = Object.keys(platforms)
 if (!platformKeys.length) {
   console.error('\n没有任何平台通过校验，拒绝生成清单（生成空清单会导致所有用户更新检查失败）')
