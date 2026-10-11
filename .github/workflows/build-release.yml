@@ -301,18 +301,22 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ver = (Get-Content 'apps/tauri/src-tauri/tauri.conf.json' | ConvertFrom-Json).version
-          $target = if ('${{ matrix.arch }}' -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $arch = '${{ matrix.arch }}'
+          $target = if ($arch -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
           $nsisDir = "apps/tauri/src-tauri/target/$target/release/bundle/nsis"
           New-Item -ItemType Directory -Force -Path 'release-windows/updater' | Out-Null
           Write-Host "收集 updater 产物（v$ver，$target）:"
-          $setup = Get-ChildItem -Path $nsisDir -Filter 'Fund01_*_${{ matrix.arch }}-setup.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          # 用 -f 拼接（避免 pwsh 把 "$x64" 当变量），模式为 Fund01_*_<arch>-setup.exe
+          $pattern = 'Fund01_*_{0}-setup.exe' -f $arch
+          Write-Host "  查找模式：$pattern"
+          $setup = Get-ChildItem -Path $nsisDir -Filter $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($setup -and (Test-Path "$($setup.FullName).sig")) {
             # 与 release-windows/ 的归档同名（含 -ci 后缀），清单 URL 才能对上
             Copy-Item $setup.FullName "release-windows/updater/$($setup.Name)"
             Copy-Item "$($setup.FullName).sig" "release-windows/updater/$($setup.Name).sig"
-            Write-Host "  OK ${{ matrix.arch }} -> $($setup.Name)"
+            Write-Host "  OK $arch -> $($setup.Name)"
           } else {
-            Write-Host "  MISS ${{ matrix.arch }}（缺 setup.exe 或 .sig，跳过）"
+            Write-Host "  MISS $arch（缺 setup.exe 或 .sig，跳过）"
           }
 
       - name: Generate Windows updater manifest
@@ -320,9 +324,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $ver = (Get-Content 'apps/tauri/src-tauri/tauri.conf.json' | ConvertFrom-Json).version
-          $plat = if ('${{ matrix.arch }}' -eq 'arm64') { 'windows-aarch64' } else { 'windows-x86_64' }
+          $arch = '${{ matrix.arch }}'
+          $plat = if ($arch -eq 'arm64') { 'windows-aarch64' } else { 'windows-x86_64' }
+          # 用 -f 格式化而非字符串插值：pwsh 里 "$x64" 会被当变量引用（未定义→空），
+          # 那样文件名会变成 Fund01_1.7.0_-ci-setup.exe 导致找不到文件。
           # 文件名与 Release 资产名一致：Fund01_<ver>_<arch>-ci-setup.exe
-          $fileName = "Fund01_${ver}_${{ matrix.arch }}-ci-setup.exe"
+          $fileName = 'Fund01_{0}_{1}-ci-setup.exe' -f $ver, $arch
+          Write-Host "生成清单：$plat / $fileName"
           node scripts/gen-updater-manifest.mjs --out dist-updater-windows --notes 'Fund01 update' `
             --platform $plat `
             --file "release-windows/updater/$fileName" `
