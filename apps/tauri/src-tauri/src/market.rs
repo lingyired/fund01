@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde_json::Value;
+use regex::Regex;
 
 use crate::http::{self, DESKTOP_UA};
 use crate::model::{IndexHistoryPayload, IndexHistoryPoint, IndexItem};
@@ -31,6 +32,9 @@ struct IndexMeta {
     sina_us: Option<&'static str>,
     /// 历史 K 线走东财 kline（如国内金 118.AU9999）
     em_kline: bool,
+    /// 实时走东财 K 线近似兜底（如国内金 AU9999：腾讯无国内金、东财 push2 实时已挂，
+    /// 复用与历史同源的东财 kline 兜底链；对齐 JS packages/services/src/market.ts 的 emRealtime）
+    em_realtime: bool,
     /// 新浪外盘 symbol：实时走 hq.sinajs.cn、历史走 GlobalFuturesService（如伦敦金 XAU）
     sina_fx: Option<&'static str>,
 }
@@ -43,6 +47,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sh000001"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -53,6 +58,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sz399001"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -63,6 +69,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sz399006"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -73,6 +80,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: None,
         sina: Some("bj899050"),
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -83,6 +91,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sh000688"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -93,6 +102,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sh000016"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -103,6 +113,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sh000300"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -113,6 +124,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("sh000905"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -123,6 +135,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("us.NDX"),
         sina: None,
         sina_us: Some(".NDX"),
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -133,6 +146,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: Some("us.INX"),
         sina: None,
         sina_us: Some(".INX"),
+        em_realtime: false,
         em_kline: false,
         sina_fx: None,
     },
@@ -146,6 +160,7 @@ const INDEX_LIST: &[IndexMeta] = &[
         tx: None,
         sina: None,
         sina_us: None,
+        em_realtime: true,
         em_kline: true,
         sina_fx: None,
     },
@@ -153,9 +168,10 @@ const INDEX_LIST: &[IndexMeta] = &[
         secid: "101.GC00Y",
         code: "XAU",
         name: "COMEX 黄金",
-        tx: None,
+        tx: Some("hf_GC"),
         sina: None,
         sina_us: None,
+        em_realtime: false,
         em_kline: false,
         sina_fx: Some("XAU"),
     },
@@ -209,78 +225,191 @@ pub async fn get_all_indices() -> Vec<IndexItem> {
     fetch_indices(&list).await
 }
 
-/// 拉取指数实时行情（条目级容错：接口整体失败/条目缺失不抛错，对应条目带 error 码，
-/// 保证看板卡片始终能显示，数值处与底部展示错误状态）
+/// 拉取指数实时行情（条目级容错 + 多源：腾讯实时为主、东财 kline 兜底）。
+/// 对齐 packages/services/src/market.ts 的 getIndices：
+///   - 带 tx 的条目（A股 + 美股 + 黄金 hf_）走腾讯 qt.gtimg.cn 实时主源
+///   - 腾讯未覆盖且标记 em_realtime 的条目（如国内金 AU9999）回退东财 kline 实时近似
+/// 单条目失败不影响其余；数值处与底部展示错误状态。
 async fn fetch_indices(list: &[&IndexMeta]) -> Vec<IndexItem> {
-    let secids: Vec<String> = list.iter().map(|i| i.secid.to_string()).collect();
-    let query = http::params(&[
-        ("fltt", "2"),
-        ("invt", "2"),
-        ("fields", "f2,f3,f4,f12,f14"),
-        ("secids", &secids.join(",")),
-    ]);
-    let data = match http::eastmoney_get("/api/qt/ulist.np/get", &query, PUSH_HOSTS).await {
-        Ok(d) => d,
-        Err(e) => {
-            crate::err_log!("getIndices 失败: {e}");
-            let code = error_code_of(&e).to_string();
-            return list
-                .iter()
-                .map(|i| IndexItem {
-                    code: i.code.to_string(),
-                    name: i.name.to_string(),
-                    percent: None,
-                    price: None,
-                    change: None,
-                    error: Some(code.clone()),
-                })
-                .collect();
+    // 主源：腾讯实时（A股 + 美股 + hf_ 黄金）
+    let tencent_map = get_indices_from_tencent(list).await;
+
+    // 东财 kline 实时兜底：仅腾讯未覆盖且标记 em_realtime 的条目
+    let mut em_map: HashMap<&'static str, (f64, f64, f64)> = HashMap::new();
+    let mut em_errors: HashMap<&'static str, String> = HashMap::new();
+    for item in list.iter().filter(|i| i.em_realtime && !tencent_map.contains_key(i.code)) {
+        match get_em_stock_realtime(item).await {
+            Ok((price, change, percent)) => {
+                em_map.insert(item.code, (price, change, percent));
+            }
+            Err(e) => {
+                let code = if e == "NODATA" {
+                    "NODATA".to_string()
+                } else {
+                    error_code_of(&e).to_string()
+                };
+                crate::err_log!("getEmStockRealtime 失败 {}: {}", item.code, e);
+                em_errors.insert(item.code, code);
+            }
         }
-    };
-    let diff = data
-        .pointer("/data/diff")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let by_code: HashMap<String, &Value> = diff
-        .iter()
-        .filter_map(|d| {
-            d.get("f12")
-                .and_then(|v| v.as_str())
-                .map(|c| (c.to_string(), d))
-        })
-        .collect();
+    }
+
     list.iter()
         .map(|item| {
-            // COMEX 黄金（XAU）以 GC00Y 代理，secid 匹配到行后沿用 INDEX_LIST 名称
-            let row = by_code.get(item.code).copied().or_else(|| {
-                by_code
-                    .get(item.secid.split('.').nth(1).unwrap_or(""))
-                    .copied()
-            });
-            match row {
-                Some(r) => {
-                    let num = |k: &str| r.get(k).and_then(|v| v.as_f64());
-                    IndexItem {
-                        code: item.code.to_string(),
-                        name: item.name.to_string(),
-                        percent: num("f3"),
-                        price: num("f2"),
-                        change: num("f4"),
-                        error: None,
-                    }
+            if let Some((price, change, percent)) = tencent_map.get(item.code) {
+                IndexItem {
+                    code: item.code.to_string(),
+                    name: item.name.to_string(),
+                    percent: Some(*percent),
+                    price: Some(*price),
+                    change: Some(*change),
+                    error: None,
                 }
-                None => IndexItem {
+            } else if let Some((price, change, percent)) = em_map.get(item.code) {
+                IndexItem {
+                    code: item.code.to_string(),
+                    name: item.name.to_string(),
+                    percent: Some(*percent),
+                    price: Some(*price),
+                    change: Some(*change),
+                    error: None,
+                }
+            } else {
+                let err = em_errors
+                    .get(item.code)
+                    .cloned()
+                    .unwrap_or_else(|| "NODATA".to_string());
+                IndexItem {
                     code: item.code.to_string(),
                     name: item.name.to_string(),
                     percent: None,
                     price: None,
                     change: None,
-                    error: Some("NODATA".to_string()),
-                },
+                    error: Some(err),
+                }
             }
         })
         .collect()
+}
+
+/// 腾讯实时指数/黄金（A股 + 美股 + hf_ 系列）：对齐 JS getIndicesFromTencent。
+/// qt.gtimg.cn 无需 Referer 即跨域可用，桌面端原生 reqwest 亦可用，作为东财 push2 主源挂掉时的兜底前主源。
+async fn get_indices_from_tencent(
+    list: &[&IndexMeta],
+) -> HashMap<&'static str, (f64, f64, f64)> {
+    let mut out: HashMap<&'static str, (f64, f64, f64)> = HashMap::new();
+    let with_tx: Vec<&IndexMeta> = list.iter().filter(|i| i.tx.is_some()).copied().collect();
+    if with_tx.is_empty() {
+        return out;
+    }
+    let symbols: Vec<&str> = with_tx.iter().map(|i| i.tx.unwrap()).collect();
+    let body = match http::http_get_text(
+        &format!("https://qt.gtimg.cn/q={}", symbols.join(",")),
+        &http::params(&[]),
+        DESKTOP_UA,
+        Some("https://gu.qq.com/"),
+        Duration::from_secs(12),
+    )
+    .await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            crate::err_log!("getIndicesFromTencent 失败: {e}");
+            return out;
+        }
+    };
+    let kv = parse_tencent_rt_payload(&body);
+    for item in with_tx {
+        let tx = item.tx.unwrap();
+        let raw = kv.get(tx).or_else(|| {
+            if tx.starts_with("us.") {
+                kv.get(&tx.replace("us.", "us"))
+            } else {
+                None
+            }
+        });
+        if let Some(raw) = raw {
+            let parsed = if tx.starts_with("hf_") {
+                parse_tencent_gold_row(raw)
+            } else {
+                parse_tencent_rt_row(raw)
+            };
+            if let Some((price, change, percent)) = parsed {
+                out.insert(item.code, (price, change, percent));
+            }
+        }
+    }
+    out
+}
+
+/// 东财 K 线实时近似（对齐 JS getEmStockRealtime）：复用 fetch_eastmoney_daily 的 host 兜底链，
+/// 取末2根 bar 收盘：最新 bar 收盘 = 实时价近似，前一根收盘 = 昨收算涨跌。返回 (price, change, percent)。
+async fn get_em_stock_realtime(item: &IndexMeta) -> Result<(f64, f64, f64), String> {
+    let points = fetch_eastmoney_daily(item.secid, 2).await?;
+    if points.is_empty() {
+        return Err("NODATA".to_string());
+    }
+    let price = points
+        .last()
+        .and_then(|p| p.1)
+        .filter(|p| p.is_finite())
+        .ok_or_else(|| "NODATA".to_string())?;
+    let prev_close = if points.len() >= 2 {
+        points[points.len() - 2].1.unwrap_or(price)
+    } else {
+        price
+    };
+    let change = price - prev_close;
+    let percent = if prev_close != 0.0 {
+        change / prev_close * 100.0
+    } else {
+        0.0
+    };
+    Ok((price, change, percent))
+}
+
+/// 从腾讯实时整段响应提取 v_<code>="..." → 原始字段串
+fn parse_tencent_rt_payload(body: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let re = Regex::new(r#"v_([^=]+)="([^"]*)""#).unwrap();
+    for cap in re.captures_iter(body) {
+        if let (Some(k), Some(v)) = (cap.get(1), cap.get(2)) {
+            map.insert(k.as_str().to_string(), v.as_str().to_string());
+        }
+    }
+    map
+}
+
+/// 解析腾讯实时指数返回（~ 分隔）：现价[3]、涨跌[31]、涨跌幅[32]
+fn parse_tencent_rt_row(raw: &str) -> Option<(f64, f64, f64)> {
+    let parts: Vec<&str> = raw.split('~').collect();
+    if parts.len() < 33 {
+        return None;
+    }
+    let price = parts[3].parse::<f64>().ok()?;
+    if !price.is_finite() {
+        return None;
+    }
+    let change = parts[31].parse::<f64>().unwrap_or(0.0);
+    let percent = parts[32].parse::<f64>().unwrap_or(0.0);
+    Some((price, change, percent))
+}
+
+/// 解析腾讯黄金/外汇实时返回（hf_ 系列，逗号分隔）：现价[0]、涨跌[1]、昨收[8]，无直接涨跌幅 → 自算
+fn parse_tencent_gold_row(raw: &str) -> Option<(f64, f64, f64)> {
+    let p: Vec<&str> = raw.split(',').collect();
+    let price = p.first()?.parse::<f64>().ok()?;
+    if !price.is_finite() {
+        return None;
+    }
+    let change = p.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+    let prev_close = p.get(8).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+    let percent = if prev_close != 0.0 {
+        (price - prev_close) / prev_close * 100.0
+    } else {
+        0.0
+    };
+    Some((price, change, percent))
 }
 
 // ----------------------------- 指数历史 K 线 -----------------------------
