@@ -335,16 +335,29 @@ pub fn get_platform() -> String {
 }
 
 /// 检查是否有新版本（仅 Tauri 桌面版）。
-/// - 打开设置界面自动检查（前端不传 force）→ 走 1h 内存缓存，命中不请求网络；
+/// - 打开设置界面自动检查（前端不传force）→ 走 1h 内存缓存，命中不请求网络；
 /// - 「关于」页「检查更新」按钮手动检查（force=true）→ 绕过缓存真正请求远端一次。
-/// Ok(None) = 已是最新；Err = 网络/解析失败 —— 前端两种情况静默（手动检查时
+/// Ok(None) = 已是最新；Err = 网络/解析/验签失败 —— 前端两种情况静默（手动检查时
 /// 前端另行显示「当前已是最新版本」）。
 #[tauri::command]
 pub async fn check_update(
+    app: AppHandle,
     state: State<'_, AppState>,
     force: Option<bool>,
 ) -> Result<Option<crate::update::CheckUpdateResult>, String> {
-    crate::update::check_update(&state, force.unwrap_or(false)).await
+    crate::update::check_update(&app, &state, force.unwrap_or(false)).await
+}
+
+/// 下载 + 安装新版本（tauri-plugin-updater：验签 → 下载 → 安装 → 重启）。
+///
+/// 平台差异：
+/// - Windows：安装器会**自动退出应用**，调用后前端不应再操作界面；
+/// - macOS：不自动退出，安装完成后 Rust 侧已调用 `app.restart()`。
+///
+/// 失败时返回错误字符串，前端展示 + 提供「手动下载」兜底（用 check 返回的 downloadUrl）。
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    crate::update::install_update(&app).await
 }
 
 /// 外部链接：用系统默认浏览器打开（macOS `open`；Windows 用 `cmd /c start`）。

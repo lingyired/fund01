@@ -28,3 +28,11 @@ release-chrome/
 
 # AI 助手工具本地数据目录
 .zcode/
+
+# pnpm store（沙箱内安装时全局 store 在沙箱外会被拒写入，改用项目内 store）
+.pnpm-store/
+
+# updater 清单生成输出（CI 产物，本地不入库）
+dist-updater/
+dist-updater-macos/
+dist-updater-windows/

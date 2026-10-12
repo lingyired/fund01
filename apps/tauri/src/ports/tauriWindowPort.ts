@@ -1,11 +1,21 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 import { save } from '@tauri-apps/plugin-dialog'
-import type { CheckUpdateResult, SettingsAnchorId, SettingsTabId, WindowPort } from '@fund01/core'
+import type {
+  CheckUpdateResult,
+  SettingsAnchorId,
+  SettingsTabId,
+  UpdateProgress,
+  WindowPort,
+} from '@fund01/core'
 
 let versionCache = ''
 // 状态栏形态缓存（macos/windows）：preloadMenubarPlatform 后同步可读
 let menubarPlatformCache: 'macos' | 'windows' | '' = ''
+
+/** 下载进度事件名（对应 Rust 侧 update.rs PROGRESS_EVENT） */
+const UPDATE_PROGRESS_EVENT = 'fund01://update-progress'
 
 /** Tauri 窗口 Port：打开设置窗口 / popup 独立页面（Rust 创建/聚焦对应窗口） */
 export class TauriWindowPort implements WindowPort {
@@ -114,10 +124,29 @@ export class TauriWindowPort implements WindowPort {
   }
 
   /**
-   * 检查更新：Rust 侧拉远端静态 JSON 比较版本（结果内存缓存 1h）；null = 已最新。
+   * 检查更新：Rust 侧拉远端 latest.json 清单（结果内存缓存 1h）；null = 已最新。
    * force=true（「关于」页手动点击）时绕过缓存真正请求远端一次。
    */
   async checkUpdate(force?: boolean): Promise<CheckUpdateResult | null> {
     return invoke<CheckUpdateResult | null>('check_update', {force: !!force})
+  }
+
+  /**
+   * 下载 + 安装 + 重启：Rust 侧完成 ed25519 验签后下载安装，进度经事件回传。
+   *
+   * 先订阅进度事件再 invoke —— install_update 在 Windows 上会终止进程，
+   * 事件监听必须在那之前就位，否则收不到任何进度。
+   */
+  async installUpdate(onProgress?: (p: UpdateProgress) => void): Promise<void> {
+    let unlisten: (() => void) | undefined
+    if (onProgress) {
+      const p = listen<UpdateProgress>(UPDATE_PROGRESS_EVENT, (e) => onProgress(e.payload))
+      unlisten = await p
+    }
+    try {
+      await invoke('install_update')
+    } finally {
+      unlisten?.()
+    }
   }
 }

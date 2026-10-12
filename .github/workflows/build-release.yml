@@ -115,13 +115,47 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CERT_PASSWORD" "$KEYCHAIN"
           security find-identity -v -p codesigning
 
+      # App Store Connect API 私钥是 p8 文件内容，GitHub secret 只能存字符串。
+      # 先落盘再把路径写进 GITHUB_ENV，供下一步的公证使用。
+      # （官方 APPLE_API_KEY_PATH 要的是文件路径，不是内容）
+      # 注意：secret 不能直接用在 step 级 if 里（GitHub 表达式上下文限制），
+      # 故无条件执行，脚本内自己判空 —— 没配公证就跳过落盘，tauri 侧检测不到
+      # APPLE_API_KEY_PATH 就只签名不公证，不阻塞构建。
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_API_KEY_CONTENT}" || -z "${APPLE_API_KEY}" ]]; then
+            echo "未配置 App Store Connect API key → 本次只签名，不公证"
+            exit 0
+          fi
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_CONTENT" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          echo "API key 已落盘：$KEY_PATH"
+
       - name: Build macOS installers + DMG
         # 单架构时透传 --arch（x64 → x86_64，macOS 脚本的命名）；否则双架构全打。
-        # APPLE_SIGNING_IDENTITY 默认 Fund01；FUND01_DMG_SUFFIX=-ci 让 DMG 归档名
-        # 带来源标识（Fund01_<ver>_<arch>-ci.dmg），与本机产物区分（三端 CI 统一 -ci 约定）。
+        # FUND01_DMG_SUFFIX=-ci 让 DMG 归档名带来源标识（Fund01_<ver>_<arch>-ci.dmg），
+        # 与本机产物区分（三端 CI 统一 -ci 约定）。
+        # TAURI_SIGNING_PRIVATE_KEY 供 tauri 生成 updater 产物签名（.app.tar.gz.sig）。
+        # 该密钥丢失 = 已装用户永远收不到更新，务必妥善保管（对应私钥 ~/.tauri/com.lingyi.fund01.key）。
+        #
+        # 签名与公证（Apple Developer ID）：
+        # - APPLE_SIGNING_IDENTITY 用 Developer ID 证书（Team HCB7JKMQ2F）。
+        #   本机 tauri.conf.json 里是 "-"（ad-hoc），CI 用 env 覆盖 —— Tauri 里 env 优先级高于 conf。
+        # - 公证三件套齐了tauri build 会自动 notarize + staple；没齐则只签名不公证
+        #   （Gatekeeper 仍会拦，但至少能构建出来，不阻塞开发流程）。
         env:
-          APPLE_SIGNING_IDENTITY: Fund01
+          APPLE_SIGNING_IDENTITY: "Developer ID Application: Zhanghong Liu (HCB7JKMQ2F)"
           FUND01_DMG_SUFFIX: -ci
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
         run: |
           set -euxo pipefail
           # 构建前再次解锁临时钥匙串（跨步骤解锁状态不保证持久，卡死元凶之一）
@@ -133,6 +167,60 @@ jobs:
             ARCH_FLAG="--arch arm64"
           fi
           node scripts/build-release-all.mjs $ARCH_FLAG
+
+      # 收集 updater 产物到 release-macos/updater/（build-release-all.mjs 只归档 .app 与 .dmg，
+      # updater 用的 .app.tar.gz + .sig 由 tauri 直接产出在 target/*/bundle/macos/）。
+      # 注意：不使用 shell 函数 + set -u —— GitHub 表达式展开后与函数作用域组合易触发
+      # `unbound variable`（run 38144969351 实测），改为平铺写法。
+      - name: Collect updater artifacts
+        env:
+          ARCH_INPUT: ${{ github.event.inputs.arch }}
+        run: |
+          set -eo pipefail
+          VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
+          mkdir -p release-macos/updater
+          echo "收集 updater 产物（v$VER，arch=${ARCH_INPUT:-all}）:"
+          copy_one() {
+            target="$1"; plat="$2"; ver="$3"
+            src="apps/tauri/src-tauri/target/${target}/release/bundle/macos"
+            if [ -f "${src}/Fund01.app.tar.gz" ] && [ -f "${src}/Fund01.app.tar.gz.sig" ]; then
+              cp "${src}/Fund01.app.tar.gz" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz"
+              cp "${src}/Fund01.app.tar.gz.sig" "release-macos/updater/Fund01_${ver}_${plat}.app.tar.gz.sig"
+              echo "  OK ${plat}"
+            else
+              echo "  MISS ${plat}（缺 .app.tar.gz 或 .sig，跳过）"
+            fi
+          }
+          if [ "${ARCH_INPUT}" = "x64" ]; then
+            copy_one "x86_64-apple-darwin" "x86_64" "${VER}"
+          elif [ "${ARCH_INPUT}" = "arm64" ]; then
+            copy_one "aarch64-apple-darwin" "arm64" "${VER}"
+          else
+            copy_one "aarch64-apple-darwin" "arm64" "${VER}"
+            copy_one "x86_64-apple-darwin" "x86_64" "${VER}"
+          fi
+
+      # 生成 macOS 侧 latest.json 片段（与 Windows 侧片段后续合并部署到 lingai.net）
+      - name: Generate macOS updater manifest
+        env:
+          ARCH_INPUT: ${{ github.event.inputs.arch }}
+        run: |
+          set -eo pipefail
+          VER="$(node -p "require('./apps/tauri/src-tauri/tauri.conf.json').version")"
+          REPO="lingyired/fund01"
+          # 显式给 --url：默认拼装用的是 releases/latest/download/，但资产名带版本号
+          # （latest release 才是当前版本时才成立）；显式写死 releases/download/<tag>/ 更稳。
+          # 清单里的 URL 指向 GitHub，部署到 lingai.net 时服务端会改写成镜像地址。
+          node scripts/gen-updater-manifest.mjs \
+            --out dist-updater-macos \
+            --notes 'Fund01 update' \
+            --platform darwin-aarch64 \
+              --file "release-macos/updater/Fund01_${VER}_arm64.app.tar.gz" \
+              --url "https://github.com/${REPO}/releases/download/v${VER}/Fund01_${VER}_arm64.app.tar.gz" \
+            --platform darwin-x86_64 \
+              --file "release-macos/updater/Fund01_${VER}_x86_64.app.tar.gz" \
+              --url "https://github.com/${REPO}/releases/download/v${VER}/Fund01_${VER}_x86_64.app.tar.gz" \
+            || echo "macOS updater 清单生成跳过（无 updater 产物）"
 
       - name: Generate checksums
         working-directory: release-macos
@@ -146,6 +234,18 @@ jobs:
           path: |
             release-macos/*.dmg
             release-macos/SHA256SUMS.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      # updater 产物与清单单独上传（供 manifest job 合并 / 手动部署到 lingai.net）
+      - name: Upload macOS updater artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-macos-updater
+          path: |
+            release-macos/updater/*
+            dist-updater-macos/latest.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -230,9 +330,64 @@ jobs:
         id: build
         # FUND01_EXE_SUFFIX=-ci：归档名带来源标识（Fund01_<ver>_<arch>-ci-setup.exe），
         # 与本机打包（无后缀）区分，避免测试时拿错包。
+        # TAURI_SIGNING_PRIVATE_KEY 供 tauri 生成 updater 产物签名（setup.exe.sig）。
         env:
           FUND01_EXE_SUFFIX: -ci
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/build-release-windows.mjs --arch ${{ matrix.arch }}
+
+      # 收集 updater 产物：v2 模式（createUpdaterArtifacts: true）下 NSIS 直接复用
+      # setup.exe，签名是同名 .sig。tauri 用的是构建时原始文件名
+      # （Fund01_<ver>_<arch>-setup.exe），不是默认的 <product>-setup.exe，故用通配符匹配。
+      # build-release-windows.mjs 只归档 release-windows/*.exe，这里需把 .sig 一并取来。
+      - name: Collect updater artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = (Get-Content 'apps/tauri/src-tauri/tauri.conf.json' | ConvertFrom-Json).version
+          $arch = '${{ matrix.arch }}'
+          $target = if ($arch -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
+          $nsisDir = "apps/tauri/src-tauri/target/$target/release/bundle/nsis"
+          New-Item -ItemType Directory -Force -Path 'release-windows/updater' | Out-Null
+          Write-Host "收集 updater 产物（v$ver，$target）:"
+          # 用 -f 拼接（避免 pwsh 把 "$x64" 当变量），模式为 Fund01_*_<arch>-setup.exe
+          $pattern = 'Fund01_*_{0}-setup.exe' -f $arch
+          Write-Host "  查找模式：$pattern"
+          $setup = Get-ChildItem -Path $nsisDir -Filter $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+          # 归档名统一带 -ci（与 release-windows/ 及 Release 资产名一致，清单的 URL 才对得上）。
+          # 注意：tauri 原始产物名无 -ci（Fund01_<ver>_<arch>-setup.exe），必须显式重命名，
+          # 否则 manifest 按 -ci 名去找会找不到文件。
+          $ciName = 'Fund01_{0}_{1}-ci-setup.exe' -f $ver, $arch
+          if ($setup -and (Test-Path "$($setup.FullName).sig")) {
+            Copy-Item $setup.FullName "release-windows/updater/$ciName"
+            Copy-Item "$($setup.FullName).sig" "release-windows/updater/$ciName.sig"
+            Write-Host "  OK $arch -> $ciName"
+          } else {
+            Write-Host "  MISS $arch（缺 setup.exe 或 .sig，跳过）"
+          }
+
+      - name: Generate Windows updater manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $ver = (Get-Content 'apps/tauri/src-tauri/tauri.conf.json' | ConvertFrom-Json).version
+          $arch = '${{ matrix.arch }}'
+          $plat = if ($arch -eq 'arm64') { 'windows-aarch64' } else { 'windows-x86_64' }
+          $repo = 'lingyired/fund01'
+          # 用 -f 格式化而非字符串插值：pwsh 里 "$x64" 会被当变量引用（未定义→空），
+          # 那样文件名会变成 Fund01_1.7.0_-ci-setup.exe 导致找不到文件。
+          # 文件名与 Collect 步骤产出的归档名一致：Fund01_<ver>_<arch>-ci-setup.exe
+          $fileName = 'Fund01_{0}_{1}-ci-setup.exe' -f $ver, $arch
+          # URL 用 releases/download/v<ver>/ 固定路径（而非 latest/download）：
+          # 清单在 lingai.net 长期驻留，latest 会随新 release 漂移导致老清单指向新版本资产。
+          $dlUrl = 'https://github.com/{0}/releases/download/v{1}/{2}' -f $repo, $ver, $fileName
+          Write-Host "生成清单：$plat / $fileName"
+          Write-Host "下载地址：$dlUrl"
+          node scripts/gen-updater-manifest.mjs --out dist-updater-windows --notes 'Fund01 update' `
+            --platform $plat `
+            --file "release-windows/updater/$fileName" `
+            --url $dlUrl
 
       - name: Upload installer
         if: always()
@@ -240,6 +395,18 @@ jobs:
         with:
           name: Fund01-windows-${{ matrix.arch }}
           path: release-windows/*.exe
+          if-no-files-found: warn
+          retention-days: 30
+
+      # updater 签名与清单（供 manifest job 合并 / 手动部署到 lingai.net）
+      - name: Upload Windows updater artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fund01-windows-${{ matrix.arch }}-updater
+          path: |
+            release-windows/updater/*
+            dist-updater-windows/latest.json
           if-no-files-found: warn
           retention-days: 30
 

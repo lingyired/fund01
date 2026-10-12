@@ -49,7 +49,11 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         // 原生保存/打开对话框（导出配置选位置保存 → 前端 save() + export_config_file 落盘）
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        // 应用内自动更新：拉取 latest.json → ed25519 验签（强制）→ 下载 → 安装 → 重启。
+        // 全程走 Rust command（update::check_update / install_update），前端不直接调插件 JS API，
+        // 故 capabilities 无需 updater 权限。清单 endpoint / 签名公钥见 tauri.conf.json plugins.updater。
+        .plugin(tauri_plugin_updater::Builder::new().build());
     // 平台状态栏插件：两插件 API 同构、互斥编译（Cargo.toml 按 target 分段引入）
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_plugin_multiline_menubar::init());
@@ -75,6 +79,7 @@ pub fn run() {
             commands::get_version,
             commands::get_platform,
             commands::check_update,
+            commands::install_update,
             commands::open_external,
             commands::export_config_file,
             commands::dbg_log,
